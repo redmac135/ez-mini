@@ -1,0 +1,55 @@
+:root {
+	--color-bg: #ffffff;
+	--color-fg: #111111;
+	--color-muted: rgb(0 0 0 / 68%);
+	--color-subtle: rgb(0 0 0 / 50%);
+	--color-panel: rgb(255 255 255 / 94%);
+	--color-border: rgb(0 0 0 / 8%);
+	--color-shadow: rgb(0 0 0 / 6%);
+	--color-hover: rgb(0 0 0 / 3.5%);
+	--color-scrim: rgb(255 255 255 / 78%);
+	--color-danger: #b42318;
+	--color-on-danger: #ffffff;
+	--color-selection: rgb(180 213 255 / 60%);
+	--color-code: rgb(0 0 0 / 4%);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--color-bg: #121314;
+		--color-fg: #f1f1ec;
+		--color-muted: rgb(241 241 236 / 70%);
+		--color-subtle: rgb(241 241 236 / 56%);
+		--color-panel: rgb(26 28 30 / 94%);
+		--color-border: rgb(255 255 255 / 12%);
+		--color-shadow: rgb(0 0 0 / 34%);
+		--color-hover: rgb(255 255 255 / 6%);
+		--color-scrim: rgb(18 19 20 / 82%);
+		--color-danger: #e1584e;
+		--color-on-danger: #ffffff;
+		--color-selection: rgb(103 141 204 / 45%);
+		--color-code: rgb(255 255 255 / 6%);
+	}
+}
+
+:root,
+body[data-theme='light'] {
+	color-scheme: light;
+}
+
+body[data-theme='dark'] {
+	color-scheme: dark;
+	--color-bg: #121314;
+	--color-fg: #f1f1ec;
+	--color-muted: rgb(241 241 236 / 70%);
+	--color-subtle: rgb(241 241 236 / 56%);
+	--color-panel: rgb(26 28 30 / 94%);
+	--color-border: rgb(255 255 255 / 12%);
+	--color-shadow: rgb(0 0 0 / 34%);
+	--color-hover: rgb(255 255 255 / 6%);
+	--color-scrim: rgb(18 19 20 / 82%);
+	--color-danger: #e1584e;
+	--color-on-danger: #ffffff;
+	--color-selection: rgb(103 141 204 / 45%);
+	--color-code: rgb(255 255 255 / 6%);
+}

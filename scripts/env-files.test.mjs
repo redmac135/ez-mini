@@ -1,0 +1,27 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+
+const roots = ['apps', 'packages'];
+
+test('workspace env examples use .env.example naming', async () => {
+	const envFiles = [];
+	for (const root of roots) {
+		for (const workspace of await readdir(new URL(`../${root}`, import.meta.url))) {
+			const workspacePath = join(root, workspace);
+			for (const file of await readdir(new URL(`../${workspacePath}`, import.meta.url))) {
+				if (file.includes('env') || file.includes('vars')) {
+					envFiles.push(`${workspacePath}/${file}`);
+				}
+			}
+		}
+	}
+
+	assert.equal(envFiles.includes('apps/api/example.env'), false);
+	assert.equal(envFiles.includes('packages/auth/example.env'), false);
+	assert.equal(envFiles.includes('apps/api/.env.example'), true);
+	assert.equal(envFiles.includes('apps/ez-blank/.env.example'), true);
+	assert.equal(envFiles.includes('packages/auth/.env.example'), true);
+	assert.equal(envFiles.includes('apps/api/.dev.vars.example'), true);
+});

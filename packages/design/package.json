@@ -1,0 +1,17 @@
+{
+	"name": "@ez/design",
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		"./tokens.css": "./tokens.css",
+		"./index.css": "./index.css",
+		"./colors.css": "./colors.css",
+		"./spacing.css": "./spacing.css",
+		"./radius.css": "./radius.css",
+		"./animation.css": "./animation.css",
+		"./typography.css": "./typography.css"
+	},
+	"sideEffects": [
+		"*.css"
+	]
+}

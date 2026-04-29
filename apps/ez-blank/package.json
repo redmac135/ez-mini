@@ -1,0 +1,24 @@
+{
+	"name": "@ez/apps-blank",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "wrangler pages deploy build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"test": "node scripts/run-parser-tests.mjs",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+	},
+	"dependencies": {
+		"@ez/auth": "workspace:*",
+		"@ez/design": "workspace:*",
+		"@ez/ui": "workspace:*"
+	},
+	"devDependencies": {
+		"wrangler": "^4.85.0"
+	}
+}

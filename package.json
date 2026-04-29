@@ -1,0 +1,46 @@
+{
+	"name": "ez-mini",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"packageManager": "pnpm@10.33.2",
+	"scripts": {
+		"dev": "turbo run dev --filter='./apps/*'",
+		"dev:api": "pnpm --filter @ez/apps-api dev",
+		"build": "turbo run build --filter='./apps/*'",
+		"deploy": "turbo run deploy --filter='./apps/*'",
+		"preview": "pnpm --filter @ez/apps-blank preview",
+		"prepare": "pnpm --filter @ez/apps-blank prepare",
+		"test": "pnpm --filter @ez/auth test && pnpm --filter @ez/apps-blank test && pnpm --filter @ez/apps-api test && node --test scripts/*.test.mjs",
+		"check": "pnpm --filter @ez/apps-blank check && pnpm --filter @ez/apps-api check",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write ."
+	},
+	"pnpm": {
+		"overrides": {
+			"cookie": "1.1.1"
+		}
+	},
+	"devDependencies": {
+		"@eslint/compat": "^2.0.2",
+		"@eslint/js": "^9.39.2",
+		"@sveltejs/adapter-auto": "^7.0.1",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.57.1",
+		"@sveltejs/vite-plugin-svelte": "^7.0.0",
+		"@types/node": "^22",
+		"esbuild": "^0.28.0",
+		"eslint": "^9.39.2",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-svelte": "^3.14.0",
+		"globals": "^17.3.0",
+		"prettier": "^3.8.1",
+		"prettier-plugin-svelte": "^3.4.1",
+		"svelte": "^5.55.2",
+		"svelte-check": "^4.4.6",
+		"turbo": "^2.9.6",
+		"typescript": "^5.9.3",
+		"typescript-eslint": "^8.54.0",
+		"vite": "^8.0.8"
+	}
+}

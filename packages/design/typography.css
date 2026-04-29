@@ -1,0 +1,15 @@
+:root {
+	--font-family-mono:
+		'Roboto Mono', ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+	--font-size-2xs: 0.7rem;
+	--font-size-xs: 0.74rem;
+	--font-size-sm: 0.75rem;
+	--font-size-md: 0.82rem;
+	--font-size-lg: 0.85rem;
+	--font-size-xl: 0.9rem;
+	--font-size-otp: 1.08rem;
+	--line-height-tight: 1.35;
+	--font-weight-normal: 400;
+	--font-weight-bold: 700;
+	--letter-spacing-count: 0.02em;
+}
