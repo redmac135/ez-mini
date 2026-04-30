@@ -11,7 +11,7 @@
 		"deploy": "turbo run deploy --filter='./apps/*'",
 		"preview": "pnpm --filter @ez/apps-blank preview",
 		"prepare": "pnpm --filter @ez/apps-blank prepare",
-		"test": "pnpm --filter @ez/auth test && pnpm --filter @ez/apps-blank test && pnpm --filter @ez/apps-api test && node --test scripts/*.test.mjs",
+		"test": "pnpm --filter @ez/auth test && pnpm --filter @ez/sync test && pnpm --filter @ez/apps-blank test && pnpm --filter @ez/apps-api test && node --test scripts/*.test.mjs",
 		"check": "pnpm --filter @ez/apps-blank check && pnpm --filter @ez/apps-api check",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write ."

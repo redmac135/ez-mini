@@ -1,3 +1,4 @@
+import { createSyncEngine } from '@ez/sync';
 import {
 	createPage,
 	ensureValidActivePage,
@@ -34,6 +35,9 @@ export interface SyncRunResult {
 	pushedCount: number;
 	pulledCount: number;
 	conflictCount: number;
+	pushedIds: string[];
+	pulledIds: string[];
+	conflictIds: string[];
 }
 
 let syncInProgress = false;
@@ -108,108 +112,59 @@ export async function syncUserPages(
 	syncInProgress = true;
 
 	try {
-		const remoteSnapshot = await pullRemoteSnapshot(api, localSession, userId);
-		const remoteById = new Map(remoteSnapshot.map((page) => [page.id, page]));
-		const processedRemoteIds = new Set<string>();
-		const nextPages: EditorPage[] = [];
-		let pushedCount = 0;
-		let pulledCount = 0;
-		let conflictCount = 0;
 		let nextActivePageId = localSession.activePageId;
-
-		for (const localPage of sortPages(
-			localSession.pages.filter((page) => page.userId === userId)
-		)) {
-			if (localPage.isEphemeral) {
-				nextPages.push(localPage);
-				continue;
-			}
-
-			const remote = remoteById.get(localPage.id) ?? null;
-			if (!remote) {
-				if (localPage.deletedAt !== null) {
-					continue;
-				}
-
-				const pushed = await pushLocalPage(api, userId, localPage);
-				nextPages.push(toSyncedLocalPage(pushed, localPage));
-				pushedCount += 1;
-				continue;
-			}
-
-			processedRemoteIds.add(remote.id);
-			const localChanged = hasLocalChangedSinceSync(localPage);
-			const remoteChanged = hasRemoteChangedSinceSync(localPage, remote);
-			const sameState = pageStatesMatch(localPage, remote);
-
-			if (!localChanged && !remoteChanged) {
+		let savedPages: EditorPage[] = [];
+		const engine = createSyncEngine<EditorPage, RemotePageRow>({
+			pull: (since) => api.listPages({ since }),
+			push: (page) => api.upsertPage(page),
+			getLocal: async () => sortPages(localSession.pages.filter((page) => page.userId === userId)),
+			saveLocal: async (pages) => {
+				savedPages = sortPages(pages);
+			},
+			toRemote: (page) => toRemoteShape({ ...page, userId }),
+			toLocal: (remote, existing) => toSyncedLocalPage(remote, existing ?? null),
+			getId: (page) => page.id,
+			getSince: (pages) => getSafeIncrementalSince(pages, userId),
+			getLocalUpdatedAt: (page) => page.updatedAt,
+			getRemoteUpdatedAt: (page) => page.updated_at,
+			getLocalDeletedAt: (page) => page.deletedAt,
+			getRemoteDeletedAt: (page) => page.deleted_at,
+			getLastSyncedAt: (page) => page.lastSyncedAt,
+			setLastSyncedAt: (page, value) => ({ ...page, lastSyncedAt: value }),
+			shouldSync: (page) => !page.isEphemeral,
+			shouldKeepRemote: shouldKeepRemotePageLocally,
+			areStatesEqual: pageStatesMatch,
+			onConflict: async (localPage, remote, helpers) => {
+				const nextPages: EditorPage[] = [];
+				const remotePage = toSyncedLocalPage(remote, localPage);
 				if (shouldKeepRemotePageLocally(remote)) {
-					nextPages.push(toSyncedLocalPage(remote, localPage));
+					nextPages.push(remotePage);
 				}
-				continue;
-			}
 
-			if (sameState) {
-				if (shouldKeepRemotePageLocally(remote)) {
-					nextPages.push(toSyncedLocalPage(remote, localPage));
+				const syncedFork = await helpers.push(forkConflictPage(localPage, now));
+				nextPages.push(syncedFork);
+
+				if (localSession.activePageId === localPage.id && remotePage.deletedAt !== null) {
+					nextActivePageId = syncedFork.id;
 				}
-				continue;
+
+				return nextPages;
 			}
-
-			if (localChanged && !remoteChanged) {
-				const pushed = await pushLocalPage(api, userId, localPage);
-				nextPages.push(toSyncedLocalPage(pushed, localPage));
-				pushedCount += 1;
-				continue;
-			}
-
-			if (!localChanged && remoteChanged) {
-				if (shouldKeepRemotePageLocally(remote)) {
-					nextPages.push(toSyncedLocalPage(remote, localPage));
-				}
-				pulledCount += 1;
-				continue;
-			}
-
-			const remotePage = toSyncedLocalPage(remote, localPage);
-			conflictCount += 1;
-			if (shouldKeepRemotePageLocally(remote)) {
-				nextPages.push(remotePage);
-			}
-
-			const conflictFork = forkConflictPage(localPage, now);
-			const pushedFork = await pushLocalPage(api, userId, conflictFork);
-			const syncedFork = toSyncedLocalPage(pushedFork, conflictFork);
-			nextPages.push(syncedFork);
-			pushedCount += 1;
-
-			if (localSession.activePageId === localPage.id && remotePage.deletedAt !== null) {
-				nextActivePageId = syncedFork.id;
-			}
-		}
-
-		for (const remote of remoteSnapshot) {
-			if (processedRemoteIds.has(remote.id)) {
-				continue;
-			}
-
-			if (!shouldKeepRemotePageLocally(remote)) {
-				continue;
-			}
-
-			nextPages.push(toSyncedLocalPage(remote, null));
-			pulledCount += 1;
-		}
+		});
+		const result = await engine.sync();
 
 		const nextSession = ensureValidActivePage({
-			pages: sortPages(nextPages),
+			pages: savedPages,
 			activePageId: nextActivePageId
 		});
 		return {
 			session: nextSession,
-			pushedCount,
-			pulledCount,
-			conflictCount
+			pushedCount: result.pushed,
+			pulledCount: result.pulled,
+			conflictCount: result.conflicts,
+			pushedIds: result.pushedIds,
+			pulledIds: result.pulledIds,
+			conflictIds: result.conflictIds
 		};
 	} finally {
 		syncInProgress = false;
@@ -238,30 +193,6 @@ export function forkConflictPage(page: EditorPage, now = new Date()): EditorPage
 		syncStatus: 'dirty',
 		isEphemeral: false
 	};
-}
-
-async function pullRemoteSnapshot(
-	api: PagesApi,
-	localSession: EditorSession,
-	userId: string
-): Promise<RemotePageRow[]> {
-	return api.listPages({ since: getSafeIncrementalSince(localSession, userId) });
-}
-
-async function pushLocalPage(
-	api: PagesApi,
-	userId: string,
-	localPage: EditorPage
-): Promise<RemotePageRow> {
-	return api.upsertPage({
-		id: localPage.id,
-		user_id: userId,
-		title: localPage.title,
-		content: localPage.content,
-		created_at: localPage.createdAt,
-		updated_at: localPage.updatedAt,
-		deleted_at: localPage.deletedAt
-	});
 }
 
 export async function pushRemoteActivePageId(api: PagesApi, activePageId: string) {
@@ -348,32 +279,10 @@ function mergeSyncedBaselineIntoCurrentPage(
 	};
 }
 
-function hasLocalChangedSinceSync(localPage: EditorPage) {
-	if (localPage.lastSyncedAt === null) {
-		return true;
-	}
-
-	return latestLocalMutationAt(localPage) > localPage.lastSyncedAt;
-}
-
-function hasRemoteChangedSinceSync(localPage: EditorPage, remote: RemotePageRow) {
-	if (localPage.lastSyncedAt === null) {
-		return true;
-	}
-
-	return latestRemoteMutationAt(remote) > localPage.lastSyncedAt;
-}
-
 function latestLocalMutationAt(localPage: EditorPage) {
 	return localPage.deletedAt && localPage.deletedAt > localPage.updatedAt
 		? localPage.deletedAt
 		: localPage.updatedAt;
-}
-
-function latestRemoteMutationAt(remote: RemotePageRow) {
-	return remote.deleted_at && remote.deleted_at > remote.updated_at
-		? remote.deleted_at
-		: remote.updated_at;
 }
 
 function pageStatesMatch(localPage: EditorPage, remote: RemotePageRow) {
@@ -388,11 +297,11 @@ function shouldKeepRemotePageLocally(remote: RemotePageRow) {
 	return remote.deleted_at === null;
 }
 
-function getSafeIncrementalSince(localSession: EditorSession, userId: string) {
-	const syncedPages = localSession.pages.filter(
+function getSafeIncrementalSince(pages: EditorPage[], userId: string) {
+	const syncedPages = pages.filter(
 		(page) => page.userId === userId && !page.isEphemeral && page.lastSyncedAt !== null
 	);
-	const unsyncedPage = localSession.pages.some(
+	const unsyncedPage = pages.some(
 		(page) => page.userId === userId && !page.isEphemeral && page.lastSyncedAt === null
 	);
 

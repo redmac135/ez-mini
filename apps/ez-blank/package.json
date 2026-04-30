@@ -16,6 +16,7 @@
 	"dependencies": {
 		"@ez/auth": "workspace:*",
 		"@ez/design": "workspace:*",
+		"@ez/sync": "workspace:*",
 		"@ez/ui": "workspace:*"
 	},
 	"devDependencies": {

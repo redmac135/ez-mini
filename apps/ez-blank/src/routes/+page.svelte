@@ -31,7 +31,7 @@
 		applySessionUpdate,
 		type PageEditorUpdate
 	} from '$lib/editor/core/app-state';
-	import { createSyncController } from '$lib/editor/sync-controller';
+	import { createSyncController } from '@ez/sync';
 	import {
 		areEditorSessionsEquivalent,
 		getChangedPageEvents,

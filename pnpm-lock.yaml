@@ -95,6 +95,9 @@ importers:
       '@ez/design':
         specifier: workspace:*
         version: link:../../packages/design
+      '@ez/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       '@ez/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -106,6 +109,8 @@ importers:
   packages/auth: {}
 
   packages/design: {}
+
+  packages/sync: {}
 
   packages/ui:
     dependencies:
