@@ -68,6 +68,49 @@ test('session creates a device cookie and returns an empty session list', async 
 	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_device_id=/);
 });
 
+test('session lists device accounts with usernames and active state', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({
+		deviceId,
+		sessionId: 'session-a',
+		userId: 'user-a',
+		email: 'a@example.com',
+		lastUsedAt: 1
+	});
+	await putStoredSession({
+		deviceId,
+		sessionId: 'session-b',
+		userId: 'user-b',
+		email: 'b@example.com',
+		lastUsedAt: 2
+	});
+
+	const response = await handleRequest(
+		new Request('https://api.ethanzhao.ca/mini/v1/auth/session', {
+			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: { sessionId: string; username: string };
+		sessions: Array<{ sessionId: string; username: string; active: boolean }>;
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession.sessionId, 'session-a');
+	assert.deepEqual(
+		body.sessions.map((session) => ({
+			sessionId: session.sessionId,
+			username: session.username,
+			active: session.active
+		})),
+		[
+			{ sessionId: 'session-a', username: 'a@example.com', active: true },
+			{ sessionId: 'session-b', username: 'b@example.com', active: false }
+		]
+	);
+});
+
 test('login normalizes email before asking Supabase to send an OTP', async () => {
 	mockFetch(async (request) => {
 		assert.equal(request.url, 'https://supabase.example.test/auth/v1/otp');
@@ -204,6 +247,38 @@ test('logout all deletes every device session and clears the active cookie', asy
 	assert.deepEqual(logoutTokens.sort(), ['Bearer access-session-a', 'Bearer access-session-b']);
 });
 
+test('logout can delete an inactive session without clearing the active cookie', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a', lastUsedAt: 2 });
+	await putStoredSession({ deviceId, sessionId: 'session-b', userId: 'user-b', lastUsedAt: 1 });
+	mockFetch(async () => Response.json({}));
+
+	const response = await handleRequest(
+		new Request('https://api.ethanzhao.ca/mini/v1/auth/logout', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ sessionId: 'session-b' })
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: { sessionId: string };
+		sessions: Array<{ sessionId: string }>;
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession.sessionId, 'session-a');
+	assert.deepEqual(
+		body.sessions.map((session) => session.sessionId),
+		['session-a']
+	);
+	assert.notEqual(await env.SESSIONS.get(sessionKey(deviceId, 'session-a')), null);
+	assert.equal(await env.SESSIONS.get(sessionKey(deviceId, 'session-b')), null);
+});
+
 test('pages list validates since before calling Supabase REST', async () => {
 	const deviceId = 'device-a';
 	await putStoredSession({ deviceId, sessionId: 'session-a' });
@@ -332,6 +407,7 @@ async function putStoredSession(
 		deviceId: string;
 		sessionId: string;
 		userId?: string;
+		email?: string;
 		lastUsedAt?: number;
 		expiresAt?: number | null;
 	} = { deviceId: 'device-a', sessionId: 'session-a' }
@@ -343,7 +419,7 @@ async function putStoredSession(
 			sessionId,
 			deviceId: options.deviceId,
 			userId: options.userId ?? 'user-a',
-			email: 'a@example.com',
+			email: options.email ?? 'a@example.com',
 			supabaseAccessToken: `access-${sessionId}`,
 			supabaseRefreshToken: `refresh-${sessionId}`,
 			expiresAt: options.expiresAt ?? Math.floor(Date.now() / 1000) + 3600,

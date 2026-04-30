@@ -2,6 +2,7 @@ export interface AuthSessionSummary {
 	sessionId: string;
 	userId: string;
 	email: string | null;
+	username: string;
 	createdAt: number;
 	lastUsedAt: number;
 	active: boolean;

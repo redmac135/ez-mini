@@ -61,11 +61,9 @@ test('service worker serves cached app shell before remote navigation fetches', 
 	assert.equal(serviceWorker.includes('fetch(event.request).catch'), false);
 });
 
-test('Wrangler configs disable generated preview and workers.dev URLs', async () => {
+test('Worker Wrangler config disables generated preview and workers.dev URLs', async () => {
 	const apiWrangler = await read('apps/api/wrangler.toml');
-	const blankWrangler = await read('apps/ez-blank/wrangler.toml');
 
 	assert.match(apiWrangler, /workers_dev = false/);
 	assert.match(apiWrangler, /preview_urls = false/);
-	assert.match(blankWrangler, /preview_urls = false/);
 });

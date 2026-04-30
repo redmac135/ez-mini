@@ -79,16 +79,22 @@
 	let editingPageId: string | null = null;
 	let deletePageId: string | null = null;
 	let titleDraft = '';
-	let countDisplayMode: 'words' | 'characters' | 'paragraphs' | 'lines' = 'words';
+	type CountDisplayMode = 'words' | 'characters' | 'paragraphs' | 'lines';
+	type MobileCountVisibilityOption = 'shown' | 'hidden';
+	let countDisplayMode: CountDisplayMode = 'words';
 	let chromeVisible = true;
+	let isMobileViewport = false;
 	let previousActiveText = '';
 
 	let emailDraft = '';
 	let otpDraft = '';
 	let loginModalOpen = false;
+	let accountModalOpen = false;
 	let importPromptOpen = false;
 	let authUser: AuthSessionSummary | null = null;
+	let authSessions: AuthSessionSummary[] = [];
 	let authBusy = false;
+	let accountBusySessionId: string | null = null;
 	let authMessage = '';
 	let loginSubmitting = false;
 	let loginStep: 'email' | 'otp' = 'email';
@@ -117,6 +123,8 @@
 	let pagesChannel: BroadcastChannel | null = null;
 	let authBroadcastChannel: AuthBroadcastChannel | null = null;
 	let editorIdleTimeout: ReturnType<typeof setTimeout> | null = null;
+	let sidebarSwipeStart: { x: number; y: number } | null = null;
+	let sidebarSwipeTracking = false;
 
 	const tabId =
 		typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -132,6 +140,14 @@
 
 	const TOP_REVEAL_HEIGHT = 112;
 	const CHROME_HIDE_DELAY = 1400;
+	const MOBILE_VIEWPORT_QUERY = '(max-width: 720px)';
+	const SIDEBAR_SWIPE_EDGE_PX = 28;
+	const SIDEBAR_SWIPE_MIN_X = 72;
+	const SIDEBAR_SWIPE_MAX_Y = 42;
+	const MOBILE_COUNT_OPTIONS = [
+		{ id: 'shown', label: 'Shown' },
+		{ id: 'hidden', label: 'Hidden' }
+	] as const;
 	const EDIT_SYNC_DEBOUNCE_MS = 3000;
 	const ACTIVE_PAGE_PUSH_DEBOUNCE_MS = 300;
 	const LAST_AUTH_SESSION_KEY = 'blank-last-auth-session';
@@ -164,11 +180,16 @@
 		{ id: 'paragraphs', label: pluralize(paragraphCount, 'paragraph') },
 		{ id: 'lines', label: pluralize(lineCount, 'line') }
 	] as const;
+	$: mobileCountVisibility = (
+		preferences.countVisibility === 'hidden' ? 'hidden' : 'shown'
+	) as MobileCountVisibilityOption;
 	$: currentCountLabel =
 		countOptions.find((option) => option.id === countDisplayMode)?.label ?? countOptions[0].label;
 	$: countVisibleInChrome = preferences.countVisibility !== 'hidden';
 	$: countPinnedVisible = preferences.countVisibility === 'pinned';
-	$: countVisible = countVisibleInChrome && (chromeVisible || countPinnedVisible || countMenuOpen);
+	$: countVisible =
+		countVisibleInChrome &&
+		(isMobileViewport || chromeVisible || countPinnedVisible || countMenuOpen);
 	$: countDockedRight = countPinnedVisible && !chromeVisible && !settingsMenuOpen;
 	$: pageTheme = preferences.themeMode;
 	$: deletePage = deletePageId
@@ -181,11 +202,16 @@
 		clearHideChromeTimeout();
 	}
 
+	$: if (isMobileViewport) {
+		chromeVisible = true;
+		clearHideChromeTimeout();
+	}
+
 	$: if (activeText !== previousActiveText) {
 		const textIsEmpty = activeText.length === 0;
 		previousActiveText = activeText;
 
-		if (textIsEmpty) {
+		if (isMobileViewport || textIsEmpty) {
 			chromeVisible = true;
 			clearHideChromeTimeout();
 		} else if (!drawerOpen && !countMenuOpen) {
@@ -430,6 +456,68 @@
 		authMessage = '';
 	}
 
+	function closeAccountModal() {
+		if (authBusy || accountBusySessionId) return;
+		accountModalOpen = false;
+	}
+
+	async function openLoginFlow() {
+		accountModalOpen = false;
+		loginModalOpen = true;
+		loginStep = 'email';
+		otpDraft = '';
+		authMessage = '';
+	}
+
+	async function openLoginOrAccountList() {
+		if (!auth) {
+			authMessage = 'API is not configured yet.';
+			return;
+		}
+
+		authBusy = true;
+		authMessage = '';
+
+		try {
+			const nextSession = await auth.getSession();
+			authSessions = nextSession.sessions;
+			if (authSessions.length > 0) {
+				accountModalOpen = true;
+				loginModalOpen = false;
+			} else {
+				await openLoginFlow();
+			}
+		} catch (error) {
+			authMessage = getErrorMessage(error, 'Unable to load accounts.');
+		} finally {
+			authBusy = false;
+			settingsMenuOpen = false;
+		}
+	}
+
+	async function switchAccount() {
+		if (!auth || authBusy || syncBusy) return;
+
+		authBusy = true;
+		authMessage = '';
+
+		try {
+			const nextSession = await auth.getSession();
+			authSessions = nextSession.sessions;
+			if (authSessions.length >= 2) {
+				accountModalOpen = true;
+				loginModalOpen = false;
+			} else {
+				await openLoginFlow();
+			}
+		} catch (error) {
+			authMessage = getErrorMessage(error, 'Unable to load accounts.');
+		} finally {
+			authBusy = false;
+			settingsMenuOpen = false;
+		}
+	}
+
 	async function submitLogin() {
 		if (!auth) {
 			authMessage = 'API is not configured yet.';
@@ -469,11 +557,11 @@
 			const nextSession = await auth.verify(emailDraft.trim(), code);
 			otpVerifying = false;
 			loginModalOpen = false;
+			accountModalOpen = false;
 			loginStep = 'email';
 			otpDraft = '';
 			stopResendCooldown();
-			broadcastAuthSessionChanged(nextSession.activeSession?.userId ?? null);
-			await syncAuthState(nextSession.activeSession);
+			await applyAuthResponse(nextSession);
 		} catch (error) {
 			otpVerifying = false;
 			otpDraft = '';
@@ -529,17 +617,63 @@
 		});
 	}
 
-	async function logout() {
-		if (authBusy || syncBusy) return;
+	async function logoutCurrentAccount() {
+		if (!authUser || authBusy || syncBusy) return;
 
-		authBusy = true;
+		await logoutAccountSession(authUser.sessionId, authUser.userId);
+		settingsMenuOpen = false;
+	}
+
+	async function logoutAccountSession(sessionId: string, userId: string) {
+		if (!auth || authBusy || accountBusySessionId) return;
+
+		const wasActiveAccount = authUser?.userId === userId;
+		authBusy = wasActiveAccount;
+		accountBusySessionId = sessionId;
 		authMessage = '';
 		clearAllToasts();
-		const nextSession = auth ? await auth.logout() : { activeSession: null };
-		broadcastAuthSessionChanged(nextSession.activeSession?.userId ?? null);
-		await syncAuthState(nextSession.activeSession ?? null);
-		authBusy = false;
-		settingsMenuOpen = false;
+
+		try {
+			const nextSession = await auth.logout({ sessionId });
+			authSessions = nextSession.sessions;
+			await deleteLocalUserData(userId);
+
+			if (nextSession.activeSession?.userId !== authUser?.userId) {
+				await applyAuthResponse(nextSession);
+			}
+		} catch (error) {
+			authMessage = getErrorMessage(error, 'Unable to logout.');
+		} finally {
+			authBusy = false;
+			accountBusySessionId = null;
+			if (authSessions.length === 0) {
+				accountModalOpen = false;
+			}
+		}
+	}
+
+	async function selectAccountSession(nextSessionId: string) {
+		if (!auth || authBusy || syncBusy || accountBusySessionId) return;
+
+		const selectedSession = authSessions.find((entry) => entry.sessionId === nextSessionId);
+		if (selectedSession?.active) {
+			accountModalOpen = false;
+			return;
+		}
+
+		authBusy = true;
+		accountBusySessionId = nextSessionId;
+		authMessage = '';
+
+		try {
+			await applyAuthResponse(await auth.switchSession(nextSessionId));
+			accountModalOpen = false;
+		} catch (error) {
+			authMessage = getErrorMessage(error, 'Unable to switch accounts.');
+		} finally {
+			authBusy = false;
+			accountBusySessionId = null;
+		}
 	}
 
 	async function resolveAnonymousImport(addAnonymousToAccount: boolean) {
@@ -576,6 +710,10 @@
 		return `${count} ${label}${count === 1 ? '' : 's'}`;
 	}
 
+	function getAccountInitial(account: AuthSessionSummary) {
+		return account.username.trim().slice(0, 1).toUpperCase() || '?';
+	}
+
 	function getParagraphCount(value: string) {
 		const trimmed = value.trim();
 		if (!trimmed) return 0;
@@ -596,7 +734,15 @@
 
 	function scheduleChromeHide() {
 		clearHideChromeTimeout();
-		if (!hasDocumentContent || drawerOpen || countMenuOpen || settingsMenuOpen) return;
+		if (
+			isMobileViewport ||
+			!hasDocumentContent ||
+			drawerOpen ||
+			countMenuOpen ||
+			settingsMenuOpen
+		) {
+			return;
+		}
 
 		hideChromeTimeout = setTimeout(() => {
 			chromeVisible = false;
@@ -606,7 +752,7 @@
 
 	function revealChrome(persist = false) {
 		chromeVisible = true;
-		if (persist) {
+		if (persist || isMobileViewport) {
 			clearHideChromeTimeout();
 			return;
 		}
@@ -625,10 +771,18 @@
 		scheduleChromeHide();
 	}
 
-	function selectCountDisplay(nextMode: 'words' | 'characters' | 'paragraphs' | 'lines') {
+	function selectCountDisplay(nextMode: CountDisplayMode) {
 		countDisplayMode = nextMode;
 		countMenuOpen = false;
 		scheduleChromeHide();
+	}
+
+	function selectMobileCountVisibility(nextMode: MobileCountVisibilityOption) {
+		updatePreferences({
+			...preferences,
+			countVisibility: nextMode === 'hidden' ? 'hidden' : 'auto'
+		});
+		countMenuOpen = false;
 	}
 
 	function toggleSettingsMenu() {
@@ -662,6 +816,14 @@
 	}
 
 	function cycleWordCountVisibility() {
+		if (isMobileViewport) {
+			updatePreferences({
+				...preferences,
+				countVisibility: preferences.countVisibility === 'hidden' ? 'auto' : 'hidden'
+			});
+			return;
+		}
+
 		updatePreferences({
 			...preferences,
 			countVisibility: cycleCountVisibility(preferences.countVisibility)
@@ -669,6 +831,7 @@
 	}
 
 	function handleMouseMove(event: MouseEvent) {
+		if (isMobileViewport) return;
 		if (event.clientY <= TOP_REVEAL_HEIGHT) {
 			revealChrome();
 		}
@@ -701,6 +864,56 @@
 		scheduleChromeHide();
 	}
 
+	function handleTouchStart(event: TouchEvent) {
+		if (!isMobileViewport || drawerOpen || event.touches.length !== 1) {
+			sidebarSwipeStart = null;
+			sidebarSwipeTracking = false;
+			return;
+		}
+
+		const touch = event.touches[0];
+		if (!touch || touch.clientX > SIDEBAR_SWIPE_EDGE_PX) {
+			sidebarSwipeStart = null;
+			sidebarSwipeTracking = false;
+			return;
+		}
+
+		sidebarSwipeStart = {
+			x: touch.clientX,
+			y: touch.clientY
+		};
+		sidebarSwipeTracking = true;
+	}
+
+	function handleTouchMove(event: TouchEvent) {
+		if (!sidebarSwipeTracking || !sidebarSwipeStart || drawerOpen || event.touches.length !== 1) {
+			return;
+		}
+
+		const touch = event.touches[0];
+		if (!touch) return;
+
+		const deltaX = touch.clientX - sidebarSwipeStart.x;
+		const deltaY = Math.abs(touch.clientY - sidebarSwipeStart.y);
+
+		if (deltaY > SIDEBAR_SWIPE_MAX_Y && deltaY > deltaX) {
+			sidebarSwipeStart = null;
+			sidebarSwipeTracking = false;
+			return;
+		}
+
+		if (deltaX >= SIDEBAR_SWIPE_MIN_X && deltaY <= SIDEBAR_SWIPE_MAX_Y) {
+			drawerOpen = true;
+			sidebarSwipeStart = null;
+			sidebarSwipeTracking = false;
+		}
+	}
+
+	function handleTouchEnd() {
+		sidebarSwipeStart = null;
+		sidebarSwipeTracking = false;
+	}
+
 	function handleWindowKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 
@@ -731,6 +944,17 @@
 	}
 
 	onMount(() => {
+		const mobileViewportMedia = window.matchMedia(MOBILE_VIEWPORT_QUERY);
+		const syncMobileViewport = () => {
+			isMobileViewport = mobileViewportMedia.matches;
+			if (isMobileViewport) {
+				chromeVisible = true;
+				clearHideChromeTimeout();
+			}
+		};
+		syncMobileViewport();
+		mobileViewportMedia.addEventListener('change', syncMobileViewport);
+
 		document.addEventListener('visibilitychange', handleDocumentVisibilityChange);
 
 		void (async () => {
@@ -745,6 +969,10 @@
 		})();
 
 		window.addEventListener(APP_UPDATED_NOTICE_EVENT, handleAppUpdatedNotice);
+
+		return () => {
+			mobileViewportMedia.removeEventListener('change', syncMobileViewport);
+		};
 	});
 
 	onDestroy(() => {
@@ -863,6 +1091,20 @@
 		}
 	}
 
+	function clearCachedAuthSessionForUser(userId: string) {
+		if (!browser) {
+			return;
+		}
+
+		try {
+			if (readCachedAuthSession()?.userId === userId) {
+				window.localStorage.removeItem(LAST_AUTH_SESSION_KEY);
+			}
+		} catch (error) {
+			void error;
+		}
+	}
+
 	function normalizeCachedAuthSession(value: unknown): AuthSessionSummary | null {
 		if (!value || typeof value !== 'object') {
 			return null;
@@ -884,6 +1126,8 @@
 			sessionId: record.sessionId,
 			userId: record.userId,
 			email: record.email,
+			username:
+				typeof record.username === 'string' ? record.username : (record.email ?? record.userId),
 			createdAt: record.createdAt,
 			lastUsedAt: record.lastUsedAt,
 			active: record.active
@@ -907,7 +1151,9 @@
 
 		if (initialAuthSession === undefined) {
 			try {
-				authSession = (await auth.getSession()).activeSession;
+				const nextSession = await auth.getSession();
+				authSessions = nextSession.sessions;
+				authSession = nextSession.activeSession;
 			} catch (error) {
 				authMessage = getErrorMessage(error, 'Unable to load session.');
 				authBusy = false;
@@ -917,6 +1163,20 @@
 
 		await syncAuthState(authSession ?? null);
 		authBusy = false;
+	}
+
+	async function applyAuthResponse(nextSession: {
+		activeSession: AuthSessionSummary | null;
+		sessions: AuthSessionSummary[];
+	}) {
+		authSessions = nextSession.sessions;
+		broadcastAuthSessionChanged(nextSession.activeSession?.userId ?? null);
+		await syncAuthState(nextSession.activeSession ?? null);
+	}
+
+	async function deleteLocalUserData(userId: string) {
+		await EditorStorage.deleteUserData(userId);
+		clearCachedAuthSessionForUser(userId);
 	}
 
 	async function syncAuthState(nextUser: AuthSessionSummary | null) {
@@ -1339,6 +1599,10 @@
 	on:offline={handleWindowOffline}
 	on:mousemove={handleMouseMove}
 	on:mousedown={handleWindowPointerDown}
+	on:touchstart={handleTouchStart}
+	on:touchmove={handleTouchMove}
+	on:touchend={handleTouchEnd}
+	on:touchcancel={handleTouchEnd}
 	on:keydown={handleWindowKeydown}
 />
 
@@ -1378,7 +1642,11 @@
 						aria-label={`Cycle word count visibility, currently ${getCountVisibilityLabel(preferences.countVisibility).toLowerCase()}`}
 						on:click={cycleWordCountVisibility}
 					>
-						{getCountVisibilityLabel(preferences.countVisibility)}
+						{isMobileViewport
+							? preferences.countVisibility === 'hidden'
+								? 'Count hidden'
+								: 'Count shown'
+							: getCountVisibilityLabel(preferences.countVisibility)}
 					</button>
 					{#if authUser}
 						<button
@@ -1388,17 +1656,15 @@
 						>
 							{syncStatusLabel}
 						</button>
-						<button type="button" disabled={authBusy || syncBusy} on:click={logout}>Logout</button>
+						<button type="button" disabled={authBusy || syncBusy} on:click={switchAccount}>
+							Switch Account
+						</button>
+						<button type="button" disabled={authBusy || syncBusy} on:click={logoutCurrentAccount}>
+							Logout
+						</button>
 						<div class="menu-stat">{authUser.email ?? authUser.userId}</div>
 					{:else}
-						<button
-							type="button"
-							on:click={() => {
-								loginModalOpen = true;
-								settingsMenuOpen = false;
-								authMessage = '';
-							}}
-						>
+						<button type="button" disabled={authBusy} on:click={openLoginOrAccountList}>
 							Login
 						</button>
 					{/if}
@@ -1426,16 +1692,29 @@
 				</button>
 				{#if countMenuOpen}
 					<FloatingMenu label="Count display options" verticalOffset="var(--space-2)">
-						{#each countOptions as option (option.id)}
-							<button
-								type="button"
-								role="menuitemradio"
-								aria-checked={option.id === countDisplayMode}
-								on:click={() => selectCountDisplay(option.id)}
-							>
-								{option.label}
-							</button>
-						{/each}
+						{#if isMobileViewport}
+							{#each MOBILE_COUNT_OPTIONS as option (option.id)}
+								<button
+									type="button"
+									role="menuitemradio"
+									aria-checked={option.id === mobileCountVisibility}
+									on:click={() => selectMobileCountVisibility(option.id)}
+								>
+									{option.label}
+								</button>
+							{/each}
+						{:else}
+							{#each countOptions as option (option.id)}
+								<button
+									type="button"
+									role="menuitemradio"
+									aria-checked={option.id === countDisplayMode}
+									on:click={() => selectCountDisplay(option.id)}
+								>
+									{option.label}
+								</button>
+							{/each}
+						{/if}
 					</FloatingMenu>
 				{/if}
 			</div>
@@ -1532,6 +1811,46 @@
 						{loginSubmitting ? 'Sending…' : 'Send Email'}
 					</Button>
 				{/if}
+			</svelte:fragment>
+		</Modal>
+	{/if}
+
+	{#if accountModalOpen}
+		<Modal title="Accounts" onClose={closeAccountModal}>
+			<div class="account-list">
+				{#each authSessions as account (account.sessionId)}
+					<div class:active={account.active} class="account-row">
+						<button
+							class="account-select"
+							type="button"
+							disabled={authBusy || syncBusy || accountBusySessionId !== null}
+							on:click={() => selectAccountSession(account.sessionId)}
+						>
+							<span class="account-avatar" aria-hidden="true">
+								{getAccountInitial(account)}
+							</span>
+							<span class="account-copy">
+								<span class="account-name">{account.username}</span>
+								<span class="account-meta">{account.active ? 'Active' : 'Signed in'}</span>
+							</span>
+						</button>
+						<button
+							class="account-remove"
+							type="button"
+							aria-label={`Logout ${account.username}`}
+							disabled={authBusy || syncBusy || accountBusySessionId !== null}
+							on:click={() => logoutAccountSession(account.sessionId, account.userId)}
+						>
+							x
+						</button>
+					</div>
+				{/each}
+			</div>
+			{#if authMessage}
+				<p class="auth-message">{authMessage}</p>
+			{/if}
+			<svelte:fragment slot="actions">
+				<Button on:click={openLoginFlow}>Sign into account</Button>
 			</svelte:fragment>
 		</Modal>
 	{/if}
@@ -1832,6 +2151,98 @@
 	.auth-status {
 		min-width: 4.5rem;
 		text-align: right;
+	}
+
+	.account-list {
+		max-height: min(18rem, 55vh);
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding-right: var(--space-1);
+	}
+
+	.account-row {
+		display: grid;
+		grid-template-columns: 1fr 2rem;
+		align-items: center;
+		gap: var(--space-1);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-2);
+		background: var(--color-bg);
+	}
+
+	.account-row.active {
+		border-color: var(--color-fg);
+	}
+
+	.account-select,
+	.account-remove {
+		border: 0;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		cursor: pointer;
+	}
+
+	.account-select {
+		min-width: 0;
+		display: grid;
+		grid-template-columns: 2rem 1fr;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-2);
+		text-align: left;
+	}
+
+	.account-avatar {
+		width: 2rem;
+		height: 2rem;
+		border-radius: var(--radius-round);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--color-panel);
+		border: 1px solid var(--color-border);
+		font-size: var(--font-size-sm);
+		color: var(--color-fg);
+	}
+
+	.account-copy {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.account-name,
+	.account-meta {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.account-name {
+		font-size: var(--font-size-sm);
+		color: var(--color-fg);
+	}
+
+	.account-meta {
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
+	}
+
+	.account-remove {
+		width: 2rem;
+		height: 2rem;
+		border-radius: var(--radius-round);
+		color: var(--color-muted);
+	}
+
+	.account-select:disabled,
+	.account-remove:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
 	}
 
 	.drawer-header {

@@ -57,6 +57,22 @@ test('EditorStorage saves and loads user-scoped state separately per account', a
 	assert.equal((await EditorStorage.loadUserState('user-b'))?.pages[0]?.userId, 'user-b');
 });
 
+test('EditorStorage deletes all local data for one account without touching others', async () => {
+	await EditorStorage.saveUserState('user-a', createSession('user-a', 'page-a'));
+	await EditorStorage.saveUserState('user-b', createSession('user-b', 'page-b'));
+	await EditorStorage.savePreferences('user-a', {
+		themeMode: 'dark',
+		spellcheckEnabled: false,
+		countVisibility: 'pinned'
+	});
+
+	await EditorStorage.deleteUserData('user-a');
+
+	assert.equal(await EditorStorage.loadUserState('user-a'), null);
+	assert.deepEqual(await EditorStorage.loadPreferences('user-a'), DEFAULT_PREFERENCES);
+	assert.equal((await EditorStorage.loadUserState('user-b'))?.activePageId, 'page-b');
+});
+
 test('EditorStorage loads a single page without requiring full session consumers', async () => {
 	const session = createSession('user-a', 'page-a');
 	await EditorStorage.saveUserState('user-a', session);

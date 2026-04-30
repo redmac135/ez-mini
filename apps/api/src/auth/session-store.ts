@@ -144,6 +144,7 @@ function toPublicSession(session: StoredSession, activeSessionId: string | null)
 		sessionId: session.sessionId,
 		userId: session.userId,
 		email: session.email,
+		username: session.email ?? session.userId,
 		createdAt: session.createdAt,
 		lastUsedAt: session.lastUsedAt,
 		active: session.sessionId === activeSessionId

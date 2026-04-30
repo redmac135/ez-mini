@@ -22,6 +22,7 @@ export interface PublicSession {
 	sessionId: string;
 	userId: string;
 	email: string | null;
+	username: string;
 	createdAt: number;
 	lastUsedAt: number;
 	active: boolean;

@@ -116,6 +116,15 @@ export class EditorStorage {
 		}
 	}
 
+	static async deleteUserData(userId: string) {
+		try {
+			const backend = await this.getBackend();
+			await backend.deleteUserData(userId);
+		} catch (error) {
+			console.error('Failed to delete user editor data:', error);
+		}
+	}
+
 	static resetForTests() {
 		this.backendPromise = null;
 		this.memoryBackend = createMemoryBackend();
@@ -139,6 +148,7 @@ interface StorageBackend {
 	loadPage(userId: string, pageId: string): Promise<EditorPage | null>;
 	getSetting<T>(userId: string, key: string): Promise<T | undefined>;
 	setSetting(userId: string, key: string, value: unknown): Promise<void>;
+	deleteUserData(userId: string): Promise<void>;
 }
 
 function createMemoryBackend(): StorageBackend {
@@ -192,6 +202,18 @@ function createMemoryBackend(): StorageBackend {
 		},
 		async setSetting(userId: string, key: string, value: unknown) {
 			settings.set(buildCompositeKey(userId, key), createSettingRecord(userId, key, value));
+		},
+		async deleteUserData(userId: string) {
+			for (const key of [...pages.keys()]) {
+				if (key.startsWith(`${userId}::`)) {
+					pages.delete(key);
+				}
+			}
+			for (const key of [...settings.keys()]) {
+				if (key.startsWith(`${userId}::`)) {
+					settings.delete(key);
+				}
+			}
 		}
 	};
 }
@@ -269,6 +291,24 @@ async function createIndexedDbBackend(): Promise<StorageBackend> {
 		async setSetting(userId: string, key: string, value: unknown) {
 			const tx = db.transaction(SETTINGS_STORE_NAME, 'readwrite');
 			tx.objectStore(SETTINGS_STORE_NAME).put(createSettingRecord(userId, key, value));
+			await transactionToPromise(tx);
+		},
+		async deleteUserData(userId: string) {
+			const tx = db.transaction([PAGES_STORE_NAME, SETTINGS_STORE_NAME], 'readwrite');
+			const pagesStore = tx.objectStore(PAGES_STORE_NAME);
+			const settingsStore = tx.objectStore(SETTINGS_STORE_NAME);
+			const [pages, settings] = await Promise.all([
+				requestToPromise<PageRecord[]>(pagesStore.index(USER_ID_INDEX).getAll(userId)),
+				requestToPromise<SettingRecord[]>(settingsStore.index(USER_ID_INDEX).getAll(userId))
+			]);
+
+			for (const page of pages) {
+				pagesStore.delete([userId, page.id]);
+			}
+			for (const setting of settings) {
+				settingsStore.delete([userId, setting.key]);
+			}
+
 			await transactionToPromise(tx);
 		}
 	};
