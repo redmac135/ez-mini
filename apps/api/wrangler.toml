@@ -1,15 +1,17 @@
 name = "ez-mini-api"
 main = "src/index.ts"
 compatibility_date = "2026-04-28"
+workers_dev = false
+preview_urls = false
 
 [vars]
 SUPABASE_URL = "https://nvotqrfyxscapwbqbblv.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RHdoQj-QOBHxKzucL97MMQ_fzxrTl1n"
-CORS_ORIGINS = "http://localhost:5173"
+CORS_ORIGINS = "https://blank.ethanzhao.ca"
 
-# [[routes]]
-# pattern = "api.ethanzhao.ca/mini/v1/*"
-# zone_name = "ethanzhao.ca"
+[[routes]]
+pattern = "api.ethanzhao.ca/mini/v1/*"
+zone_name = "ethanzhao.ca"
 
 [[kv_namespaces]]
 binding = "SESSIONS"
