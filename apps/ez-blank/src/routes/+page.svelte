@@ -134,6 +134,7 @@
 	const CHROME_HIDE_DELAY = 1400;
 	const EDIT_SYNC_DEBOUNCE_MS = 3000;
 	const ACTIVE_PAGE_PUSH_DEBOUNCE_MS = 300;
+	const LAST_AUTH_SESSION_KEY = 'blank-last-auth-session';
 	const syncController = createSyncController({
 		delayMs: EDIT_SYNC_DEBOUNCE_MS,
 		runSync: executeSync
@@ -733,14 +734,14 @@
 		document.addEventListener('visibilitychange', handleDocumentVisibilityChange);
 
 		void (async () => {
-			const initialAuthSession = auth ? await auth.getSession().catch(() => null) : null;
-			await hydrateInitialLocalState(initialAuthSession?.activeSession ?? null);
+			const cachedAuthSession = readCachedAuthSession();
+			await hydrateInitialLocalState(cachedAuthSession);
 			previousActiveText = getActivePage(session).content;
 			applyTheme(preferences.themeMode);
 			showQueuedAppUpdatedNotice();
 			setupAuthChannel();
 			setupNotesChannel();
-			void initializeAuth(initialAuthSession?.activeSession);
+			void initializeAuth();
 		})();
 
 		window.addEventListener(APP_UPDATED_NOTICE_EVENT, handleAppUpdatedNotice);
@@ -828,6 +829,67 @@
 		}
 	}
 
+	function readCachedAuthSession(): AuthSessionSummary | null {
+		if (!browser) {
+			return null;
+		}
+
+		try {
+			const raw = window.localStorage.getItem(LAST_AUTH_SESSION_KEY);
+			if (!raw) {
+				return null;
+			}
+
+			return normalizeCachedAuthSession(JSON.parse(raw));
+		} catch {
+			return null;
+		}
+	}
+
+	function writeCachedAuthSession(nextUser: AuthSessionSummary | null) {
+		if (!browser) {
+			return;
+		}
+
+		try {
+			if (!nextUser) {
+				window.localStorage.removeItem(LAST_AUTH_SESSION_KEY);
+				return;
+			}
+
+			window.localStorage.setItem(LAST_AUTH_SESSION_KEY, JSON.stringify(nextUser));
+		} catch (error) {
+			void error;
+		}
+	}
+
+	function normalizeCachedAuthSession(value: unknown): AuthSessionSummary | null {
+		if (!value || typeof value !== 'object') {
+			return null;
+		}
+
+		const record = value as Record<string, unknown>;
+		if (
+			typeof record.sessionId !== 'string' ||
+			typeof record.userId !== 'string' ||
+			!(typeof record.email === 'string' || record.email === null) ||
+			typeof record.createdAt !== 'number' ||
+			typeof record.lastUsedAt !== 'number' ||
+			typeof record.active !== 'boolean'
+		) {
+			return null;
+		}
+
+		return {
+			sessionId: record.sessionId,
+			userId: record.userId,
+			email: record.email,
+			createdAt: record.createdAt,
+			lastUsedAt: record.lastUsedAt,
+			active: record.active
+		};
+	}
+
 	function handleAppUpdatedNotice() {
 		showQueuedAppUpdatedNotice();
 		if (toastNotices.length === 0) {
@@ -860,6 +922,7 @@
 	async function syncAuthState(nextUser: AuthSessionSummary | null) {
 		const requestId = ++currentAuthRequestId;
 		authUser = nextUser;
+		writeCachedAuthSession(nextUser);
 
 		if (!nextUser) {
 			pendingAnonymousImportSession = null;
@@ -901,11 +964,21 @@
 			applyTheme(preferences.themeMode);
 
 			const baseSession = userLocal ?? createSession(nextUser.userId);
+			if (!areEditorSessionsEquivalent(baseSession, session)) {
+				replaceLocalSession(mergeEditorSelections(baseSession, session), {
+					source: 'syncAuthState:local-session',
+					details: { requestId }
+				});
+			}
+
 			let syncedSession = baseSession;
+			let pulledRemoteChanges = false;
 			if (pagesApi) {
 				appSyncStatus = isBrowserOnline() ? 'syncing' : 'offline';
 				try {
-					syncedSession = (await syncUserPages(pagesApi, nextUser.userId, baseSession)).session;
+					const syncResult = await syncUserPages(pagesApi, nextUser.userId, baseSession);
+					syncedSession = syncResult.session;
+					pulledRemoteChanges = syncResult.pulledCount > 0;
 					appSyncStatus = getSettledAppSyncStatus(syncedSession);
 				} catch (error) {
 					appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
@@ -930,6 +1003,9 @@
 					source: 'syncAuthState:nextSession',
 					details: { requestId }
 				});
+			}
+			if (pulledRemoteChanges) {
+				showStatusNotice('Pages updated.');
 			}
 
 			if (hasAnonymousData && !alreadyPrompted) {
@@ -1227,6 +1303,8 @@
 						? 'Sync complete with 1 conflict fork'
 						: `Sync complete with ${result.conflictCount} conflict forks`
 				);
+			} else if (result.pulledCount > 0) {
+				showStatusNotice('Pages updated.');
 			} else if (options.showSuccessNotice && (result.pushedCount > 0 || result.pulledCount > 0)) {
 				showStatusNotice('Sync complete');
 			}

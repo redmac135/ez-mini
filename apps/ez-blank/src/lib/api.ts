@@ -3,8 +3,9 @@ import { configureAuth } from '@ez/auth';
 import type { PagesApi } from '$lib/editor/sync';
 
 const apiUrl = env.PUBLIC_EZ_API_URL;
+const API_FETCH_TIMEOUT_MS = 8000;
 
-export const auth = apiUrl ? configureAuth({ apiUrl }) : null;
+export const auth = apiUrl ? configureAuth({ apiUrl, fetch: fetchWithTimeout }) : null;
 
 export const pagesApi: PagesApi | null = auth
 	? {
@@ -53,4 +54,25 @@ function readErrorMessage(body: unknown) {
 	}
 
 	return null;
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), API_FETCH_TIMEOUT_MS);
+	const externalSignal = init.signal;
+
+	if (externalSignal?.aborted) {
+		controller.abort();
+	} else {
+		externalSignal?.addEventListener('abort', () => controller.abort(), { once: true });
+	}
+
+	try {
+		return await fetch(input, {
+			...init,
+			signal: controller.signal
+		});
+	} finally {
+		clearTimeout(timeout);
+	}
 }

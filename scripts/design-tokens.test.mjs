@@ -52,3 +52,20 @@ test('PWA support uses SvelteKit native service worker instead of the Vite plugi
 	assert.equal(manifest.display, 'standalone');
 	assert.equal(manifest.icons.length >= 2, true);
 });
+
+test('service worker serves cached app shell before remote navigation fetches', async () => {
+	const serviceWorker = await read('apps/ez-blank/src/service-worker.ts');
+
+	assert.match(serviceWorker, /caches\.match\(APP_SHELL\)/);
+	assert.match(serviceWorker, /event\.waitUntil\(refreshedShell\)/);
+	assert.equal(serviceWorker.includes('fetch(event.request).catch'), false);
+});
+
+test('Wrangler configs disable generated preview and workers.dev URLs', async () => {
+	const apiWrangler = await read('apps/api/wrangler.toml');
+	const blankWrangler = await read('apps/ez-blank/wrangler.toml');
+
+	assert.match(apiWrangler, /workers_dev = false/);
+	assert.match(apiWrangler, /preview_urls = false/);
+	assert.match(blankWrangler, /preview_urls = false/);
+});

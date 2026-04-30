@@ -6,11 +6,12 @@ const worker = self as unknown as ServiceWorkerGlobalScope;
 const CACHE_NAME = `blank-${version}`;
 const APP_SHELL = '/';
 const ASSETS = [...build, ...files, ...prerendered];
+const CORE_ASSETS = Array.from(new Set([APP_SHELL, ...ASSETS]));
 
 worker.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches.open(CACHE_NAME).then((cache) => {
-			return cache.addAll(ASSETS);
+			return Promise.allSettled(CORE_ASSETS.map((asset) => cache.add(asset)));
 		})
 	);
 	worker.skipWaiting();
@@ -41,14 +42,40 @@ worker.addEventListener('fetch', (event) => {
 
 	if (event.request.mode === 'navigate') {
 		event.respondWith(
-			fetch(event.request).catch(async () => (await caches.match(APP_SHELL)) ?? Response.error())
+			caches.match(APP_SHELL).then((cachedShell) => {
+				const refreshedShell = fetch(event.request)
+					.then(async (response) => {
+						if (response.ok) {
+							const cache = await caches.open(CACHE_NAME);
+							await cache.put(APP_SHELL, response.clone());
+						}
+						return response;
+					})
+					.catch(() => null);
+
+				event.waitUntil(refreshedShell);
+				return cachedShell ?? refreshedShell.then((response) => response ?? Response.error());
+			})
 		);
 		return;
 	}
 
 	if (ASSETS.includes(url.pathname)) {
 		event.respondWith(
-			caches.match(event.request).then((response) => response ?? fetch(event.request))
+			caches.match(event.request).then((cachedAsset) => {
+				const refreshedAsset = fetch(event.request)
+					.then(async (response) => {
+						if (response.ok) {
+							const cache = await caches.open(CACHE_NAME);
+							await cache.put(event.request, response.clone());
+						}
+						return response;
+					})
+					.catch(() => null);
+
+				event.waitUntil(refreshedAsset);
+				return cachedAsset ?? refreshedAsset.then((response) => response ?? Response.error());
+			})
 		);
 	}
 });

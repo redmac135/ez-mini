@@ -1,0 +1,3 @@
+name = "ez-blank"
+pages_build_output_dir = "build"
+preview_urls = false
