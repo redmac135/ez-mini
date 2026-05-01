@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdir } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const roots = ['apps', 'packages'];
@@ -24,4 +24,25 @@ test('workspace env examples use .env.example naming', async () => {
 	assert.equal(envFiles.includes('apps/ez-blank/.env.example'), true);
 	assert.equal(envFiles.includes('packages/auth/.env.example'), true);
 	assert.equal(envFiles.includes('apps/api/.dev.vars.example'), true);
+});
+
+test('ez-blank build modes include public API URLs from dotenv', async () => {
+	const developmentEnv = await readFile(
+		new URL('../apps/ez-blank/.env.development', import.meta.url),
+		'utf8'
+	);
+	const productionEnv = await readFile(
+		new URL('../apps/ez-blank/.env.production', import.meta.url),
+		'utf8'
+	);
+	const wrangler = await readFile(
+		new URL('../apps/ez-blank/wrangler.toml', import.meta.url),
+		'utf8'
+	);
+
+	assert.match(developmentEnv, /PUBLIC_EZ_API_URL=http:\/\/localhost:8787\/mini\/v1/);
+	assert.match(productionEnv, /PUBLIC_EZ_API_URL=https:\/\/api\.ethanzhao\.ca\/mini\/v1/);
+	assert.equal(wrangler.includes('PUBLIC_EZ_API_URL'), false);
+	assert.equal(wrangler.includes('[vars]'), false);
+	assert.equal(wrangler.includes('preview_urls'), false);
 });
