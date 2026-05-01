@@ -13,6 +13,21 @@ CORS_ORIGINS = "https://blank.ethanzhao.ca"
 pattern = "api.ethanzhao.ca/mini/v1/*"
 zone_name = "ethanzhao.ca"
 
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
+
 [[kv_namespaces]]
 binding = "SESSIONS"
 id = "7adae932d172450a87b4157b40a58c5f"
