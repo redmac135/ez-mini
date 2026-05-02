@@ -1,5 +1,5 @@
 <script lang="ts">
-	export let name: 'bars-3' | 'ellipsis-horizontal';
+	export let name: 'bars-3' | 'ellipsis-horizontal' | 'x-mark';
 </script>
 
 {#if name === 'bars-3'}
@@ -12,10 +12,20 @@
 			stroke-width="1.5"
 		></path>
 	</svg>
-{:else}
+{:else if name === 'ellipsis-horizontal'}
 	<svg viewBox="0 0 20 20" aria-hidden="true">
 		<path
 			d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z"
+		></path>
+	</svg>
+{:else}
+	<svg viewBox="0 0 24 24" aria-hidden="true">
+		<path
+			d="M6 6l12 12M18 6L6 18"
+			fill="none"
+			stroke="currentColor"
+			stroke-linecap="round"
+			stroke-width="1.5"
 		></path>
 	</svg>
 {/if}

@@ -194,6 +194,7 @@
 	$: countPinnedVisible = preferences.countVisibility === 'pinned';
 	$: countVisible =
 		countVisibleInChrome &&
+		!drawerOpen &&
 		(isMobileViewport || chromeVisible || countPinnedVisible || countMenuOpen);
 	$: countDockedRight = countPinnedVisible && !chromeVisible && !settingsMenuOpen;
 	$: pageTheme = preferences.themeMode;
@@ -1516,7 +1517,7 @@
 />
 
 <AppShell>
-	<Navbar visible={loaded && chromeVisible}>
+	{#if loaded && (chromeVisible || drawerOpen)}
 		<button
 			class="drawer-toggle"
 			type="button"
@@ -1524,8 +1525,11 @@
 			aria-expanded={drawerOpen}
 			on:click={() => (drawerOpen = !drawerOpen)}
 		>
-			<Icon name="bars-3" />
+			<Icon name={drawerOpen ? 'x-mark' : 'bars-3'} />
 		</button>
+	{/if}
+
+	<Navbar visible={loaded && chromeVisible && !drawerOpen}>
 		<div class="settings-control">
 			<button
 				bind:this={settingsButton}
@@ -1782,7 +1786,7 @@
 		</Modal>
 	{/if}
 
-	<Sidebar open={drawerOpen} label="Pages">
+	<Sidebar open={drawerOpen} label="Pages" mobileFullScreen>
 		<div class="drawer-header">
 			<h1>Pages</h1>
 			<button type="button" class="add-page" aria-label="New page" on:click={addPage}>+</button>
@@ -1967,7 +1971,6 @@
 	}
 
 	.count-toggle,
-	.drawer-toggle,
 	.settings-toggle {
 		position: static;
 		border: 0;
@@ -2004,10 +2007,18 @@
 	}
 
 	.drawer-toggle {
+		position: fixed;
+		top: max(var(--space-3), env(safe-area-inset-top));
+		left: max(var(--space-3), env(safe-area-inset-left));
+		z-index: 30;
 		width: 2rem;
 		height: 2rem;
 		padding: 0;
+		border: 0;
 		border-radius: var(--radius-round);
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;

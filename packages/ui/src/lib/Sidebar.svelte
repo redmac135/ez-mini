@@ -1,9 +1,10 @@
 <script lang="ts">
 	export let open = false;
 	export let label = 'Navigation';
+	export let mobileFullScreen = false;
 </script>
 
-<aside class:open class="sidebar" aria-label={label}>
+<aside class:open class:mobileFullScreen class="sidebar" aria-label={label}>
 	<slot />
 </aside>
 
@@ -27,5 +28,11 @@
 
 	.sidebar.open {
 		transform: translateX(0);
+	}
+
+	@media (max-width: 720px) {
+		.sidebar.mobileFullScreen {
+			width: 100vw;
+		}
 	}
 </style>
