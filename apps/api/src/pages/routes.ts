@@ -15,7 +15,6 @@ export async function handlePages(
 ) {
 	const active = await requireActiveSession(env, context);
 	const url = new URL(request.url);
-	const id = path.startsWith('/pages/') ? decodeURIComponent(path.slice('/pages/'.length)) : null;
 
 	if (request.method === 'GET' && path === '/pages') {
 		const params = new URLSearchParams();
@@ -49,38 +48,6 @@ export async function handlePages(
 					method: 'POST',
 					prefer: 'resolution=merge-duplicates,return=representation',
 					body: payload
-				}
-			)
-		);
-	}
-
-	if (request.method === 'PATCH' && id) {
-		const body = await readJson<Partial<RemotePageRow>>(request);
-		const payload = normalizePagePayload({ ...body, id }, active.userId);
-		return firstRow(
-			await supabaseRest<RemotePageRow[]>(
-				env,
-				active,
-				`/pages?id=eq.${encodeURIComponent(id)}&select=${PAGE_COLUMNS}`,
-				{
-					method: 'PATCH',
-					prefer: 'return=representation',
-					body: payload
-				}
-			)
-		);
-	}
-
-	if (request.method === 'DELETE' && id) {
-		return firstRow(
-			await supabaseRest<RemotePageRow[]>(
-				env,
-				active,
-				`/pages?id=eq.${encodeURIComponent(id)}&select=${PAGE_COLUMNS}`,
-				{
-					method: 'PATCH',
-					prefer: 'return=representation',
-					body: { deleted_at: new Date().toISOString() }
 				}
 			)
 		);

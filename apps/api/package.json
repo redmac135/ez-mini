@@ -10,9 +10,9 @@
 		"check": "tsc --noEmit"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20260426.1",
-		"@types/node": "^22",
-		"typescript": "^5.9.3",
-		"wrangler": "^4.50.0"
+		"@cloudflare/workers-types": "catalog:",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"wrangler": "catalog:"
 	}
 }

@@ -2,6 +2,13 @@
 
 Minimal app monorepo for small, focused tools.
 
+## Principles
+
+- Local-first app behavior: notes are saved locally before remote sync.
+- Small platform pieces: static SvelteKit frontend, plain Cloudflare Worker API, Supabase REST/Auth.
+- Shared packages stay tiny and intentional. `@ez/sync` is shared because upcoming todo and habit apps use the same sync model.
+- External versions are centralized in the pnpm catalog in `pnpm-workspace.yaml`; app packages use `workspace:*` for local packages.
+
 ## Workspaces
 
 - `apps/ez-blank` - SvelteKit writing app.

@@ -10,6 +10,12 @@
 		consumeQueuedAppUpdatedNotice
 	} from '$lib/pwa-update-notice';
 	import { beginAuthRequestId, isLatestAuthRequest } from '$lib/auth/auth-request';
+	import { loadEditorAuthState } from '$lib/auth/editor-auth-state';
+	import {
+		clearCachedAuthSessionForUser as clearCachedAuthSessionForUserInStorage,
+		readCachedAuthSession as readCachedAuthSessionFromStorage,
+		writeCachedAuthSession as writeCachedAuthSessionToStorage
+	} from '$lib/auth/session-cache';
 	import {
 		AppShell,
 		Button,
@@ -39,6 +45,11 @@
 		type ChangedPageEvent,
 		type LocalPageEventType
 	} from '$lib/editor/persistence/session-events';
+	import {
+		createPageBroadcastMessage,
+		PAGES_CHANNEL_NAME,
+		readPageBroadcastMessage
+	} from '$lib/editor/persistence/page-broadcast';
 	import { mergeEditorSelections } from '$lib/editor/persistence/session-selection';
 	import { AuthBroadcastChannel } from '$lib/auth/auth-broadcast';
 	import {
@@ -51,12 +62,7 @@
 	} from '$lib/editor/core/preferences';
 	import { EditorStorage } from '$lib/editor/persistence/storage';
 	import { ANONYMOUS_USERID } from '$lib/editor/persistence/records';
-	import {
-		fetchRemoteActivePageId,
-		pushRemoteActivePageId,
-		reconcileSyncResult,
-		syncUserPages
-	} from '$lib/editor/sync';
+	import { pushRemoteActivePageId, reconcileSyncResult, syncUserPages } from '$lib/editor/sync';
 	import { auth, pagesApi } from '$lib/api';
 	import {
 		clonePageForUser,
@@ -65,7 +71,6 @@
 		markPageDeleted,
 		ensureValidActivePage,
 		getRemoteActivePageUpdateTarget,
-		hasVisibleEphemeralActivePage,
 		sortPagesByRecency,
 		materializePage,
 		type EditorPage,
@@ -151,7 +156,6 @@
 	] as const;
 	const EDIT_SYNC_DEBOUNCE_MS = 3000;
 	const ACTIVE_PAGE_PUSH_DEBOUNCE_MS = 300;
-	const LAST_AUTH_SESSION_KEY = 'blank-last-auth-session';
 	const syncController = createSyncController({
 		delayMs: EDIT_SYNC_DEBOUNCE_MS,
 		runSync: executeSync
@@ -159,7 +163,7 @@
 	const activePageController = createActivePageController({
 		delayMs: ACTIVE_PAGE_PUSH_DEBOUNCE_MS,
 		runPush: async (pageId: string) => {
-			if (!pagesApi || !authUser || !loaded) {
+			if (!authUser || !loaded) {
 				return;
 			}
 
@@ -244,7 +248,7 @@
 
 	function queueRemoteActivePageUpdate(previousSession: EditorSession, nextSession: EditorSession) {
 		const pageId = getRemoteActivePageUpdateTarget(previousSession, nextSession);
-		if (!pageId || !authUser || !pagesApi || !loaded) {
+		if (!pageId || !authUser || !loaded) {
 			return;
 		}
 
@@ -471,11 +475,6 @@
 	}
 
 	async function openLoginOrAccountList() {
-		if (!auth) {
-			authMessage = 'API is not configured yet.';
-			return;
-		}
-
 		authBusy = true;
 		authMessage = '';
 
@@ -520,11 +519,6 @@
 	}
 
 	async function submitLogin() {
-		if (!auth) {
-			authMessage = 'API is not configured yet.';
-			return;
-		}
-
 		const email = emailDraft.trim();
 		if (!email) {
 			authMessage = 'Enter an email address.';
@@ -1064,16 +1058,7 @@
 			return null;
 		}
 
-		try {
-			const raw = window.localStorage.getItem(LAST_AUTH_SESSION_KEY);
-			if (!raw) {
-				return null;
-			}
-
-			return normalizeCachedAuthSession(JSON.parse(raw));
-		} catch {
-			return null;
-		}
+		return readCachedAuthSessionFromStorage(window.localStorage);
 	}
 
 	function writeCachedAuthSession(nextUser: AuthSessionSummary | null) {
@@ -1081,16 +1066,7 @@
 			return;
 		}
 
-		try {
-			if (!nextUser) {
-				window.localStorage.removeItem(LAST_AUTH_SESSION_KEY);
-				return;
-			}
-
-			window.localStorage.setItem(LAST_AUTH_SESSION_KEY, JSON.stringify(nextUser));
-		} catch (error) {
-			void error;
-		}
+		writeCachedAuthSessionToStorage(window.localStorage, nextUser);
 	}
 
 	function clearCachedAuthSessionForUser(userId: string) {
@@ -1098,42 +1074,7 @@
 			return;
 		}
 
-		try {
-			if (readCachedAuthSession()?.userId === userId) {
-				window.localStorage.removeItem(LAST_AUTH_SESSION_KEY);
-			}
-		} catch (error) {
-			void error;
-		}
-	}
-
-	function normalizeCachedAuthSession(value: unknown): AuthSessionSummary | null {
-		if (!value || typeof value !== 'object') {
-			return null;
-		}
-
-		const record = value as Record<string, unknown>;
-		if (
-			typeof record.sessionId !== 'string' ||
-			typeof record.userId !== 'string' ||
-			!(typeof record.email === 'string' || record.email === null) ||
-			typeof record.createdAt !== 'number' ||
-			typeof record.lastUsedAt !== 'number' ||
-			typeof record.active !== 'boolean'
-		) {
-			return null;
-		}
-
-		return {
-			sessionId: record.sessionId,
-			userId: record.userId,
-			email: record.email,
-			username:
-				typeof record.username === 'string' ? record.username : (record.email ?? record.userId),
-			createdAt: record.createdAt,
-			lastUsedAt: record.lastUsedAt,
-			active: record.active
-		};
+		clearCachedAuthSessionForUserInStorage(window.localStorage, userId);
 	}
 
 	function handleAppUpdatedNotice() {
@@ -1144,10 +1085,6 @@
 	}
 
 	async function initializeAuth(initialAuthSession?: AuthSessionSummary | null) {
-		if (!auth) {
-			return;
-		}
-
 		currentAuthRequestId = beginAuthRequestId(currentAuthRequestId);
 		const requestId = currentAuthRequestId;
 		authBusy = true;
@@ -1202,106 +1139,66 @@
 		currentAuthRequestId = requestId;
 		authUser = nextUser;
 		writeCachedAuthSession(nextUser);
-
-		if (!nextUser) {
-			pendingAnonymousImportSession = null;
-			importPromptOpen = false;
-			loginModalOpen = false;
-			const [anonymousSession, anonymousPreferences] = await Promise.all([
-				EditorStorage.loadAnonymousState(),
-				loadPreferences(ANONYMOUS_USERID)
-			]);
-
-			if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
-				return;
-			}
-
-			appSyncStatus = getSettledAppSyncStatus(anonymousSession);
-			preferences = anonymousPreferences;
-			applyTheme(preferences.themeMode);
-			replaceLocalSession(anonymousSession, {
-				source: 'syncAuthState:anonymous-session'
-			});
-			return;
+		authBusy = !!nextUser;
+		authMessage = '';
+		if (nextUser) {
+			appSyncStatus = isBrowserOnline() ? 'syncing' : 'offline';
 		}
 
-		authBusy = true;
-		authMessage = '';
-
 		try {
-			const [userLocal, anonymousSession, alreadyPrompted, userPreferences] = await Promise.all([
-				EditorStorage.loadUserState(nextUser.userId),
-				EditorStorage.loadAnonymousState(),
-				EditorStorage.hasPromptedForAnonymousImport(nextUser.userId),
-				loadPreferences(nextUser.userId)
-			]);
-			const hasAnonymousData = anonymousSession.pages.some(
-				(page) =>
-					page.deletedAt === null && (page.content.trim().length > 0 || page.title !== 'Untitled')
-			);
+			const loadedAuthState = await loadEditorAuthState({
+				user: nextUser,
+				loader: {
+					loadUserState: (userId) => EditorStorage.loadUserState(userId),
+					loadAnonymousState: () => EditorStorage.loadAnonymousState(),
+					hasPromptedForAnonymousImport: (userId) =>
+						EditorStorage.hasPromptedForAnonymousImport(userId),
+					loadPreferences
+				},
+				pagesApi,
+				isOnline: isBrowserOnline(),
+				onLocalStateLoaded: (localState) => {
+					if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
+						return;
+					}
+
+					appSyncStatus = localState.appSyncStatus;
+					preferences = localState.preferences;
+					applyTheme(preferences.themeMode);
+					if (!areEditorSessionsEquivalent(localState.session, session)) {
+						replaceLocalSession(mergeEditorSelections(localState.session, session), {
+							source: 'syncAuthState:local-session',
+							details: { requestId }
+						});
+					}
+				}
+			});
 
 			if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
 				return;
 			}
 
-			preferences = userPreferences;
+			appSyncStatus = loadedAuthState.appSyncStatus;
+			preferences = loadedAuthState.preferences;
 			applyTheme(preferences.themeMode);
 
-			const baseSession = userLocal ?? createSession(nextUser.userId);
-			if (!areEditorSessionsEquivalent(baseSession, session)) {
-				replaceLocalSession(mergeEditorSelections(baseSession, session), {
-					source: 'syncAuthState:local-session',
+			if (!areEditorSessionsEquivalent(loadedAuthState.session, session)) {
+				replaceLocalSession(mergeEditorSelections(loadedAuthState.session, session), {
+					source: loadedAuthState.user
+						? 'syncAuthState:authenticated-session'
+						: 'syncAuthState:anonymous-session',
 					details: { requestId }
 				});
 			}
-
-			let syncedSession = baseSession;
-			let pulledRemoteChanges = false;
-			if (pagesApi) {
-				appSyncStatus = isBrowserOnline() ? 'syncing' : 'offline';
-				try {
-					const syncResult = await syncUserPages(pagesApi, nextUser.userId, baseSession);
-					syncedSession = syncResult.session;
-					pulledRemoteChanges = syncResult.pulledCount > 0;
-					appSyncStatus = getSettledAppSyncStatus(syncedSession);
-				} catch (error) {
-					appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
-					throw error;
-				}
-			}
-			const remoteActivePageId = pagesApi ? await fetchRemoteActivePageId(pagesApi) : null;
-			const shouldPreserveLocalEphemeralPage = hasVisibleEphemeralActivePage(syncedSession);
-			const nextSession =
-				!shouldPreserveLocalEphemeralPage &&
-				remoteActivePageId &&
-				syncedSession.pages.some(
-					(page) => page.id === remoteActivePageId && page.deletedAt === null
-				)
-					? {
-							...syncedSession,
-							activePageId: remoteActivePageId
-						}
-					: syncedSession;
-			if (!areEditorSessionsEquivalent(nextSession, session)) {
-				replaceLocalSession(mergeEditorSelections(nextSession, session), {
-					source: 'syncAuthState:nextSession',
-					details: { requestId }
-				});
-			}
-			if (pulledRemoteChanges) {
+			if (loadedAuthState.pulledRemoteChanges) {
 				showStatusNotice('Pages updated.');
 			}
 
-			if (hasAnonymousData && !alreadyPrompted) {
-				pendingAnonymousImportSession = anonymousSession;
-				importPromptOpen = true;
-			} else {
-				pendingAnonymousImportSession = null;
-				importPromptOpen = false;
-			}
-
+			pendingAnonymousImportSession = loadedAuthState.pendingAnonymousImportSession;
+			importPromptOpen = loadedAuthState.importPromptOpen;
 			loginModalOpen = false;
 		} catch (error) {
+			appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
 			authMessage = getErrorMessage(error, 'Unable to load saved notes.');
 		} finally {
 			if (isLatestAuthRequest(currentAuthRequestId, requestId)) {
@@ -1356,10 +1253,6 @@
 	}
 
 	async function refreshAuthFromBroadcast() {
-		if (!auth) {
-			return;
-		}
-
 		let nextAuthSession: AuthSessionSummary | null = null;
 		try {
 			nextAuthSession = (await auth.getSession()).activeSession;
@@ -1381,26 +1274,18 @@
 		}
 
 		pagesChannel?.close();
-		pagesChannel = new BroadcastChannel('pages');
+		pagesChannel = new BroadcastChannel(PAGES_CHANNEL_NAME);
 		pagesChannel.onmessage = (event) => {
-			const message = event.data as { type?: unknown; id?: unknown; userId?: unknown } | null;
-			if (
-				!message ||
-				typeof message.type !== 'string' ||
-				typeof message.id !== 'string' ||
-				typeof message.userId !== 'string'
-			) {
+			const message = readPageBroadcastMessage(
+				event.data,
+				LOCAL_PAGE_EVENT_TYPES,
+				getScopedUserId()
+			);
+			if (!message) {
 				return;
 			}
 
-			if (!LOCAL_PAGE_EVENT_TYPES.has(message.type as LocalPageEventType)) {
-				return;
-			}
-			if (message.userId !== getScopedUserId()) {
-				return;
-			}
-
-			void refreshPageFromIndexedDb(message.type as LocalPageEventType, message.id);
+			void refreshPageFromIndexedDb(message.type, message.id);
 		};
 	}
 
@@ -1411,7 +1296,7 @@
 
 		const userId = getScopedUserId();
 		for (const event of events) {
-			pagesChannel.postMessage({ type: event.type, id: event.id, userId });
+			pagesChannel.postMessage(createPageBroadcastMessage(event, userId));
 		}
 	}
 
@@ -1538,7 +1423,7 @@
 	}
 
 	function scheduleDebouncedSync() {
-		if (!pagesApi || !authUser || !loaded) {
+		if (!authUser || !loaded) {
 			return;
 		}
 
@@ -1546,7 +1431,7 @@
 	}
 
 	function requestImmediateSync(options: { showSuccessNotice?: boolean } = {}) {
-		if (!pagesApi || !authUser || !loaded) {
+		if (!authUser || !loaded) {
 			return;
 		}
 
@@ -1554,7 +1439,7 @@
 	}
 
 	async function executeSync(options: { showSuccessNotice: boolean }) {
-		if (!pagesApi || !authUser || !loaded) {
+		if (!authUser || !loaded) {
 			return;
 		}
 

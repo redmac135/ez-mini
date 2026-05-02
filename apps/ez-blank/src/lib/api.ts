@@ -1,42 +1,44 @@
-import { env } from '$env/dynamic/public';
+import { PUBLIC_EZ_API_URL } from '$env/static/public';
 import { configureAuth } from '@ez/auth';
 import type { PagesApi } from '$lib/editor/sync';
 
-const apiUrl = env.PUBLIC_EZ_API_URL;
+const apiUrl = PUBLIC_EZ_API_URL.trim();
 const API_FETCH_TIMEOUT_MS = 8000;
 
-export const auth = apiUrl ? configureAuth({ apiUrl, fetch: fetchWithTimeout }) : null;
+if (!apiUrl) {
+	throw new Error('PUBLIC_EZ_API_URL is required.');
+}
 
-export const pagesApi: PagesApi | null = auth
-	? {
-			async listPages(options = {}) {
-				const params = new URLSearchParams();
-				if (options.since) {
-					params.set('since', options.since);
-				}
-				return readJson(await auth.authFetch(`/pages${params.size > 0 ? `?${params}` : ''}`));
-			},
-			async upsertPage(page) {
-				return readJson(
-					await auth.authFetch('/pages', {
-						method: 'POST',
-						body: JSON.stringify(page)
-					})
-				);
-			},
-			async getSettings() {
-				return readJson(await auth.authFetch('/settings'));
-			},
-			async updateSettings(settings) {
-				return readJson(
-					await auth.authFetch('/settings', {
-						method: 'PATCH',
-						body: JSON.stringify(settings)
-					})
-				);
-			}
+export const auth = configureAuth({ apiUrl, fetch: fetchWithTimeout });
+
+export const pagesApi: PagesApi = {
+	async listPages(options = {}) {
+		const params = new URLSearchParams();
+		if (options.since) {
+			params.set('since', options.since);
 		}
-	: null;
+		return readJson(await auth.authFetch(`/pages${params.size > 0 ? `?${params}` : ''}`));
+	},
+	async upsertPage(page) {
+		return readJson(
+			await auth.authFetch('/pages', {
+				method: 'POST',
+				body: JSON.stringify(page)
+			})
+		);
+	},
+	async getSettings() {
+		return readJson(await auth.authFetch('/settings'));
+	},
+	async updateSettings(settings) {
+		return readJson(
+			await auth.authFetch('/settings', {
+				method: 'PATCH',
+				body: JSON.stringify(settings)
+			})
+		);
+	}
+};
 
 async function readJson<T>(response: Response): Promise<T> {
 	const body = (await response.json().catch(() => null)) as unknown;
@@ -57,22 +59,7 @@ function readErrorMessage(body: unknown) {
 }
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), API_FETCH_TIMEOUT_MS);
-	const externalSignal = init.signal;
-
-	if (externalSignal?.aborted) {
-		controller.abort();
-	} else {
-		externalSignal?.addEventListener('abort', () => controller.abort(), { once: true });
-	}
-
-	try {
-		return await fetch(input, {
-			...init,
-			signal: controller.signal
-		});
-	} finally {
-		clearTimeout(timeout);
-	}
+	const timeoutSignal = AbortSignal.timeout(API_FETCH_TIMEOUT_MS);
+	const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
+	return fetch(input, { ...init, signal });
 }

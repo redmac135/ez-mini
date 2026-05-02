@@ -369,6 +369,25 @@ test('pages upsert scopes payloads to the active user', async () => {
 	assert.equal(body.user_id, 'user-a');
 });
 
+test('page item routes are not part of the public API surface', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	mockFetch(async () => {
+		throw new Error('Supabase should not be called for unsupported page item routes.');
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/pages/page-a', {
+			method: 'DELETE',
+			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
+		}),
+		env
+	);
+
+	assert.equal(response.status, 404);
+	assert.deepEqual(await response.json(), { error: 'Not found' });
+});
+
 test('settings patch accepts null active page ids and upserts by active user', async () => {
 	const deviceId = 'device-a';
 	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });

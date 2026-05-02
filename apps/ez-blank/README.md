@@ -1,6 +1,6 @@
 # ez-blank
 
-SvelteKit app for a minimal local-first writing surface with optional sync through `@ez/apps-api`.
+SvelteKit app for a minimal local-first writing surface with sync through `@ez/apps-api`.
 
 ## Development
 
@@ -16,13 +16,13 @@ Or run all apps:
 pnpm dev
 ```
 
-To enable API-backed auth and sync, create `.env` from `.env.example`:
+The app requires a public API URL at build and dev-server startup. Use the tracked mode-specific env files or create `.env` from `.env.example`:
 
 ```sh
 PUBLIC_EZ_API_URL=http://localhost:8787/v1
 ```
 
-Without `PUBLIC_EZ_API_URL`, the app runs without the remote API client.
+The Vite config fails fast when `PUBLIC_EZ_API_URL` is missing, so production builds cannot silently ship without sync/auth.
 
 ## Scripts
 
@@ -32,3 +32,5 @@ Without `PUBLIC_EZ_API_URL`, the app runs without the remote API client.
 - `pnpm --filter @ez/apps-blank test` - run parser and editor tests.
 
 Shared styles come from `@ez/design/tokens.css`; app-specific layout measurements stay inside app/component CSS.
+
+The frontend is intentionally static (`@sveltejs/adapter-static`) and talks to the API with simple credentialed fetch calls.

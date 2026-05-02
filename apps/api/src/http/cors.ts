@@ -20,7 +20,7 @@ export function getCorsHeaders(request: Request, env: Env) {
 		headers.set('access-control-allow-credentials', 'true');
 		headers.set('vary', 'Origin');
 	}
-	headers.set('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+	headers.set('access-control-allow-methods', 'GET,POST,PATCH,OPTIONS');
 	headers.set('access-control-allow-headers', 'content-type');
 	return headers;
 }

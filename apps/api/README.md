@@ -1,6 +1,6 @@
 # ez-mini API
 
-Cloudflare Worker API for ez-mini auth sessions and page sync.
+Cloudflare Worker API for ez-mini auth sessions, settings, and page sync.
 
 Routes are served under `/v1`.
 
@@ -31,6 +31,20 @@ Production-style values are documented in `.env.example`.
 - `COOKIE_DOMAIN` for production shared-domain cookies
 
 The Worker also needs a `SESSIONS` KV namespace, configured in `wrangler.toml`.
+
+## API Shape
+
+- `POST /v1/auth/login`
+- `POST /v1/auth/verify`
+- `GET /v1/auth/session`
+- `POST /v1/auth/switch`
+- `POST /v1/auth/logout`
+- `GET /v1/pages`
+- `POST /v1/pages`
+- `GET /v1/settings`
+- `PATCH /v1/settings`
+
+The pages API only exposes collection list/upsert routes because `ez-blank` is the sole client and already represents deletes as soft-deleted upserted page rows.
 
 ## Scripts
 

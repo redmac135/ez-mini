@@ -20,6 +20,6 @@
 		"@ez/ui": "workspace:*"
 	},
 	"devDependencies": {
-		"wrangler": "^4.85.0"
+		"wrangler": "catalog:"
 	}
 }
