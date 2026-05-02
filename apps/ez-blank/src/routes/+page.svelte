@@ -9,6 +9,7 @@
 		APP_UPDATED_NOTICE_EVENT,
 		consumeQueuedAppUpdatedNotice
 	} from '$lib/pwa-update-notice';
+	import { beginAuthRequestId, isLatestAuthRequest } from '$lib/auth/auth-request';
 	import {
 		AppShell,
 		Button,
@@ -798,6 +799,7 @@
 
 	function updatePreferences(nextPreferences: EditorPreferences) {
 		preferences = nextPreferences;
+		applyTheme(nextPreferences.themeMode);
 		void savePreferences(nextPreferences);
 	}
 
@@ -1146,23 +1148,33 @@
 			return;
 		}
 
+		currentAuthRequestId = beginAuthRequestId(currentAuthRequestId);
+		const requestId = currentAuthRequestId;
 		authBusy = true;
 		let authSession = initialAuthSession;
 
 		if (initialAuthSession === undefined) {
 			try {
 				const nextSession = await auth.getSession();
+				if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
+					return;
+				}
 				authSessions = nextSession.sessions;
 				authSession = nextSession.activeSession;
 			} catch (error) {
+				if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
+					return;
+				}
 				authMessage = getErrorMessage(error, 'Unable to load session.');
 				authBusy = false;
 				return;
 			}
 		}
 
-		await syncAuthState(authSession ?? null);
-		authBusy = false;
+		await syncAuthState(authSession ?? null, requestId);
+		if (isLatestAuthRequest(currentAuthRequestId, requestId)) {
+			authBusy = false;
+		}
 	}
 
 	async function applyAuthResponse(nextSession: {
@@ -1179,8 +1191,15 @@
 		clearCachedAuthSessionForUser(userId);
 	}
 
-	async function syncAuthState(nextUser: AuthSessionSummary | null) {
-		const requestId = ++currentAuthRequestId;
+	async function syncAuthState(
+		nextUser: AuthSessionSummary | null,
+		requestId = beginAuthRequestId(currentAuthRequestId)
+	) {
+		if (requestId < currentAuthRequestId) {
+			return;
+		}
+
+		currentAuthRequestId = requestId;
 		authUser = nextUser;
 		writeCachedAuthSession(nextUser);
 
@@ -1188,11 +1207,16 @@
 			pendingAnonymousImportSession = null;
 			importPromptOpen = false;
 			loginModalOpen = false;
-			appSyncStatus = getSettledAppSyncStatus(session);
 			const [anonymousSession, anonymousPreferences] = await Promise.all([
 				EditorStorage.loadAnonymousState(),
 				loadPreferences(ANONYMOUS_USERID)
 			]);
+
+			if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
+				return;
+			}
+
+			appSyncStatus = getSettledAppSyncStatus(anonymousSession);
 			preferences = anonymousPreferences;
 			applyTheme(preferences.themeMode);
 			replaceLocalSession(anonymousSession, {
@@ -1216,7 +1240,7 @@
 					page.deletedAt === null && (page.content.trim().length > 0 || page.title !== 'Untitled')
 			);
 
-			if (currentAuthRequestId !== requestId) {
+			if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
 				return;
 			}
 
@@ -1280,7 +1304,7 @@
 		} catch (error) {
 			authMessage = getErrorMessage(error, 'Unable to load saved notes.');
 		} finally {
-			if (currentAuthRequestId === requestId) {
+			if (isLatestAuthRequest(currentAuthRequestId, requestId)) {
 				authBusy = false;
 			}
 		}
@@ -1831,7 +1855,9 @@
 							</span>
 							<span class="account-copy">
 								<span class="account-name">{account.username}</span>
-								<span class="account-meta">{account.active ? 'Active' : 'Signed in'}</span>
+								{#if account.email && account.email !== account.username}
+									<span class="account-meta">{account.email}</span>
+								{/if}
 							</span>
 						</button>
 						<button
@@ -1850,7 +1876,9 @@
 				<p class="auth-message">{authMessage}</p>
 			{/if}
 			<svelte:fragment slot="actions">
-				<Button on:click={openLoginFlow}>Sign into account</Button>
+				<div class="account-actions">
+					<Button size="sm" on:click={openLoginFlow}>Sign into another account</Button>
+				</div>
 			</svelte:fragment>
 		</Modal>
 	{/if}
@@ -1968,12 +1996,10 @@
 <style>
 	:global(body) {
 		margin: 0;
-		background: var(--color-bg);
+		background-color: var(--color-bg);
 		color: var(--color-fg);
 		font-family: var(--font-family-mono);
-		transition:
-			background-color var(--duration-normal) var(--ease-standard),
-			color var(--duration-normal) var(--ease-standard);
+		transition: var(--theme-transition);
 	}
 
 	.toast-stack {
@@ -2000,7 +2026,7 @@
 		padding: var(--space-3) var(--space-4);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-2);
-		background: var(--color-panel);
+		background-color: var(--color-panel);
 		color: var(--color-fg);
 		box-shadow: 0 18px 38px -24px var(--color-shadow);
 		backdrop-filter: blur(12px);
@@ -2011,6 +2037,7 @@
 		font-family: inherit;
 		appearance: none;
 		-webkit-appearance: none;
+		transition: var(--theme-transition);
 	}
 
 	.toast-message {
@@ -2128,7 +2155,8 @@
 		inset: 0;
 		z-index: 10;
 		border: 0;
-		background: var(--color-scrim);
+		background-color: var(--color-scrim);
+		transition: var(--theme-transition);
 	}
 
 	.auth-field {
@@ -2169,11 +2197,13 @@
 		gap: var(--space-1);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-2);
-		background: var(--color-bg);
+		background-color: var(--color-bg);
+		transition: var(--theme-transition);
 	}
 
 	.account-row.active {
 		border-color: var(--color-fg);
+		background-color: var(--color-hover);
 	}
 
 	.account-select,
@@ -2202,10 +2232,11 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--color-panel);
+		background-color: var(--color-panel);
 		border: 1px solid var(--color-border);
 		font-size: var(--font-size-sm);
 		color: var(--color-fg);
+		transition: var(--theme-transition);
 	}
 
 	.account-copy {
@@ -2230,6 +2261,12 @@
 	.account-meta {
 		font-size: var(--font-size-xs);
 		color: var(--color-muted);
+	}
+
+	.account-actions {
+		width: 100%;
+		display: flex;
+		justify-content: center;
 	}
 
 	.account-remove {
@@ -2293,7 +2330,8 @@
 	}
 
 	.page-row.active {
-		background: var(--color-hover);
+		background-color: var(--color-hover);
+		transition: var(--theme-transition);
 	}
 
 	.page-tab {

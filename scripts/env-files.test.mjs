@@ -40,8 +40,8 @@ test('ez-blank build modes include public API URLs from dotenv', async () => {
 		'utf8'
 	);
 
-	assert.match(developmentEnv, /PUBLIC_EZ_API_URL=http:\/\/localhost:8787\/mini\/v1/);
-	assert.match(productionEnv, /PUBLIC_EZ_API_URL=https:\/\/api\.ethanzhao\.ca\/mini\/v1/);
+	assert.match(developmentEnv, /PUBLIC_EZ_API_URL=http:\/\/localhost:8787\/v1/);
+	assert.match(productionEnv, /PUBLIC_EZ_API_URL=https:\/\/mini\.api\.ethanzhao\.ca\/v1/);
 	assert.equal(wrangler.includes('PUBLIC_EZ_API_URL'), false);
 	assert.equal(wrangler.includes('[vars]'), false);
 	assert.equal(wrangler.includes('preview_urls'), false);

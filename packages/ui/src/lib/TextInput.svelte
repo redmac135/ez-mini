@@ -22,9 +22,10 @@
 		padding: var(--space-3);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-2);
-		background: transparent;
+		background-color: transparent;
 		color: inherit;
 		font: inherit;
+		transition: var(--theme-transition);
 	}
 
 	input:focus {

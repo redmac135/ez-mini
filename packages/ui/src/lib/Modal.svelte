@@ -28,7 +28,8 @@
 		inset: 0;
 		z-index: 30;
 		border: 0;
-		background: var(--color-scrim);
+		background-color: var(--color-scrim);
+		transition: var(--theme-transition);
 	}
 
 	.modal {
@@ -39,11 +40,12 @@
 		width: min(24rem, calc(100vw - 2rem));
 		padding: var(--space-4);
 		box-sizing: border-box;
-		background: var(--color-panel);
+		background-color: var(--color-panel);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-2);
 		box-shadow: 0 18px 50px var(--color-shadow);
 		transform: translate(-50%, -50%);
+		transition: var(--theme-transition);
 	}
 
 	h2,

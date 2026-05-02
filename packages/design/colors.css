@@ -12,6 +12,17 @@
 	--color-on-danger: #ffffff;
 	--color-selection: rgb(180 213 255 / 60%);
 	--color-code: rgb(0 0 0 / 4%);
+	--theme-transition:
+		background-color var(--duration-slow) var(--ease-standard),
+		border-color var(--duration-slow) var(--ease-standard),
+		box-shadow var(--duration-slow) var(--ease-standard),
+		color var(--duration-slow) var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--theme-transition: none;
+	}
 }
 
 @media (prefers-color-scheme: dark) {
@@ -35,6 +46,19 @@
 :root,
 body[data-theme='light'] {
 	color-scheme: light;
+	--color-bg: #ffffff;
+	--color-fg: #111111;
+	--color-muted: rgb(0 0 0 / 68%);
+	--color-subtle: rgb(0 0 0 / 50%);
+	--color-panel: rgb(255 255 255 / 94%);
+	--color-border: rgb(0 0 0 / 8%);
+	--color-shadow: rgb(0 0 0 / 6%);
+	--color-hover: rgb(0 0 0 / 3.5%);
+	--color-scrim: rgb(255 255 255 / 78%);
+	--color-danger: #b42318;
+	--color-on-danger: #ffffff;
+	--color-selection: rgb(180 213 255 / 60%);
+	--color-code: rgb(0 0 0 / 4%);
 }
 
 body[data-theme='dark'] {

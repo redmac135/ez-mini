@@ -1,6 +1,6 @@
 import type { Env } from '../types.ts';
 
-export const API_PREFIX = '/mini/v1';
+export const API_PREFIX = '/v1';
 
 export function stripApiPrefix(pathname: string) {
 	return pathname.startsWith(API_PREFIX) ? pathname.slice(API_PREFIX.length) || '/' : pathname;

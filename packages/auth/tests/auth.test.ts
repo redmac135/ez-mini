@@ -5,7 +5,7 @@ import { authFetch, configureAuth, createAuthClient, getSession } from '../src/i
 test('auth client sends credentials and normalizes API URL', async () => {
 	const requests: Request[] = [];
 	const client = createAuthClient({
-		apiUrl: 'https://api.example.test/mini/v1/',
+		apiUrl: 'https://api.example.test/v1/',
 		fetch: async (input, init) => {
 			const request = new Request(input, init);
 			requests.push(request);
@@ -15,7 +15,7 @@ test('auth client sends credentials and normalizes API URL', async () => {
 
 	await client.login('a@example.com');
 
-	assert.equal(requests[0]?.url, 'https://api.example.test/mini/v1/auth/login');
+	assert.equal(requests[0]?.url, 'https://api.example.test/v1/auth/login');
 	assert.equal(requests[0]?.credentials, 'include');
 	assert.equal(requests[0]?.method, 'POST');
 	assert.equal(requests[0]?.headers.get('content-type'), 'application/json');
@@ -33,7 +33,7 @@ test('auth client surfaces API error messages', async () => {
 test('auth client appends logout query params and optional session body', async () => {
 	const requests: Request[] = [];
 	const client = createAuthClient({
-		apiUrl: 'https://api.example.test/mini/v1',
+		apiUrl: 'https://api.example.test/v1',
 		fetch: async (input, init) => {
 			const request = new Request(input, init);
 			requests.push(request);
@@ -43,7 +43,7 @@ test('auth client appends logout query params and optional session body', async 
 
 	await client.logout({ all: true, sessionId: 'session-a' });
 
-	assert.equal(requests[0]?.url, 'https://api.example.test/mini/v1/auth/logout?all=true');
+	assert.equal(requests[0]?.url, 'https://api.example.test/v1/auth/logout?all=true');
 	assert.equal(requests[0]?.method, 'POST');
 	assert.deepEqual(await requests[0]?.json(), { sessionId: 'session-a' });
 });
@@ -51,7 +51,7 @@ test('auth client appends logout query params and optional session body', async 
 test('configured default client is used by package-level helpers', async () => {
 	const requests: Request[] = [];
 	configureAuth({
-		apiUrl: 'https://api.example.test/mini/v1',
+		apiUrl: 'https://api.example.test/v1',
 		fetch: async (input, init) => {
 			const request = new Request(input, init);
 			requests.push(request);
@@ -62,8 +62,8 @@ test('configured default client is used by package-level helpers', async () => {
 	await getSession();
 	await authFetch('/pages');
 
-	assert.equal(requests[0]?.url, 'https://api.example.test/mini/v1/auth/session');
-	assert.equal(requests[1]?.url, 'https://api.example.test/mini/v1/pages');
+	assert.equal(requests[0]?.url, 'https://api.example.test/v1/auth/session');
+	assert.equal(requests[1]?.url, 'https://api.example.test/v1/pages');
 	assert.equal(requests[1]?.credentials, 'include');
 });
 

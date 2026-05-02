@@ -17,10 +17,12 @@
 		width: min(18rem, 82vw);
 		padding: calc(var(--space-8) + var(--space-1)) var(--space-4) var(--space-4);
 		box-sizing: border-box;
-		background: var(--color-panel);
+		background-color: var(--color-panel);
 		border-right: 1px solid var(--color-border);
 		transform: translateX(-100%);
-		transition: transform var(--duration-normal) var(--ease-standard);
+		transition:
+			transform var(--duration-normal) var(--ease-standard),
+			var(--theme-transition);
 	}
 
 	.sidebar.open {

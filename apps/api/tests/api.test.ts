@@ -42,7 +42,7 @@ test.beforeEach(() => {
 
 test('OPTIONS returns CORS preflight headers without creating cookies', async () => {
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/pages', {
+		new Request('https://mini.api.ethanzhao.ca/v1/pages', {
 			method: 'OPTIONS',
 			headers: { origin: 'http://localhost:5173' }
 		}),
@@ -57,7 +57,7 @@ test('OPTIONS returns CORS preflight headers without creating cookies', async ()
 
 test('session creates a device cookie and returns an empty session list', async () => {
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/auth/session'),
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session'),
 		env
 	);
 	const body = (await response.json()) as { activeSession: null; sessions: unknown[] };
@@ -66,6 +66,19 @@ test('session creates a device cookie and returns an empty session list', async 
 	assert.equal(body.activeSession, null);
 	assert.deepEqual(body.sessions, []);
 	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_device_id=/);
+});
+
+test('session includes CORS headers for allowed app origins', async () => {
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+			headers: { origin: 'http://localhost:5173' }
+		}),
+		env
+	);
+
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+	assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
 });
 
 test('session lists device accounts with usernames and active state', async () => {
@@ -86,7 +99,7 @@ test('session lists device accounts with usernames and active state', async () =
 	});
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/auth/session', {
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
 			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
 		}),
 		env
@@ -124,7 +137,7 @@ test('login normalizes email before asking Supabase to send an OTP', async () =>
 	});
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/auth/login', {
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/login', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ email: '  A@Example.COM  ' })
@@ -148,7 +161,7 @@ test('verify creates a backend session and sets device plus active-session cooki
 	});
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/auth/verify', {
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/verify', {
 			method: 'POST',
 			headers: {
 				origin: 'https://blank.ethanzhao.ca',
@@ -198,7 +211,7 @@ test('switch validates ownership, refreshes session, and updates active-session 
 	});
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/auth/switch', {
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/switch', {
 			method: 'POST',
 			headers: {
 				cookie: `ez_mini_device_id=${deviceId}`,
@@ -230,7 +243,7 @@ test('logout all deletes every device session and clears the active cookie', asy
 	});
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/auth/logout?all=true', {
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/logout?all=true', {
 			method: 'POST',
 			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
 		}),
@@ -254,7 +267,7 @@ test('logout can delete an inactive session without clearing the active cookie',
 	mockFetch(async () => Response.json({}));
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/auth/logout', {
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/logout', {
 			method: 'POST',
 			headers: {
 				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
@@ -287,7 +300,7 @@ test('pages list validates since before calling Supabase REST', async () => {
 	});
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/pages?since=not-a-date', {
+		new Request('https://mini.api.ethanzhao.ca/v1/pages?since=not-a-date', {
 			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
 		}),
 		env
@@ -333,7 +346,7 @@ test('pages upsert scopes payloads to the active user', async () => {
 	});
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/pages', {
+		new Request('https://mini.api.ethanzhao.ca/v1/pages', {
 			method: 'POST',
 			headers: {
 				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
@@ -377,7 +390,7 @@ test('settings patch accepts null active page ids and upserts by active user', a
 	});
 
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/settings', {
+		new Request('https://mini.api.ethanzhao.ca/v1/settings', {
 			method: 'PATCH',
 			headers: {
 				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
@@ -394,7 +407,7 @@ test('settings patch accepts null active page ids and upserts by active user', a
 
 test('unknown routes return a JSON 404', async () => {
 	const response = await handleRequest(
-		new Request('https://api.ethanzhao.ca/mini/v1/unknown'),
+		new Request('https://mini.api.ethanzhao.ca/v1/unknown'),
 		env
 	);
 

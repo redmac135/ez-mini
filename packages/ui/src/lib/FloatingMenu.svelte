@@ -19,7 +19,7 @@
 		z-index: 2;
 		min-width: 8.5rem;
 		padding: var(--space-1);
-		background: var(--color-panel);
+		background-color: var(--color-panel);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-2);
 		box-shadow: 0 12px 30px var(--color-shadow);
@@ -27,6 +27,7 @@
 		flex-direction: column;
 		font-size: var(--font-size-sm);
 		color: var(--color-fg);
+		transition: var(--theme-transition);
 	}
 
 	.floating-menu :global(button) {
@@ -34,10 +35,11 @@
 		text-align: left;
 		border: 0;
 		border-radius: var(--radius-1);
-		background: transparent;
+		background-color: transparent;
 		font: inherit;
 		color: inherit;
 		cursor: pointer;
+		transition: var(--theme-transition);
 	}
 
 	.floating-menu :global(.menu-stat) {

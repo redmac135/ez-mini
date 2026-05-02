@@ -19,7 +19,7 @@ pnpm dev
 To enable API-backed auth and sync, create `.env` from `.env.example`:
 
 ```sh
-PUBLIC_EZ_API_URL=http://localhost:8787/mini/v1
+PUBLIC_EZ_API_URL=http://localhost:8787/v1
 ```
 
 Without `PUBLIC_EZ_API_URL`, the app runs without the remote API client.

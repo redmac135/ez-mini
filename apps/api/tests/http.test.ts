@@ -39,8 +39,8 @@ test('CORS only reflects configured origins', () => {
 });
 
 test('API prefix stripping is stable for root and nested paths', () => {
-	assert.equal(stripApiPrefix('/mini/v1'), '/');
-	assert.equal(stripApiPrefix('/mini/v1/pages/page-a'), '/pages/page-a');
+	assert.equal(stripApiPrefix('/v1'), '/');
+	assert.equal(stripApiPrefix('/v1/pages/page-a'), '/pages/page-a');
 	assert.equal(stripApiPrefix('/health'), '/health');
 });
 

@@ -10,7 +10,8 @@
 	.app-shell {
 		position: relative;
 		min-height: 100vh;
-		background: var(--color-bg);
+		background-color: var(--color-bg);
 		color: var(--color-fg);
+		transition: var(--theme-transition);
 	}
 </style>

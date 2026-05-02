@@ -2,30 +2,26 @@
 
 Cloudflare Worker API for ez-mini auth sessions and page sync.
 
-Routes are served under `/mini/v1`.
+Routes are served under `/v1`.
 
 ## Development
 
-Create local Worker variables:
-
-```sh
-cp .dev.vars.example .dev.vars
-```
-
-Then run from the repo root:
+Run from the repo root:
 
 ```sh
 pnpm --filter @ez/apps-api dev
 ```
 
+The dev script starts Wrangler with the `development` environment from `wrangler.toml`,
+which sets localhost CORS for the blank app.
+
 The blank app expects this local URL:
 
 ```sh
-PUBLIC_EZ_API_URL=http://localhost:8787/mini/v1
+PUBLIC_EZ_API_URL=http://localhost:8787/v1
 ```
 
-Production-style values are documented in `.env.example`. Wrangler local development uses
-`.dev.vars.example` because `.dev.vars` is the file Wrangler loads.
+Production-style values are documented in `.env.example`.
 
 ## Required Variables
 

@@ -9,9 +9,19 @@ SUPABASE_URL = "https://nvotqrfyxscapwbqbblv.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RHdoQj-QOBHxKzucL97MMQ_fzxrTl1n"
 CORS_ORIGINS = "https://blank.ethanzhao.ca"
 
+[env.development.vars]
+SUPABASE_URL = "https://nvotqrfyxscapwbqbblv.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RHdoQj-QOBHxKzucL97MMQ_fzxrTl1n"
+CORS_ORIGINS = "http://localhost:5173"
+
+[[env.development.kv_namespaces]]
+binding = "SESSIONS"
+id = "7adae932d172450a87b4157b40a58c5f"
+preview_id = "0a2b6ee740ed46bcae3beb226d77cc3e"
+
 [[routes]]
-pattern = "api.ethanzhao.ca/mini/v1/*"
-zone_name = "ethanzhao.ca"
+pattern = "mini.api.ethanzhao.ca"
+custom_domain = true
 
 [observability]
 enabled = false

@@ -114,12 +114,13 @@
 		aspect-ratio: 1;
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-2);
-		background: transparent;
+		background-color: transparent;
 		color: inherit;
 		font: inherit;
 		font-size: var(--font-size-otp);
 		text-align: center;
 		box-sizing: border-box;
+		transition: var(--theme-transition);
 	}
 
 	.otp-digit:focus {
