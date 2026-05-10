@@ -18,3 +18,18 @@ export function getSettledAppSyncStatus(
 
 	return hasUnsyncedRealPages(session) ? 'saved_locally' : 'synced';
 }
+
+export function getSyncStatusLabel(status: AppSyncStatus) {
+	switch (status) {
+		case 'offline':
+			return 'Offline';
+		case 'syncing':
+			return 'Syncing…';
+		case 'synced':
+			return 'Synced';
+		case 'saved_locally':
+			return 'Saved locally';
+		case 'error':
+			return 'Sync error';
+	}
+}

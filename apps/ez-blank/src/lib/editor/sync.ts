@@ -2,6 +2,7 @@ import { createSyncEngine } from '@ez/sync';
 import {
 	createPage,
 	ensureValidActivePage,
+	sortPagesByRecency,
 	type EditorPage,
 	type EditorSession
 } from './core/session';
@@ -91,7 +92,7 @@ export function reconcileSyncResult(
 	}
 
 	return ensureValidActivePage({
-		pages: sortPages(mergedPages),
+		pages: sortPagesByRecency(mergedPages),
 		activePageId: currentSession.activePageId
 	});
 }
@@ -117,9 +118,10 @@ export async function syncUserPages(
 		const engine = createSyncEngine<EditorPage, RemotePageRow>({
 			pull: (since) => api.listPages({ since }),
 			push: (page) => api.upsertPage(page),
-			getLocal: async () => sortPages(localSession.pages.filter((page) => page.userId === userId)),
+			getLocal: async () =>
+				sortPagesByRecency(localSession.pages.filter((page) => page.userId === userId)),
 			saveLocal: async (pages) => {
-				savedPages = sortPages(pages);
+				savedPages = sortPagesByRecency(pages);
 			},
 			toRemote: (page) => toRemoteShape({ ...page, userId }),
 			toLocal: (remote, existing) => toSyncedLocalPage(remote, existing ?? null),
@@ -322,18 +324,4 @@ function buildConflictSuffix(now: Date) {
 	}).format(now);
 
 	return `(Local conflict ${label})`;
-}
-
-function sortPages(pages: EditorPage[]) {
-	return [...pages].sort((left, right) => {
-		if (left.updatedAt !== right.updatedAt) {
-			return right.updatedAt.localeCompare(left.updatedAt);
-		}
-
-		if (left.createdAt !== right.createdAt) {
-			return right.createdAt.localeCompare(left.createdAt);
-		}
-
-		return left.id.localeCompare(right.id);
-	});
 }

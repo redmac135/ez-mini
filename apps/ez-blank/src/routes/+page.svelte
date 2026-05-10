@@ -29,6 +29,7 @@
 	} from '@ez/ui';
 	import {
 		getSettledAppSyncStatus as deriveSettledAppSyncStatus,
+		getSyncStatusLabel,
 		type AppSyncStatus
 	} from '$lib/editor/app-sync-status';
 	import { createActivePageController } from '$lib/editor/active-page-controller';
@@ -52,6 +53,11 @@
 	} from '$lib/editor/persistence/page-broadcast';
 	import { mergeEditorSelections } from '$lib/editor/persistence/session-selection';
 	import { AuthBroadcastChannel } from '$lib/auth/auth-broadcast';
+	import {
+		buildCountOptions,
+		type CountDisplayMode,
+		type MobileCountVisibilityOption
+	} from '$lib/editor/core/metrics';
 	import {
 		cycleCountVisibility,
 		DEFAULT_PREFERENCES,
@@ -85,8 +91,6 @@
 	let editingPageId: string | null = null;
 	let deletePageId: string | null = null;
 	let titleDraft = '';
-	type CountDisplayMode = 'words' | 'characters' | 'paragraphs' | 'lines';
-	type MobileCountVisibilityOption = 'shown' | 'hidden';
 	let countDisplayMode: CountDisplayMode = 'words';
 	let chromeVisible = true;
 	let isMobileViewport = false;
@@ -175,16 +179,7 @@
 	$: visiblePages = session.pages.filter((page) => page.deletedAt === null);
 	$: activeText = activePage.content;
 	$: hasDocumentContent = activeText.length > 0;
-	$: wordCount = getWordCount(activeText);
-	$: characterCount = activeText.length;
-	$: paragraphCount = getParagraphCount(activeText);
-	$: lineCount = getLineCount(activeText);
-	$: countOptions = [
-		{ id: 'words', label: pluralize(wordCount, 'word') },
-		{ id: 'characters', label: pluralize(characterCount, 'character') },
-		{ id: 'paragraphs', label: pluralize(paragraphCount, 'paragraph') },
-		{ id: 'lines', label: pluralize(lineCount, 'line') }
-	] as const;
+	$: countOptions = buildCountOptions(activeText);
 	$: mobileCountVisibility = (
 		preferences.countVisibility === 'hidden' ? 'hidden' : 'shown'
 	) as MobileCountVisibilityOption;
@@ -697,28 +692,8 @@
 		loginModalOpen = false;
 	}
 
-	function getWordCount(value: string) {
-		const trimmed = value.trim();
-		return trimmed ? trimmed.split(/\s+/).length : 0;
-	}
-
-	function pluralize(count: number, label: string) {
-		return `${count} ${label}${count === 1 ? '' : 's'}`;
-	}
-
 	function getAccountInitial(account: AuthSessionSummary) {
 		return account.username.trim().slice(0, 1).toUpperCase() || '?';
-	}
-
-	function getParagraphCount(value: string) {
-		const trimmed = value.trim();
-		if (!trimmed) return 0;
-		return trimmed.split(/\n\s*\n+/).filter(Boolean).length;
-	}
-
-	function getLineCount(value: string) {
-		if (!value) return 0;
-		return value.split('\n').length;
 	}
 
 	function clearHideChromeTimeout() {
@@ -1408,21 +1383,6 @@
 		appSyncStatus = getSettledAppSyncStatus(session);
 	}
 
-	function getSyncStatusLabel(status: AppSyncStatus) {
-		switch (status) {
-			case 'offline':
-				return 'Offline';
-			case 'syncing':
-				return 'Syncing…';
-			case 'synced':
-				return 'Synced';
-			case 'saved_locally':
-				return 'Saved locally';
-			case 'error':
-				return 'Sync error';
-		}
-	}
-
 	function scheduleDebouncedSync() {
 		if (!authUser || !loaded) {
 			return;
@@ -1517,121 +1477,128 @@
 />
 
 <AppShell>
-	{#if loaded && (chromeVisible || drawerOpen)}
-		<button
-			class="drawer-toggle"
-			type="button"
-			aria-label={drawerOpen ? 'Close pages' : 'Open pages'}
-			aria-expanded={drawerOpen}
-			on:click={() => (drawerOpen = !drawerOpen)}
-		>
-			<Icon name={drawerOpen ? 'x-mark' : 'bars-3'} />
-		</button>
-	{/if}
-
-	<Navbar visible={loaded && chromeVisible && !drawerOpen}>
-		<div class="settings-control">
+	<div class="top-chrome">
+		{#if loaded && (chromeVisible || drawerOpen)}
 			<button
-				bind:this={settingsButton}
-				class="settings-toggle"
+				class="drawer-toggle"
 				type="button"
-				aria-haspopup="menu"
-				aria-expanded={settingsMenuOpen}
-				aria-label="Open editor settings"
-				on:click={toggleSettingsMenu}
+				aria-label={drawerOpen ? 'Close pages' : 'Open pages'}
+				aria-expanded={drawerOpen}
+				on:click={() => (drawerOpen = !drawerOpen)}
 			>
-				<Icon name="ellipsis-horizontal" />
+				<Icon name={drawerOpen ? 'x-mark' : 'bars-3'} />
 			</button>
-			{#if settingsMenuOpen}
-				<FloatingMenu label="Editor settings" verticalOffset="var(--space-2)">
-					<button type="button" on:click={toggleThemeMode}>
-						{preferences.themeMode === 'dark' ? 'Light mode' : 'Dark mode'}
-					</button>
-					<button type="button" on:click={toggleSpellcheck}>
-						{preferences.spellcheckEnabled ? 'Spellcheck on' : 'Spellcheck off'}
-					</button>
+		{/if}
+
+		<div
+			class:count-visible={countVisible}
+			class:docked-right={countDockedRight}
+			class="count-shell"
+		>
+			{#if countVisibleInChrome}
+				<div class="count-control">
 					<button
+						bind:this={countButton}
+						class="count-toggle"
 						type="button"
-						aria-label={`Cycle word count visibility, currently ${getCountVisibilityLabel(preferences.countVisibility).toLowerCase()}`}
-						on:click={cycleWordCountVisibility}
+						aria-haspopup="menu"
+						aria-expanded={countMenuOpen}
+						aria-label={`Open count menu, currently showing ${currentCountLabel}`}
+						tabindex={countVisible ? 0 : -1}
+						on:click={toggleCountMenu}
 					>
-						{isMobileViewport
-							? preferences.countVisibility === 'hidden'
-								? 'Count hidden'
-								: 'Count shown'
-							: getCountVisibilityLabel(preferences.countVisibility)}
+						{currentCountLabel}
 					</button>
-					{#if authUser}
-						<button
-							type="button"
-							disabled={syncBusy || appSyncStatus === 'offline'}
-							on:click={() => requestImmediateSync({ showSuccessNotice: true })}
-						>
-							{syncStatusLabel}
-						</button>
-						<button type="button" disabled={authBusy || syncBusy} on:click={switchAccount}>
-							Switch Account
-						</button>
-						<button type="button" disabled={authBusy || syncBusy} on:click={logoutCurrentAccount}>
-							Logout
-						</button>
-						<div class="menu-stat">{authUser.email ?? authUser.userId}</div>
-					{:else}
-						<button type="button" disabled={authBusy} on:click={openLoginOrAccountList}>
-							Login
-						</button>
+					{#if countMenuOpen}
+						<FloatingMenu label="Count display options" verticalOffset="var(--space-2)">
+							{#if isMobileViewport}
+								{#each MOBILE_COUNT_OPTIONS as option (option.id)}
+									<button
+										type="button"
+										role="menuitemradio"
+										aria-checked={option.id === mobileCountVisibility}
+										on:click={() => selectMobileCountVisibility(option.id)}
+									>
+										{option.label}
+									</button>
+								{/each}
+							{:else}
+								{#each countOptions as option (option.id)}
+									<button
+										type="button"
+										role="menuitemradio"
+										aria-checked={option.id === countDisplayMode}
+										on:click={() => selectCountDisplay(option.id)}
+									>
+										{option.label}
+									</button>
+								{/each}
+							{/if}
+						</FloatingMenu>
 					{/if}
-					{#if authMessage && !loginModalOpen}
-						<div class="menu-stat">{authMessage}</div>
-					{/if}
-				</FloatingMenu>
+				</div>
 			{/if}
 		</div>
-	</Navbar>
 
-	<div class:count-visible={countVisible} class:docked-right={countDockedRight} class="count-shell">
-		{#if countVisibleInChrome}
-			<div class="count-control">
+		<Navbar visible={loaded && chromeVisible && !drawerOpen}>
+			<div class="settings-control">
 				<button
-					bind:this={countButton}
-					class="count-toggle"
+					bind:this={settingsButton}
+					class="settings-toggle"
 					type="button"
 					aria-haspopup="menu"
-					aria-expanded={countMenuOpen}
-					aria-label={`Open count menu, currently showing ${currentCountLabel}`}
-					on:click={toggleCountMenu}
+					aria-expanded={settingsMenuOpen}
+					aria-label="Open editor settings"
+					on:click={toggleSettingsMenu}
 				>
-					{currentCountLabel}
+					<Icon name="ellipsis-horizontal" />
 				</button>
-				{#if countMenuOpen}
-					<FloatingMenu label="Count display options" verticalOffset="var(--space-2)">
-						{#if isMobileViewport}
-							{#each MOBILE_COUNT_OPTIONS as option (option.id)}
-								<button
-									type="button"
-									role="menuitemradio"
-									aria-checked={option.id === mobileCountVisibility}
-									on:click={() => selectMobileCountVisibility(option.id)}
-								>
-									{option.label}
-								</button>
-							{/each}
+				{#if settingsMenuOpen}
+					<FloatingMenu label="Editor settings" verticalOffset="var(--space-2)">
+						<button type="button" on:click={toggleThemeMode}>
+							{preferences.themeMode === 'dark' ? 'Light mode' : 'Dark mode'}
+						</button>
+						<button type="button" on:click={toggleSpellcheck}>
+							{preferences.spellcheckEnabled ? 'Spellcheck on' : 'Spellcheck off'}
+						</button>
+						<button
+							type="button"
+							aria-label={`Cycle word count visibility, currently ${getCountVisibilityLabel(preferences.countVisibility).toLowerCase()}`}
+							on:click={cycleWordCountVisibility}
+						>
+							{isMobileViewport
+								? preferences.countVisibility === 'hidden'
+									? 'Count hidden'
+									: 'Count shown'
+								: getCountVisibilityLabel(preferences.countVisibility)}
+						</button>
+						{#if authUser}
+							<button
+								type="button"
+								disabled={syncBusy || appSyncStatus === 'offline'}
+								on:click={() => requestImmediateSync({ showSuccessNotice: true })}
+							>
+								{syncStatusLabel}
+							</button>
+							<button type="button" disabled={authBusy || syncBusy} on:click={switchAccount}>
+								Switch Account
+							</button>
+							<button type="button" disabled={authBusy || syncBusy} on:click={logoutCurrentAccount}>
+								Logout
+							</button>
+							<div class="menu-stat">{authUser.email ?? authUser.userId}</div>
 						{:else}
-							{#each countOptions as option (option.id)}
-								<button
-									type="button"
-									role="menuitemradio"
-									aria-checked={option.id === countDisplayMode}
-									on:click={() => selectCountDisplay(option.id)}
-								>
-									{option.label}
-								</button>
-							{/each}
+							<button type="button" disabled={authBusy} on:click={openLoginOrAccountList}>
+								Login
+							</button>
+						{/if}
+						{#if authMessage && !loginModalOpen}
+							<div class="menu-stat">{authMessage}</div>
 						{/if}
 					</FloatingMenu>
 				{/if}
 			</div>
-		{/if}
+		</Navbar>
 	</div>
 
 	{#if drawerOpen}
@@ -1786,7 +1753,13 @@
 		</Modal>
 	{/if}
 
-	<Sidebar open={drawerOpen} label="Pages" mobileFullScreen>
+	<Sidebar
+		open={drawerOpen}
+		label="Pages"
+		mobileFullScreen
+		ariaHidden={!drawerOpen}
+		inert={!drawerOpen}
+	>
 		<div class="drawer-header">
 			<h1>Pages</h1>
 			<button type="button" class="add-page" aria-label="New page" on:click={addPage}>+</button>
@@ -1883,6 +1856,25 @@
 </AppShell>
 
 <style>
+	.top-chrome {
+		position: fixed;
+		top: 0;
+		right: 0;
+		left: 0;
+		z-index: 30;
+		pointer-events: none;
+	}
+
+	.top-chrome .drawer-toggle,
+	.top-chrome .count-shell {
+		pointer-events: auto;
+	}
+
+	.top-chrome :global(.navbar-shell),
+	.top-chrome :global(.navbar) {
+		pointer-events: none;
+	}
+
 	:global(body) {
 		margin: 0;
 		background-color: var(--color-bg);
@@ -1943,6 +1935,10 @@
 		right: 0;
 	}
 
+	.settings-control {
+		pointer-events: auto;
+	}
+
 	.count-control {
 		position: relative;
 		min-width: 0;
@@ -1984,7 +1980,7 @@
 		min-height: 2rem;
 		max-width: min(12rem, calc(100vw - 6rem));
 		padding: var(--space-2) var(--space-3);
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-1);
 		font: inherit;
 		font-size: var(--font-size-sm);
 		letter-spacing: var(--letter-spacing-count);
@@ -2007,15 +2003,15 @@
 	}
 
 	.drawer-toggle {
-		position: fixed;
+		position: absolute;
 		top: max(var(--space-3), env(safe-area-inset-top));
 		left: max(var(--space-3), env(safe-area-inset-left));
-		z-index: 30;
+		z-index: 22;
 		width: 2rem;
 		height: 2rem;
 		padding: 0;
 		border: 0;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-1);
 		background: transparent;
 		color: inherit;
 		cursor: pointer;
@@ -2034,11 +2030,20 @@
 		width: 2rem;
 		height: 2rem;
 		padding: 0;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-1);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		gap: var(--space-1);
+	}
+
+	.drawer-toggle:hover,
+	.drawer-toggle:focus-visible,
+	.count-toggle:hover,
+	.count-toggle:focus-visible,
+	.settings-toggle:hover,
+	.settings-toggle:focus-visible {
+		background-color: var(--color-hover);
 	}
 
 	.settings-toggle :global(svg) {
@@ -2207,6 +2212,7 @@
 		width: 1.75rem;
 		height: 1.75rem;
 		padding: 0;
+		border-radius: var(--radius-1);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -2259,7 +2265,14 @@
 	}
 
 	.menu-toggle {
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-1);
+	}
+
+	.add-page:hover,
+	.add-page:focus-visible,
+	.menu-toggle:hover,
+	.menu-toggle:focus-visible {
+		background-color: var(--color-hover);
 	}
 
 	.menu-toggle :global(svg) {

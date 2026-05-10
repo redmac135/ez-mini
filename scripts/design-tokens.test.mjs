@@ -61,6 +61,29 @@ test('service worker serves cached app shell before remote navigation fetches', 
 	assert.equal(serviceWorker.includes('fetch(event.request).catch'), false);
 });
 
+test('top chrome controls share one fixed container to avoid overscroll drift', async () => {
+	const page = await read('apps/ez-blank/src/routes/+page.svelte');
+
+	assert.match(page, /\.top-chrome\s*\{\s*position:\s*fixed;/);
+	assert.match(page, /\.drawer-toggle\s*\{\s*position:\s*absolute;/);
+	assert.match(
+		page,
+		/\.top-chrome :global\(\.navbar-shell\),\s*\n\s*\.top-chrome :global\(\.navbar\)\s*\{\s*\n\s*pointer-events: none;/
+	);
+	assert.equal(page.includes('.drawer-toggle {\n\t\tposition: fixed;'), false);
+});
+
+test('tab order keeps count before settings and disables hidden drawer tab stops', async () => {
+	const page = await read('apps/ez-blank/src/routes/+page.svelte');
+
+	assert.equal(page.indexOf('class="count-shell"') < page.indexOf('<Navbar visible='), true);
+	assert.match(page, /tabindex=\{countVisible \? 0 : -1\}/);
+	assert.match(
+		page,
+		/<Sidebar[\s\S]*ariaHidden=\{!drawerOpen\}[\s\S]*inert=\{!drawerOpen\}[\s\S]*>/
+	);
+});
+
 test('Worker Wrangler config disables generated preview and workers.dev URLs', async () => {
 	const apiWrangler = await read('apps/api/wrangler.toml');
 
