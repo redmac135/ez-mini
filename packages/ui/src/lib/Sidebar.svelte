@@ -2,9 +2,18 @@
 	export let open = false;
 	export let label = 'Navigation';
 	export let mobileFullScreen = false;
+	export let inert = false;
+	export let ariaHidden = false;
 </script>
 
-<aside class:open class:mobileFullScreen class="sidebar" aria-label={label}>
+<aside
+	class:open
+	class:mobileFullScreen
+	class="sidebar"
+	aria-label={label}
+	aria-hidden={ariaHidden}
+	{inert}
+>
 	<slot />
 </aside>
 
