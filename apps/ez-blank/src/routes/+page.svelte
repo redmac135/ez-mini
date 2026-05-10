@@ -2,6 +2,7 @@
 	import { browser } from '$app/environment';
 	import type { AuthSessionSummary } from '@ez/auth';
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import { SvelteMap } from 'svelte/reactivity';
 	import Editor from '$lib/Editor.svelte';
 	import {
@@ -120,6 +121,8 @@
 	let titleInput: HTMLInputElement | null = null;
 	let countButton: HTMLButtonElement | null = null;
 	let settingsButton: HTMLButtonElement | null = null;
+	let drawerToggleButton: HTMLButtonElement | null = null;
+	let workspaceSection: HTMLElement | null = null;
 
 	let countMenuOpen = false;
 	let settingsMenuOpen = false;
@@ -887,22 +890,73 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
+		const isCtrlShiftShortcut = event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey;
+
+		if (isCtrlShiftShortcut && event.key.toLowerCase() === 'n') {
+			event.preventDefault();
+			addPage();
+			return;
+		}
+
+		if (isCtrlShiftShortcut && event.key.toLowerCase() === 's') {
+			event.preventDefault();
+			requestImmediateSync({ showSuccessNotice: true });
+			return;
+		}
+
 		if (event.key !== 'Escape') return;
+
+		let handled = false;
 
 		if (countMenuOpen) {
 			countMenuOpen = false;
 			scheduleChromeHide();
+			handled = true;
 		}
 
 		if (settingsMenuOpen) {
 			settingsMenuOpen = false;
 			scheduleChromeHide();
+			handled = true;
 		}
 
 		if (drawerOpen) {
 			drawerOpen = false;
 			menuPageId = null;
+			handled = true;
 		}
+
+		if (focusAwayFromEditor()) {
+			handled = true;
+		}
+
+		if (handled) {
+			event.preventDefault();
+		}
+	}
+
+	function focusAwayFromEditor() {
+		if (!browser) {
+			return false;
+		}
+
+		const activeElement = document.activeElement;
+		if (!(activeElement instanceof HTMLElement) || !activeElement.closest('.editable')) {
+			return false;
+		}
+
+		activeElement.blur();
+		const fallbackTarget =
+			drawerToggleButton ??
+			(drawerOpen ? document.querySelector('.page-tab') : null) ??
+			settingsButton ??
+			countButton ??
+			workspaceSection;
+		if (fallbackTarget instanceof HTMLElement) {
+			fallbackTarget.focus();
+		}
+
+		return true;
 	}
 
 	function handleDocumentVisibilityChange() {
@@ -1166,10 +1220,6 @@
 					details: { requestId }
 				});
 			}
-			if (loadedAuthState.pulledRemoteChanges) {
-				showStatusNotice('Pages updated.');
-			}
-
 			pendingAnonymousImportSession = loadedAuthState.pendingAnonymousImportSession;
 			importPromptOpen = loadedAuthState.importPromptOpen;
 			loginModalOpen = false;
@@ -1427,16 +1477,18 @@
 				source: 'executeSync:result'
 			});
 
-			if (result.conflictCount > 0) {
-				showStatusNotice(
-					result.conflictCount === 1
-						? 'Sync complete with 1 conflict fork'
-						: `Sync complete with ${result.conflictCount} conflict forks`
-				);
-			} else if (result.pulledCount > 0) {
-				showStatusNotice('Pages updated.');
-			} else if (options.showSuccessNotice && (result.pushedCount > 0 || result.pulledCount > 0)) {
-				showStatusNotice('Sync complete');
+			if (options.showSuccessNotice) {
+				if (result.conflictCount > 0) {
+					showStatusNotice(
+						result.conflictCount === 1
+							? 'Sync complete with 1 conflict fork'
+							: `Sync complete with ${result.conflictCount} conflict forks`
+					);
+				} else if (result.pushedCount === 0 && result.pulledCount === 0) {
+					showStatusNotice('Sync complete (no changes)');
+				} else {
+					showStatusNotice('Sync complete');
+				}
 			}
 			appSyncStatus = getSettledAppSyncStatus(session);
 		} catch (error) {
@@ -1480,6 +1532,7 @@
 	<div class="top-chrome">
 		{#if loaded && (chromeVisible || drawerOpen)}
 			<button
+				bind:this={drawerToggleButton}
 				class="drawer-toggle"
 				type="button"
 				aria-label={drawerOpen ? 'Close pages' : 'Open pages'}
@@ -1496,7 +1549,7 @@
 			class="count-shell"
 		>
 			{#if countVisibleInChrome}
-				<div class="count-control">
+				<div class="count-control" transition:fade={{ duration: 160 }}>
 					<button
 						bind:this={countButton}
 						class="count-toggle"
@@ -1576,7 +1629,7 @@
 							<button
 								type="button"
 								disabled={syncBusy || appSyncStatus === 'offline'}
-								on:click={() => requestImmediateSync({ showSuccessNotice: true })}
+								on:click={() => requestImmediateSync()}
 							>
 								{syncStatusLabel}
 							</button>
@@ -1826,7 +1879,7 @@
 		</nav>
 	</Sidebar>
 
-	<section class="workspace">
+	<section class="workspace" bind:this={workspaceSection} tabindex="-1">
 		{#if loaded}
 			{#key activePage.id}
 				<Editor
