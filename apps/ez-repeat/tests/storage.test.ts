@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RepeatStorage } from '../src/lib/repeat/storage.ts';
 
-test('memory storage seeds mock data and persists session mutations', async () => {
+test('memory storage persists session mutations', async () => {
 	RepeatStorage.resetForTests();
-	await RepeatStorage.resetWithMockData();
-	const seeded = await RepeatStorage.loadSnapshot();
+	const seeded = await RepeatStorage.loadSnapshot('anonymous');
 
-	assert.ok(seeded.habits.length > 0);
+	assert.deepEqual(seeded, { habits: [], completions: [] });
 
 	await RepeatStorage.addHabit({
 		id: 'habit-test',
@@ -16,22 +15,39 @@ test('memory storage seeds mock data and persists session mutations', async () =
 		targetCount: 1,
 		recurrence: { type: 'days', interval: 1 },
 		createdAt: '2026-05-12T00:00:00.000',
+		updatedAt: '2026-05-12T00:00:00.000',
 		archivedAt: null,
-		deletedAt: null
+		deletedAt: null,
+		replacesHabitId: null,
+		lastSyncedAt: null
 	});
-	await RepeatStorage.addCompletion({
-		id: 'completion-test',
-		userId: 'anonymous',
-		habitId: 'habit-test',
-		completedAt: '2026-05-12'
-	});
+	await RepeatStorage.incrementCompletion(
+		{
+			userId: 'anonymous',
+			habitId: 'habit-test',
+			completedOn: '2026-05-12',
+			count: 1,
+			createdAt: '2026-05-12T00:00:00.000',
+			updatedAt: '2026-05-12T00:00:00.000',
+			lastSyncedAt: null
+		},
+		1
+	);
 
-	const updated = await RepeatStorage.loadSnapshot();
+	const updated = await RepeatStorage.loadSnapshot('anonymous');
 	assert.equal(updated.habits.some((habit) => habit.id === 'habit-test'), true);
-	assert.equal(updated.completions.some((completion) => completion.id === 'completion-test'), true);
+	assert.equal(
+		updated.completions.some(
+			(completion) =>
+				completion.habitId === 'habit-test' && completion.completedOn === '2026-05-12'
+		),
+		true
+	);
 
-	await RepeatStorage.deleteHabit('habit-test');
-	const deleted = await RepeatStorage.loadSnapshot();
-	assert.equal(deleted.habits.some((habit) => habit.id === 'habit-test'), false);
-	assert.equal(deleted.completions.some((completion) => completion.habitId === 'habit-test'), false);
+	await RepeatStorage.deleteHabit('habit-test', '2026-05-13T00:00:00.000');
+	const deleted = await RepeatStorage.loadSnapshot('anonymous');
+	assert.equal(
+		deleted.habits.some((habit) => habit.id === 'habit-test' && habit.deletedAt !== null),
+		true
+	);
 });

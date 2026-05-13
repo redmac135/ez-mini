@@ -53,3 +53,25 @@ export interface RemotePageRow {
 	updated_at: string;
 	deleted_at: string | null;
 }
+
+export interface RemoteRepeatHabitRow {
+	id: string;
+	user_id: string;
+	title: string;
+	target_count: number;
+	recurrence: unknown;
+	replaces_habit_id: string | null;
+	archived_at: string | null;
+	deleted_at: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface RemoteRepeatCompletionRow {
+	user_id: string;
+	habit_id: string;
+	completed_on: string;
+	count: number;
+	created_at: string;
+	updated_at: string;
+}

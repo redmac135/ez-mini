@@ -165,9 +165,15 @@ importers:
 
   apps/ez-repeat:
     dependencies:
+      '@ez/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@ez/design':
         specifier: workspace:*
         version: link:../../packages/design
+      '@ez/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       '@ez/ui':
         specifier: workspace:*
         version: link:../../packages/ui

@@ -65,9 +65,9 @@ export function countCompletionsForHabit(
 	return completions.filter(
 		(completion) =>
 			completion.habitId === habit.id &&
-			completion.completedAt >= window.startDate &&
-			completion.completedAt <= window.endDate
-	).length;
+			completion.completedOn >= window.startDate &&
+			completion.completedOn <= window.endDate
+	).reduce((sum, completion) => sum + Math.max(0, completion.count), 0);
 }
 
 export function buildHabitProgress(

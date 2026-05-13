@@ -104,13 +104,16 @@
 	.habit-shell {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 0;
-		gap: var(--space-2);
+		gap: 0;
 		align-items: center;
-		transition: grid-template-columns var(--duration-normal) var(--ease-standard);
+		transition:
+			grid-template-columns var(--duration-normal) var(--ease-standard),
+			gap var(--duration-normal) var(--ease-standard);
 	}
 
 	.habit-shell.editing {
 		grid-template-columns: minmax(0, 1fr) 6rem;
+		gap: var(--space-2);
 	}
 
 	.habit-row {

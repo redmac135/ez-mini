@@ -1,8 +1,11 @@
 import { derived, get, writable } from 'svelte/store';
 import { addDays, createTimestampForDate, getTodayDateKey } from './dates';
-import { getCompletionWindow } from './recurrence';
 import { buildHabitProgress, getCompletionScore } from './recurrence';
-import { RepeatStorage } from './storage';
+import {
+	REPEAT_STORAGE_CHANGED_EVENT,
+	REPEAT_STORAGE_CHANNEL_NAME,
+	RepeatStorage
+} from './storage';
 import type { Habit, HabitProgress, ParsedHabitInput, RepeatSnapshot } from './types';
 import { ANONYMOUS_USER_ID } from './types';
 
@@ -35,6 +38,7 @@ const DEFAULT_STATE: RepeatState = {
 
 export function createRepeatController() {
 	const state = writable<RepeatState>(DEFAULT_STATE);
+	let activeUserId = ANONYMOUS_USER_ID;
 	const view = derived(state, ($state): RepeatViewModel => {
 		const progress = buildHabitProgress(
 			$state.snapshot.habits,
@@ -50,11 +54,11 @@ export function createRepeatController() {
 		};
 	});
 
-	async function load() {
+	async function load(userId = activeUserId) {
+		activeUserId = userId;
 		const todayDate = getTodayDateKey();
-		await RepeatStorage.resetWithMockData();
 		const [snapshot, savedThemeMode] = await Promise.all([
-			RepeatStorage.loadSnapshot(),
+			RepeatStorage.loadSnapshot(activeUserId),
 			RepeatStorage.getSetting<ThemeMode>('themeMode')
 		]);
 		state.set({
@@ -67,8 +71,13 @@ export function createRepeatController() {
 	}
 
 	async function refresh() {
-		const snapshot = await RepeatStorage.loadSnapshot();
+		const snapshot = await RepeatStorage.loadSnapshot(activeUserId);
 		state.update((current) => ({ ...current, snapshot }));
+	}
+
+	async function setUserId(userId: string | null) {
+		activeUserId = userId ?? ANONYMOUS_USER_ID;
+		await load(activeUserId);
 	}
 
 	function selectDate(dateKey: string) {
@@ -99,21 +108,30 @@ export function createRepeatController() {
 	async function editHabit(habitId: string, parsed: ParsedHabitInput) {
 		const current = get(state);
 		const archivedAt = createTimestampForDate(current.selectedDate);
-		await RepeatStorage.archiveHabit(habitId, archivedAt);
-		await RepeatStorage.addHabit(createHabitRecord(parsed, current.selectedDate));
+		await RepeatStorage.archiveHabit(habitId, archivedAt, new Date().toISOString());
+		await RepeatStorage.addHabit(createHabitRecord(parsed, current.selectedDate, habitId));
 		await refresh();
 	}
 
-	function createHabitRecord(parsed: ParsedHabitInput, dateKey: string): Habit {
+	function createHabitRecord(
+		parsed: ParsedHabitInput,
+		dateKey: string,
+		replacesHabitId: string | null = null
+	): Habit {
+		const createdAt = createTimestampForDate(dateKey);
+		const updatedAt = new Date().toISOString();
 		return {
 			id: createId('habit'),
-			userId: ANONYMOUS_USER_ID,
+			userId: activeUserId,
 			title: parsed.title,
 			targetCount: parsed.targetCount,
 			recurrence: parsed.recurrence,
-			createdAt: createTimestampForDate(dateKey),
+			replacesHabitId,
+			createdAt,
+			updatedAt,
 			archivedAt: null,
-			deletedAt: null
+			deletedAt: null,
+			lastSyncedAt: null
 		};
 	}
 
@@ -123,12 +141,16 @@ export function createRepeatController() {
 		}
 
 		const current = get(state);
-		await RepeatStorage.addCompletion({
-			id: createId('completion'),
-			userId: ANONYMOUS_USER_ID,
+		const timestamp = new Date().toISOString();
+		await RepeatStorage.incrementCompletion({
+			userId: activeUserId,
 			habitId: progress.habit.id,
-			completedAt: current.selectedDate
-		});
+			completedOn: current.selectedDate,
+			count: 1,
+			createdAt: timestamp,
+			updatedAt: timestamp,
+			lastSyncedAt: null
+		}, progress.target);
 		await refresh();
 	}
 
@@ -138,24 +160,26 @@ export function createRepeatController() {
 		}
 
 		const current = get(state);
-		const window = getCompletionWindow(progress.habit, current.selectedDate);
-		await RepeatStorage.deleteLatestCompletion(progress.habit.id, window.startDate, window.endDate);
+		await RepeatStorage.decrementCompletion(
+			progress.habit.id,
+			current.selectedDate,
+			new Date().toISOString()
+		);
 		await refresh();
 	}
 
 	async function archiveHabit(habitId: string) {
 		const current = get(state);
-		await RepeatStorage.archiveHabit(habitId, createTimestampForDate(current.selectedDate));
+		await RepeatStorage.archiveHabit(
+			habitId,
+			createTimestampForDate(current.selectedDate),
+			new Date().toISOString()
+		);
 		await refresh();
 	}
 
 	async function deleteHabit(habitId: string) {
-		await RepeatStorage.deleteHabit(habitId);
-		await refresh();
-	}
-
-	async function resetDemoData() {
-		await RepeatStorage.resetWithMockData();
+		await RepeatStorage.deleteHabit(habitId, new Date().toISOString());
 		await refresh();
 	}
 
@@ -167,6 +191,9 @@ export function createRepeatController() {
 	return {
 		subscribe: view.subscribe,
 		load,
+		refresh,
+		setUserId,
+		subscribeToExternalChanges: () => createExternalStorageSubscription(refresh),
 		selectDate,
 		moveDate,
 		selectToday,
@@ -176,8 +203,28 @@ export function createRepeatController() {
 		undoCompletion,
 		archiveHabit,
 		deleteHabit,
-		resetDemoData,
 		setThemeMode
+	};
+}
+
+function createExternalStorageSubscription(refresh: () => Promise<void>) {
+	if (typeof window === 'undefined') {
+		return () => {};
+	}
+
+	let channel: BroadcastChannel | null = null;
+	const handleChange = () => {
+		void refresh();
+	};
+	window.addEventListener(REPEAT_STORAGE_CHANGED_EVENT, handleChange);
+	if (typeof BroadcastChannel !== 'undefined') {
+		channel = new BroadcastChannel(REPEAT_STORAGE_CHANNEL_NAME);
+		channel.onmessage = handleChange;
+	}
+
+	return () => {
+		window.removeEventListener(REPEAT_STORAGE_CHANGED_EVENT, handleChange);
+		channel?.close();
 	};
 }
 

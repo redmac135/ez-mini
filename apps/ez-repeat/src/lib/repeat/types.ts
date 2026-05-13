@@ -13,16 +13,22 @@ export interface Habit {
 	title: string;
 	targetCount: number;
 	recurrence: HabitRecurrence;
+	replacesHabitId: string | null;
 	createdAt: string;
+	updatedAt: string;
 	archivedAt: string | null;
 	deletedAt: string | null;
+	lastSyncedAt: string | null;
 }
 
 export interface Completion {
-	id: string;
 	userId: string;
 	habitId: string;
-	completedAt: string;
+	completedOn: string;
+	count: number;
+	createdAt: string;
+	updatedAt: string;
+	lastSyncedAt: string | null;
 }
 
 export interface HabitProgress {

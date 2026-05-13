@@ -14,9 +14,24 @@ const baseHabit: Habit = {
 	targetCount: 2,
 	recurrence: { type: 'days', interval: 1 },
 	createdAt: '2026-05-10T00:00:00.000',
+	updatedAt: '2026-05-10T00:00:00.000',
+	replacesHabitId: null,
 	archivedAt: null,
-	deletedAt: null
+	deletedAt: null,
+	lastSyncedAt: null
 };
+
+function completion(habitId: string, completedOn: string, count: number): Completion {
+	return {
+		userId: 'anonymous',
+		habitId,
+		completedOn,
+		count,
+		createdAt: `${completedOn}T00:00:00.000`,
+		updatedAt: `${completedOn}T00:00:00.000`,
+		lastSyncedAt: null
+	};
+}
 
 test('daily habits are visible after creation until archive date', () => {
 	assert.equal(isHabitVisibleOnDate(baseHabit, '2026-05-09'), false);
@@ -46,10 +61,8 @@ test('daysOfWeek habits only appear on selected weekdays and interval weeks', ()
 
 test('completion progress is capped and score averages visible habits', () => {
 	const completions: Completion[] = [
-		{ id: 'c1', userId: 'anonymous', habitId: 'habit-1', completedAt: '2026-05-12' },
-		{ id: 'c2', userId: 'anonymous', habitId: 'habit-1', completedAt: '2026-05-12' },
-		{ id: 'c3', userId: 'anonymous', habitId: 'habit-1', completedAt: '2026-05-12' },
-		{ id: 'c4', userId: 'anonymous', habitId: 'habit-2', completedAt: '2026-05-12' }
+		completion('habit-1', '2026-05-12', 3),
+		completion('habit-2', '2026-05-12', 1)
 	];
 	const otherHabit: Habit = { ...baseHabit, id: 'habit-2', targetCount: 2 };
 	const progress = buildHabitProgress([baseHabit, otherHabit], completions, '2026-05-12');
@@ -64,7 +77,7 @@ test('multi-day windows include previous days', () => {
 	const habit: Habit = { ...baseHabit, targetCount: 1, recurrence: { type: 'days', interval: 2 } };
 	const progress = buildHabitProgress(
 		[habit],
-		[{ id: 'c1', userId: 'anonymous', habitId: habit.id, completedAt: '2026-05-11' }],
+		[completion(habit.id, '2026-05-11', 1)],
 		'2026-05-12'
 	);
 

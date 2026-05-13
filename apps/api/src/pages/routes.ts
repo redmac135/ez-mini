@@ -33,7 +33,7 @@ export async function handlePages(
 			);
 		}
 
-		return supabaseRest<RemotePageRow[]>(env, active, `/pages?${params}`);
+		return supabaseRest<RemotePageRow[]>(env, active, `/pages?${params}`, { schema: 'blank' });
 	}
 
 	if (request.method === 'POST' && path === '/pages') {
@@ -46,6 +46,7 @@ export async function handlePages(
 				`/pages?select=${PAGE_COLUMNS}&on_conflict=id`,
 				{
 					method: 'POST',
+					schema: 'blank',
 					prefer: 'resolution=merge-duplicates,return=representation',
 					body: payload
 				}

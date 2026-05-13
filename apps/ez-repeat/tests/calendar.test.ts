@@ -16,8 +16,11 @@ const habit: Habit = {
 	targetCount: 2,
 	recurrence: { type: 'days', interval: 1 },
 	createdAt: '2026-05-01T00:00:00.000',
+	updatedAt: '2026-05-01T00:00:00.000',
+	replacesHabitId: null,
 	archivedAt: null,
-	deletedAt: null
+	deletedAt: null,
+	lastSyncedAt: null
 };
 
 test('buildCalendarMonth aligns days to Sunday-start weeks', () => {
@@ -57,7 +60,15 @@ test('pagination prepends and appends six months without duplicates', () => {
 
 test('calendar scores use daily completion percentage', () => {
 	const completions: Completion[] = [
-		{ id: 'c1', userId: 'anonymous', habitId: habit.id, completedAt: '2026-05-13' }
+		{
+			userId: 'anonymous',
+			habitId: habit.id,
+			completedOn: '2026-05-13',
+			count: 1,
+			createdAt: '2026-05-13T00:00:00.000',
+			updatedAt: '2026-05-13T00:00:00.000',
+			lastSyncedAt: null
+		}
 	];
 
 	assert.equal(getCalendarDayScore([habit], completions, '2026-05-13'), 0.5);
