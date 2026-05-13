@@ -1,10 +1,4 @@
-import {
-	addDays,
-	compareDateKeys,
-	daysBetween,
-	getWeekday,
-	startOfWeek
-} from './dates';
+import { addDays, compareDateKeys, daysBetween, getWeekday, startOfWeek } from './dates';
 import type { Completion, Habit, HabitProgress } from './types';
 
 export function isHabitVisibleOnDate(habit: Habit, dateKey: string) {
@@ -56,18 +50,16 @@ export function getCompletionWindow(habit: Habit, dateKey: string) {
 	};
 }
 
-export function countCompletionsForHabit(
-	habit: Habit,
-	completions: Completion[],
-	dateKey: string
-) {
+export function countCompletionsForHabit(habit: Habit, completions: Completion[], dateKey: string) {
 	const window = getCompletionWindow(habit, dateKey);
-	return completions.filter(
-		(completion) =>
-			completion.habitId === habit.id &&
-			completion.completedOn >= window.startDate &&
-			completion.completedOn <= window.endDate
-	).reduce((sum, completion) => sum + Math.max(0, completion.count), 0);
+	return completions
+		.filter(
+			(completion) =>
+				completion.habitId === habit.id &&
+				completion.completedOn >= window.startDate &&
+				completion.completedOn <= window.endDate
+		)
+		.reduce((sum, completion) => sum + Math.max(0, completion.count), 0);
 }
 
 export function buildHabitProgress(

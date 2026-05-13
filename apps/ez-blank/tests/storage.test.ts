@@ -47,6 +47,35 @@ test('EditorStorage saves and loads anonymous state through the blank database s
 	assert.equal(loaded.pages[0]?.isEphemeral, false);
 });
 
+test('EditorStorage persists anonymous edits separately from signed-in accounts', async () => {
+	const anonymousSession = createSession(ANONYMOUS_USERID, 'page-a');
+	anonymousSession.pages[0]!.content = 'anonymous draft';
+	const userSession = createSession('user-a', 'page-b');
+
+	await EditorStorage.saveAnonymousState(anonymousSession);
+	await EditorStorage.saveUserState('user-a', userSession);
+
+	const loadedAnonymous = await EditorStorage.loadAnonymousState();
+	const loadedUser = await EditorStorage.loadUserState('user-a');
+
+	assert.equal(
+		loadedAnonymous.pages.find((page) => page.id === 'page-a')?.content,
+		'anonymous draft'
+	);
+	assert.equal(
+		loadedAnonymous.pages.every((page) => page.userId === ANONYMOUS_USERID),
+		true
+	);
+	assert.equal(
+		loadedUser?.pages.every((page) => page.userId === 'user-a'),
+		true
+	);
+	assert.equal(
+		loadedUser?.pages.some((page) => page.content === 'anonymous draft'),
+		false
+	);
+});
+
 test('EditorStorage saves and loads user-scoped state separately per account', async () => {
 	await EditorStorage.saveUserState('user-a', createSession('user-a', 'page-a'));
 	await EditorStorage.saveUserState('user-b', createSession('user-b', 'page-b'));

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Button, Modal } from '@ez/ui';
+	import Button from './Button.svelte';
+	import Modal from './Modal.svelte';
 
 	export let title: string;
 	export let message: string;

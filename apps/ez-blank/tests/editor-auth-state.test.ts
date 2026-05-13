@@ -65,11 +65,27 @@ function buildLoader(
 
 test('editor auth state loads anonymous state without touching remote pages', async () => {
 	const anonymousSession = createSession();
-	let remoteCalled = false;
-	const pagesApi = buildPagesApi([], null);
-	pagesApi.listPages = async () => {
-		remoteCalled = true;
-		return [];
+	const remoteCalls: string[] = [];
+	const pagesApi: PagesApi = {
+		async listPages() {
+			remoteCalls.push('listPages');
+			return [];
+		},
+		async upsertPage(page) {
+			remoteCalls.push('upsertPage');
+			return page;
+		},
+		async getSettings() {
+			remoteCalls.push('getSettings');
+			return null;
+		},
+		async updateSettings(settings) {
+			remoteCalls.push('updateSettings');
+			return {
+				user_id: 'user-a',
+				active_page_id: settings.active_page_id
+			};
+		}
 	};
 
 	const result = await loadEditorAuthState({
@@ -82,7 +98,7 @@ test('editor auth state loads anonymous state without touching remote pages', as
 	assert.equal(result.session, anonymousSession);
 	assert.equal(result.appSyncStatus, 'synced');
 	assert.equal(result.importPromptOpen, false);
-	assert.equal(remoteCalled, false);
+	assert.deepEqual(remoteCalls, []);
 });
 
 test('editor auth state syncs signed-in pages, applies remote active page, and prompts for anonymous content', async () => {

@@ -1,10 +1,6 @@
 import { env } from '$env/dynamic/public';
 import { createAuthClient, type AuthClient } from '@ez/auth';
-import type {
-	RemoteRepeatCompletionRow,
-	RemoteRepeatHabitRow,
-	RepeatApi
-} from '$lib/repeat/sync';
+import type { RemoteRepeatCompletionRow, RemoteRepeatHabitRow, RepeatApi } from '$lib/repeat/sync';
 
 const API_FETCH_TIMEOUT_MS = 8000;
 const apiUrl = env.PUBLIC_EZ_API_URL?.trim() ?? '';
@@ -16,9 +12,7 @@ export const auth: AuthClient | null = apiUrl
 export const repeatApi: RepeatApi | null = auth
 	? {
 			async listHabits(options = {}) {
-				return readJson(
-					await auth.authFetch(`/repeat/habits${buildSinceQuery(options.since)}`)
-				);
+				return readJson(await auth.authFetch(`/repeat/habits${buildSinceQuery(options.since)}`));
 			},
 			async upsertHabit(habit) {
 				return readJson(

@@ -16,15 +16,7 @@
 		<div class="empty-habit">No habits for today</div>
 	{:else}
 		{#each progress as item (item.habit.id)}
-			<HabitRow
-				progress={item}
-				{editMode}
-				{onComplete}
-				{onUndo}
-				{onEdit}
-				{onArchive}
-				{onDelete}
-			/>
+			<HabitRow progress={item} {editMode} {onComplete} {onUndo} {onEdit} {onArchive} {onDelete} />
 		{/each}
 	{/if}
 </div>

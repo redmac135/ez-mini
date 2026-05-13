@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSyncController } from '../src/index.ts';
+import { createSyncController, getSyncStatusLabel } from '../src/index.ts';
 
 class FakeTimer {
 	private now = 0;
@@ -148,4 +148,12 @@ test('queued follow-up inherits the strongest success-notice request', async () 
 	await Promise.resolve();
 	await Promise.resolve();
 	assert.deepEqual(callOptions, [false, true]);
+});
+
+test('sync status labels match app menu copy', () => {
+	assert.equal(getSyncStatusLabel('offline'), 'Offline');
+	assert.equal(getSyncStatusLabel('syncing'), 'Syncing…');
+	assert.equal(getSyncStatusLabel('synced'), 'Synced');
+	assert.equal(getSyncStatusLabel('saved_locally'), 'Saved locally');
+	assert.equal(getSyncStatusLabel('error'), 'Sync error');
 });

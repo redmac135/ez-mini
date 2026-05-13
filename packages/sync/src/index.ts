@@ -2,6 +2,23 @@ export interface SyncRequestOptions {
 	showSuccessNotice: boolean;
 }
 
+export type AppSyncStatus = 'offline' | 'syncing' | 'synced' | 'saved_locally' | 'error';
+
+export function getSyncStatusLabel(status: AppSyncStatus) {
+	switch (status) {
+		case 'offline':
+			return 'Offline';
+		case 'syncing':
+			return 'Syncing…';
+		case 'synced':
+			return 'Synced';
+		case 'saved_locally':
+			return 'Saved locally';
+		case 'error':
+			return 'Sync error';
+	}
+}
+
 interface TimerApi {
 	setTimeout(callback: () => void, delayMs: number): ReturnType<typeof setTimeout>;
 	clearTimeout(handle: ReturnType<typeof setTimeout>): void;

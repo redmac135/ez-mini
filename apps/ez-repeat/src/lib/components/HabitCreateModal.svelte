@@ -78,7 +78,7 @@
 				</Chip>
 				{#if openMenu === 'frequency'}
 					<FloatingMenu label="Habit frequency">
-						{#each [1, 2, 3, 4, 5, 6, 7, 8, 9] as count}
+						{#each [1, 2, 3, 4, 5, 6, 7, 8, 9] as count (count)}
 							<button type="button" on:click={() => setTargetCount(count)}>{count}x</button>
 						{/each}
 					</FloatingMenu>
@@ -147,7 +147,7 @@
 								</button>
 							{:else}
 								<div class="day-grid">
-									{#each [{ label: 'S', value: 0 }, { label: 'M', value: 1 }, { label: 'T', value: 2 }, { label: 'W', value: 3 }, { label: 'T', value: 4 }, { label: 'F', value: 5 }, { label: 'S', value: 6 }] as day}
+									{#each [{ label: 'S', value: 0 }, { label: 'M', value: 1 }, { label: 'T', value: 2 }, { label: 'W', value: 3 }, { label: 'T', value: 4 }, { label: 'F', value: 5 }, { label: 'S', value: 6 }] as day (day.value)}
 										<button
 											class:active={selectedDays.includes(day.value as Weekday)}
 											type="button"

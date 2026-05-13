@@ -5,13 +5,13 @@
 	export let month: CalendarMonth;
 	export let onSelectDate: (dateKey: string) => void = () => {};
 
-	$: blanks = Array.from({ length: month.leadingBlanks });
+	$: blanks = Array.from({ length: month.leadingBlanks }, (_value, index) => index);
 </script>
 
 <section class="calendar-month" data-year={month.year} data-month={month.key}>
 	<h2>{month.label}</h2>
 	<div class="month-grid" aria-label={`${month.label} ${month.year}`}>
-		{#each blanks as _, index (index)}
+		{#each blanks as index (index)}
 			<div class="day-placeholder" aria-hidden="true"></div>
 		{/each}
 		{#each month.days as day (day.dateKey)}

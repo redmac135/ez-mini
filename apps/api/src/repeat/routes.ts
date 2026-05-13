@@ -100,7 +100,10 @@ export function normalizeHabitPayload(
 	const updatedAt = typeof body.updated_at === 'string' ? body.updated_at : '';
 
 	if (!id || !title.trim() || targetCount <= 0 || !createdAt || !updatedAt || !recurrence) {
-		throw new ApiError(400, 'Habit id, title, target_count, recurrence, and timestamps are required.');
+		throw new ApiError(
+			400,
+			'Habit id, title, target_count, recurrence, and timestamps are required.'
+		);
 	}
 
 	return {
@@ -128,7 +131,10 @@ export function normalizeCompletionPayload(
 	const updatedAt = typeof body.updated_at === 'string' ? body.updated_at : '';
 
 	if (!habitId || !completedOn || count < 0 || !createdAt || !updatedAt) {
-		throw new ApiError(400, 'Completion habit_id, completed_on, count, and timestamps are required.');
+		throw new ApiError(
+			400,
+			'Completion habit_id, completed_on, count, and timestamps are required.'
+		);
 	}
 
 	return {
@@ -150,7 +156,10 @@ function buildListParams(url: URL, columns: string) {
 		if (Number.isNaN(sinceDate.getTime())) {
 			throw new ApiError(400, 'Invalid since timestamp.');
 		}
-		params.set('updated_at', `gte.${new Date(sinceDate.getTime() - SINCE_BUFFER_MS).toISOString()}`);
+		params.set(
+			'updated_at',
+			`gte.${new Date(sinceDate.getTime() - SINCE_BUFFER_MS).toISOString()}`
+		);
 	}
 	return params;
 }

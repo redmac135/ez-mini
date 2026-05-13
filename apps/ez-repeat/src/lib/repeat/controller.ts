@@ -142,15 +142,18 @@ export function createRepeatController() {
 
 		const current = get(state);
 		const timestamp = new Date().toISOString();
-		await RepeatStorage.incrementCompletion({
-			userId: activeUserId,
-			habitId: progress.habit.id,
-			completedOn: current.selectedDate,
-			count: 1,
-			createdAt: timestamp,
-			updatedAt: timestamp,
-			lastSyncedAt: null
-		}, progress.target);
+		await RepeatStorage.incrementCompletion(
+			{
+				userId: activeUserId,
+				habitId: progress.habit.id,
+				completedOn: current.selectedDate,
+				count: 1,
+				createdAt: timestamp,
+				updatedAt: timestamp,
+				lastSyncedAt: null
+			},
+			progress.target
+		);
 		await refresh();
 	}
 

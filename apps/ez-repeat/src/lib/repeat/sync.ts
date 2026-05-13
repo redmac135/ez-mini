@@ -38,6 +38,25 @@ export interface RepeatSyncResult {
 	completionsPulled: number;
 }
 
+export function getRepeatSyncNotice(
+	result: RepeatSyncResult,
+	options: { showSuccessNotice?: boolean } = {}
+) {
+	const pulledChanges = result.habitsPulled + result.completionsPulled;
+	const totalChanges =
+		result.habitsPushed + result.habitsPulled + result.completionsPushed + result.completionsPulled;
+
+	if (pulledChanges > 0) {
+		return 'Sync complete';
+	}
+
+	if (!options.showSuccessNotice) {
+		return null;
+	}
+
+	return totalChanges === 0 ? 'Sync complete (no changes)' : 'Sync complete';
+}
+
 export async function syncRepeatData(api: RepeatApi, userId: string): Promise<RepeatSyncResult> {
 	const [habitResult, completionResult] = await Promise.all([
 		syncHabits(api, userId),

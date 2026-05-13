@@ -25,12 +25,12 @@ A minimal habit tracker that just works.
 
 ### completions
 
-| Column         | Type        | Description                |
-| -------------- | ----------- | -------------------------- |
-| `id`           | uuid (PK)   |                            |
-| `user_id`      | uuid (FK)   |                            |
-| `habit_id`     | uuid (FK)   |                            |
-| `completed_at` | date | day this was completed |
+| Column         | Type      | Description            |
+| -------------- | --------- | ---------------------- |
+| `id`           | uuid (PK) |                        |
+| `user_id`      | uuid (FK) |                        |
+| `habit_id`     | uuid (FK) |                        |
+| `completed_at` | date      | day this was completed |
 
 ---
 
@@ -122,15 +122,15 @@ As the user types, the parser looks for schedule phrases and updates this chip a
 
 ### Examples
 
-| Input                                 | Title           | target | recurrence                        |
-| ------------------------------------- | --------------- | ------ | --------------------------------- |
-| `morning stretch`                     | morning stretch | 1      | daily                             |
-| `floss twice a day`                   | floss           | 2      | daily                             |
-| `call mom every mon, tue, fri`        | call mom        | 1      | daysOfWeek [1,2,5]                |
-| `read 10 pages daily`                 | read 10 pages   | 1      | daily (10 not “X times”)          |
-| `sleep 8 hours daily`                 | sleep 8 hours   | 1      | daily                             |
-| `text family once every week`         | text family     | 1      | weekly, interval:1                |
-| `stretch`                             | stretch         | 1      | daily                             |
+| Input                          | Title           | target | recurrence               |
+| ------------------------------ | --------------- | ------ | ------------------------ |
+| `morning stretch`              | morning stretch | 1      | daily                    |
+| `floss twice a day`            | floss           | 2      | daily                    |
+| `call mom every mon, tue, fri` | call mom        | 1      | daysOfWeek [1,2,5]       |
+| `read 10 pages daily`          | read 10 pages   | 1      | daily (10 not “X times”) |
+| `sleep 8 hours daily`          | sleep 8 hours   | 1      | daily                    |
+| `text family once every week`  | text family     | 1      | weekly, interval:1       |
+| `stretch`                      | stretch         | 1      | daily                    |
 
 ---
 

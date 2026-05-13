@@ -35,11 +35,13 @@ test('memory storage persists session mutations', async () => {
 	);
 
 	const updated = await RepeatStorage.loadSnapshot('anonymous');
-	assert.equal(updated.habits.some((habit) => habit.id === 'habit-test'), true);
+	assert.equal(
+		updated.habits.some((habit) => habit.id === 'habit-test'),
+		true
+	);
 	assert.equal(
 		updated.completions.some(
-			(completion) =>
-				completion.habitId === 'habit-test' && completion.completedOn === '2026-05-12'
+			(completion) => completion.habitId === 'habit-test' && completion.completedOn === '2026-05-12'
 		),
 		true
 	);

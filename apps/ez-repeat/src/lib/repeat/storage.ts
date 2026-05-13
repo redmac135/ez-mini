@@ -63,7 +63,11 @@ export class RepeatStorage {
 		notifyRepeatStorageChanged();
 	}
 
-	static async archiveHabit(habitId: string, archivedAt: string, updatedAt = new Date().toISOString()) {
+	static async archiveHabit(
+		habitId: string,
+		archivedAt: string,
+		updatedAt = new Date().toISOString()
+	) {
 		const backend = await this.getBackend();
 		await backend.archiveHabit(habitId, archivedAt, updatedAt);
 		notifyRepeatStorageChanged();
