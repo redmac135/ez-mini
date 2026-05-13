@@ -1,5 +1,6 @@
 export { default as AppShell } from './AppShell.svelte';
 export { default as Button } from './Button.svelte';
+export { default as Chip } from './Chip.svelte';
 export { default as FloatingMenu } from './FloatingMenu.svelte';
 export { default as Icon } from './Icon.svelte';
 export { default as Modal } from './Modal.svelte';

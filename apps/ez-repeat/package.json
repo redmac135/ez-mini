@@ -1,0 +1,23 @@
+{
+	"name": "@ez/apps-repeat",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "wrangler pages deploy build --project-name ez-repeat",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"test": "node scripts/run-tests.mjs",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+	},
+	"dependencies": {
+		"@ez/design": "workspace:*",
+		"@ez/ui": "workspace:*"
+	},
+	"devDependencies": {
+		"wrangler": "catalog:"
+	}
+}
