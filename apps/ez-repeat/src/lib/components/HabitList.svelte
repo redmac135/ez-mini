@@ -6,20 +6,14 @@
 	export let editMode = false;
 	export let onComplete: (progress: HabitProgress) => void = () => {};
 	export let onUndo: (progress: HabitProgress) => void = () => {};
+	export let onEdit: (progress: HabitProgress) => void = () => {};
 	export let onArchive: (progress: HabitProgress) => void = () => {};
 	export let onDelete: (progress: HabitProgress) => void = () => {};
 </script>
 
 <div class="habit-list">
 	{#each progress as item (item.habit.id)}
-		<HabitRow
-			progress={item}
-			{editMode}
-			{onComplete}
-			{onUndo}
-			{onArchive}
-			{onDelete}
-		/>
+		<HabitRow progress={item} {editMode} {onComplete} {onUndo} {onEdit} {onArchive} {onDelete} />
 	{/each}
 </div>
 

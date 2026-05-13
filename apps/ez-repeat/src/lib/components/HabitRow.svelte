@@ -6,6 +6,7 @@
 	export let editMode = false;
 	export let onComplete: (progress: HabitProgress) => void = () => {};
 	export let onUndo: (progress: HabitProgress) => void = () => {};
+	export let onEdit: (progress: HabitProgress) => void = () => {};
 	export let onArchive: (progress: HabitProgress) => void = () => {};
 	export let onDelete: (progress: HabitProgress) => void = () => {};
 
@@ -76,6 +77,13 @@
 		<div class="row-actions">
 			<Button
 				size="icon"
+				ariaLabel={`Edit ${progress.habit.title}`}
+				on:click={() => onEdit(progress)}
+			>
+				<Icon name="pencil-square" />
+			</Button>
+			<Button
+				size="icon"
 				ariaLabel={`Archive ${progress.habit.title}`}
 				on:click={() => onArchive(progress)}
 			>
@@ -102,7 +110,7 @@
 	}
 
 	.habit-shell.editing {
-		grid-template-columns: minmax(0, 1fr) 4rem;
+		grid-template-columns: minmax(0, 1fr) 6rem;
 	}
 
 	.habit-row {
@@ -129,10 +137,6 @@
 
 	.habit-row:hover {
 		border-color: color-mix(in srgb, var(--color-fg), transparent 78%);
-	}
-
-	.habit-row.complete {
-		border-color: color-mix(in srgb, var(--color-fg), transparent 64%);
 	}
 
 	.fill {
@@ -189,11 +193,12 @@
 		height: 1.15rem;
 	}
 
-	.row-actions :global(button:first-child svg) {
+	.row-actions :global(button:nth-child(1) svg),
+	.row-actions :global(button:nth-child(2) svg) {
 		color: var(--color-muted);
 	}
 
-	.row-actions :global(button:last-child svg) {
+	.row-actions :global(button:nth-child(3) svg) {
 		color: var(--color-danger);
 	}
 </style>

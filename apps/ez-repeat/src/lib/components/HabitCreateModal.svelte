@@ -3,37 +3,31 @@
 	import { formatFrequency, formatRecurrence, parseHabitInput } from '$lib/repeat/parser';
 	import type { HabitRecurrence, ParsedHabitInput, Weekday } from '$lib/repeat/types';
 
+	export let title = 'New habit';
+	export let submitLabel = 'Create';
+	export let initialValue = '';
+	export let initialTargetCount: number | null = null;
+	export let initialRecurrence: HabitRecurrence | null = null;
+	export let disclaimer = '';
 	export let onCancel: () => void = () => {};
 	export let onCreate: (parsed: ParsedHabitInput) => void = () => {};
 
-	let input = '';
-	let manualTitle: string | null = null;
-	let manualTargetCount: number | null = null;
-	let manualRecurrence: HabitRecurrence | null = null;
-	let openMenu: 'title' | 'frequency' | 'recurrence' | null = null;
-	let titleDraft = '';
+	let input = initialValue;
+	let manualTargetCount: number | null = initialTargetCount;
+	let manualRecurrence: HabitRecurrence | null = initialRecurrence;
+	let openMenu: 'frequency' | 'recurrence' | null = null;
 	let recurrenceMode: HabitRecurrence['type'] = 'days';
 	let selectedDays: Weekday[] = [1, 3, 5];
 
 	$: parsedInput = parseHabitInput(input);
 	$: parsed = {
-		title: manualTitle ?? parsedInput.title,
+		title: parsedInput.title,
 		targetCount: manualTargetCount ?? parsedInput.targetCount,
 		recurrence: manualRecurrence ?? parsedInput.recurrence
 	};
 
 	function submit() {
 		onCreate(parsed);
-	}
-
-	function openTitleMenu() {
-		titleDraft = parsed.title;
-		openMenu = openMenu === 'title' ? null : 'title';
-	}
-
-	function saveTitle() {
-		manualTitle = titleDraft.trim() || 'untitled habit';
-		openMenu = null;
 	}
 
 	function setTargetCount(targetCount: number) {
@@ -67,23 +61,14 @@
 	}
 </script>
 
-<Modal title="New habit" onClose={onCancel}>
+<Modal {title} onClose={onCancel}>
 	<form class="create-form" on:submit|preventDefault={submit}>
+		{#if disclaimer}
+			<p class="disclaimer">{disclaimer}</p>
+		{/if}
 		<TextInput bind:value={input} placeholder="morning stretch twice a day" ariaLabel="Habit" />
 
 		<div class="chips" aria-label="Parsed habit fields">
-			<div class="chip-control">
-				<Chip selected={openMenu === 'title'} on:click={openTitleMenu}>{parsed.title}</Chip>
-				{#if openMenu === 'title'}
-					<FloatingMenu label="Habit title">
-						<div class="menu-input">
-							<TextInput bind:value={titleDraft} ariaLabel="Habit title" />
-							<Button size="sm" variant="primary" on:click={saveTitle}>Save</Button>
-						</div>
-					</FloatingMenu>
-				{/if}
-			</div>
-
 			<div class="chip-control">
 				<Chip
 					selected={openMenu === 'frequency'}
@@ -196,7 +181,7 @@
 
 	<svelte:fragment slot="actions">
 		<Button on:click={onCancel}>Cancel</Button>
-		<Button variant="primary" on:click={submit}>Create</Button>
+		<Button variant="primary" on:click={submit}>{submitLabel}</Button>
 	</svelte:fragment>
 </Modal>
 
@@ -217,11 +202,11 @@
 		position: relative;
 	}
 
-	.menu-input {
-		display: grid;
-		gap: var(--space-2);
-		min-width: 12rem;
-		padding: var(--space-2);
+	.disclaimer {
+		margin: 0;
+		color: var(--color-muted);
+		font-size: var(--font-size-md);
+		line-height: var(--line-height-tight);
 	}
 
 	.recurrence-menu {

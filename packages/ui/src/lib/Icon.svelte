@@ -16,12 +16,12 @@
 {#if name === 'archive-box'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">
 		<path
-			d="M4.5 7.5h15m-13.5 0v11.25h12V7.5m-10.5 3.75h9m-10.5-6h12l-1.5-2.25h-9z"
+			d="M4 8h16v11H4V8zm2-4h12l2 4H4l2-4zm6 7v5m0 0l-2-2m2 2l2-2"
 			fill="none"
 			stroke="currentColor"
 			stroke-linecap="round"
 			stroke-linejoin="round"
-			stroke-width="1.5"
+			stroke-width="1.7"
 		></path>
 	</svg>
 {:else if name === 'bars-3'}
@@ -37,12 +37,12 @@
 {:else if name === 'calendar-days'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">
 		<path
-			d="M7.5 3.75v3m9-3v3m-10.5 3h12m-13.5-3A2.25 2.25 0 016.75 4.5h10.5A2.25 2.25 0 0119.5 6.75v10.5a2.25 2.25 0 01-2.25 2.25H6.75a2.25 2.25 0 01-2.25-2.25zm3.75 6h.01m3.74 0h.01m3.74 0h.01m-7.49 3h.01m3.74 0h.01m3.74 0h.01"
+			d="M7 3v4m10-4v4M4 9h16M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zm3 7h2m4 0h2m-8 4h2m4 0h2"
 			fill="none"
 			stroke="currentColor"
 			stroke-linecap="round"
 			stroke-linejoin="round"
-			stroke-width="1.5"
+			stroke-width="1.7"
 		></path>
 	</svg>
 {:else if name === 'check'}
@@ -108,12 +108,12 @@
 {:else if name === 'trash'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">
 		<path
-			d="M6.75 7.5h10.5m-9 0l.75 12h6l.75-12m-6-2.25h3m-7.5 2.25l.75-2.25h9l.75 2.25"
+			d="M4 7h16M9 7V4h6v3m-8 0l1 13h8l1-13M10 11v5m4-5v5"
 			fill="none"
 			stroke="currentColor"
 			stroke-linecap="round"
 			stroke-linejoin="round"
-			stroke-width="1.5"
+			stroke-width="1.7"
 		></path>
 	</svg>
 {:else}

@@ -36,6 +36,7 @@ const NUMBER_WORDS: Record<string, number> = {
 
 export function parseHabitInput(input: string): ParsedHabitInput {
 	let working = normalizeSpaces(input);
+	const title = working || 'untitled habit';
 	const schedule = extractSchedule(working);
 	if (schedule) {
 		working = removeRange(working, schedule.start, schedule.end);
@@ -46,10 +47,8 @@ export function parseHabitInput(input: string): ParsedHabitInput {
 		working = removeRange(working, frequency.start, frequency.end);
 	}
 
-	const title = cleanupTitle(working);
-
 	return {
-		title: title || 'untitled habit',
+		title,
 		targetCount: frequency?.targetCount ?? 1,
 		recurrence: schedule?.recurrence ?? DEFAULT_RECURRENCE
 	};
@@ -77,7 +76,9 @@ export function formatRecurrence(recurrence: HabitRecurrence) {
 function extractSchedule(input: string) {
 	const candidates: Array<{ start: number; end: number; recurrence: HabitRecurrence }> = [];
 
-	for (const match of input.matchAll(/\b(?:daily|every day|each day|a day|per day|every (?:morning|afternoon|evening))\b/gi)) {
+	for (const match of input.matchAll(
+		/\b(?:daily|every day|each day|a day|per day|every (?:morning|afternoon|evening))\b/gi
+	)) {
 		candidates.push({
 			start: match.index ?? 0,
 			end: (match.index ?? 0) + match[0].length,
@@ -117,7 +118,9 @@ function extractSchedule(input: string) {
 		});
 	}
 
-	for (const match of input.matchAll(/\b(?:on|every)\s+((?:(?:sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:rs|rsday)?|fri(?:day)?|sat(?:urday)?)(?:\s*,\s*|\s+and\s+|\s+)*)+)/gi)) {
+	for (const match of input.matchAll(
+		/\b(?:on|every)\s+((?:(?:sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:rs|rsday)?|fri(?:day)?|sat(?:urday)?)(?:\s*,\s*|\s+and\s+|\s+)*)+)/gi
+	)) {
 		const days = parseWeekdays(match[1] ?? '');
 		if (days.length > 0) {
 			candidates.push({
@@ -142,7 +145,9 @@ function extractFrequency(input: string) {
 		});
 	}
 
-	for (const match of input.matchAll(/\b([1-9]|one|two|three|four|five|six|seven|eight|nine)\s*(?:times?|x|×)\b/gi)) {
+	for (const match of input.matchAll(
+		/\b([1-9]|one|two|three|four|five|six|seven|eight|nine)\s*(?:times?|x|×)\b/gi
+	)) {
 		const raw = match[1]!.toLowerCase();
 		candidates.push({
 			start: match.index ?? 0,
@@ -156,7 +161,9 @@ function extractFrequency(input: string) {
 
 function parseWeekdays(input: string): Weekday[] {
 	const days: Weekday[] = [];
-	for (const match of input.matchAll(/\b(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/gi)) {
+	for (const match of input.matchAll(
+		/\b(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/gi
+	)) {
 		const day = WEEKDAY_NAMES[match[1]!.toLowerCase()];
 		if (day !== undefined && !days.includes(day)) {
 			days.push(day);
@@ -172,15 +179,6 @@ function normalizeSpaces(input: string) {
 
 function removeRange(input: string, start: number, end: number) {
 	return normalizeSpaces(`${input.slice(0, start)} ${input.slice(end)}`);
-}
-
-function cleanupTitle(input: string) {
-	return normalizeSpaces(
-		input
-			.replace(/\b(?:a|an|per)\b/gi, ' ')
-			.replace(/\b(?:times?)\b/gi, ' ')
-			.replace(/\s+/g, ' ')
-	).replace(/^[, ]+|[, ]+$/g, '');
 }
 
 function formatDays(days: Weekday[]) {

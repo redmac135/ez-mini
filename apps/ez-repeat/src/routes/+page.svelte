@@ -17,6 +17,7 @@
 	let addModalOpen = false;
 	let drawerOpen = false;
 	let editMode = false;
+	let editHabitProgress: HabitProgress | null = null;
 	let settingsMenuOpen = false;
 	let confirmAction: { type: 'archive' | 'delete'; progress: HabitProgress } | null = null;
 	let settingsControl: HTMLDivElement | null = null;
@@ -58,6 +59,15 @@
 	async function createHabit(parsed: ParsedHabitInput) {
 		await repeat.createHabit(parsed);
 		addModalOpen = false;
+	}
+
+	async function editHabit(parsed: ParsedHabitInput) {
+		if (!editHabitProgress) {
+			return;
+		}
+
+		await repeat.editHabit(editHabitProgress.habit.id, parsed);
+		editHabitProgress = null;
 	}
 
 	async function confirmSelectedAction() {
@@ -174,6 +184,7 @@
 				{editMode}
 				onComplete={repeat.addCompletion}
 				onUndo={repeat.undoCompletion}
+				onEdit={(progress) => (editHabitProgress = progress)}
 				onArchive={(progress) => (confirmAction = { type: 'archive', progress })}
 				onDelete={(progress) => (confirmAction = { type: 'delete', progress })}
 			/>
@@ -182,6 +193,19 @@
 
 	{#if addModalOpen}
 		<HabitCreateModal onCancel={() => (addModalOpen = false)} onCreate={createHabit} />
+	{/if}
+
+	{#if editHabitProgress}
+		<HabitCreateModal
+			title="Edit Habit"
+			submitLabel="Save"
+			initialValue={editHabitProgress.habit.title}
+			initialTargetCount={editHabitProgress.habit.targetCount}
+			initialRecurrence={editHabitProgress.habit.recurrence}
+			disclaimer="This will archive the old habit and create a new habit in its place."
+			onCancel={() => (editHabitProgress = null)}
+			onCreate={editHabit}
+		/>
 	{/if}
 
 	{#if confirmAction}

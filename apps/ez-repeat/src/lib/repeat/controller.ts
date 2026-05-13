@@ -92,18 +92,29 @@ export function createRepeatController() {
 
 	async function createHabit(parsed: ParsedHabitInput) {
 		const current = get(state);
-		const habit: Habit = {
+		await RepeatStorage.addHabit(createHabitRecord(parsed, current.selectedDate));
+		await refresh();
+	}
+
+	async function editHabit(habitId: string, parsed: ParsedHabitInput) {
+		const current = get(state);
+		const archivedAt = createTimestampForDate(current.selectedDate);
+		await RepeatStorage.archiveHabit(habitId, archivedAt);
+		await RepeatStorage.addHabit(createHabitRecord(parsed, current.selectedDate));
+		await refresh();
+	}
+
+	function createHabitRecord(parsed: ParsedHabitInput, dateKey: string): Habit {
+		return {
 			id: createId('habit'),
 			userId: ANONYMOUS_USER_ID,
 			title: parsed.title,
 			targetCount: parsed.targetCount,
 			recurrence: parsed.recurrence,
-			createdAt: createTimestampForDate(current.selectedDate),
+			createdAt: createTimestampForDate(dateKey),
 			archivedAt: null,
 			deletedAt: null
 		};
-		await RepeatStorage.addHabit(habit);
-		await refresh();
 	}
 
 	async function addCompletion(progress: HabitProgress) {
@@ -160,6 +171,7 @@ export function createRepeatController() {
 		moveDate,
 		selectToday,
 		createHabit,
+		editHabit,
 		addCompletion,
 		undoCompletion,
 		archiveHabit,
