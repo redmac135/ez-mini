@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import type { AuthSessionSummary } from '@ez/auth';
+	import { createAccountDataController } from '@ez/account';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -10,27 +11,26 @@
 		APP_UPDATED_NOTICE_EVENT,
 		consumeQueuedAppUpdatedNotice
 	} from '$lib/pwa-update-notice';
-	import { beginAuthRequestId, isLatestAuthRequest } from '$lib/auth/auth-request';
-	import { loadEditorAuthState } from '$lib/auth/editor-auth-state';
+	import { loadEditorAuthState, type LoadedEditorAuthState } from '$lib/auth/editor-auth-state';
 	import {
 		clearCachedAuthSessionForUser as clearCachedAuthSessionForUserInStorage,
 		readCachedAuthSession as readCachedAuthSessionFromStorage,
 		writeCachedAuthSession as writeCachedAuthSessionToStorage
 	} from '$lib/auth/session-cache';
 	import {
+		AccountModal,
 		AppShell,
 		Button,
+		ConfirmModal,
 		FloatingMenu,
 		Icon,
+		LoginModal,
 		Modal,
 		Navbar,
-		OtpInput,
-		Sidebar,
-		TextInput
+		Sidebar
 	} from '@ez/ui';
 	import {
 		getSettledAppSyncStatus as deriveSettledAppSyncStatus,
-		getSyncStatusLabel,
 		type AppSyncStatus
 	} from '$lib/editor/app-sync-status';
 	import { createActivePageController } from '$lib/editor/active-page-controller';
@@ -40,7 +40,7 @@
 		applySessionUpdate,
 		type PageEditorUpdate
 	} from '$lib/editor/core/app-state';
-	import { createSyncController } from '@ez/sync';
+	import { createSyncController, getSyncStatusLabel } from '@ez/sync';
 	import {
 		areEditorSessionsEquivalent,
 		getChangedPageEvents,
@@ -53,7 +53,6 @@
 		readPageBroadcastMessage
 	} from '$lib/editor/persistence/page-broadcast';
 	import { mergeEditorSelections } from '$lib/editor/persistence/session-selection';
-	import { AuthBroadcastChannel } from '$lib/auth/auth-broadcast';
 	import {
 		buildCountOptions,
 		type CountDisplayMode,
@@ -112,9 +111,7 @@
 	let otpVerifying = false;
 	let otpShake = false;
 	let resendCooldownRemaining = 0;
-	let resendCooldownInterval: ReturnType<typeof setInterval> | null = null;
 	let pendingAnonymousImportSession: EditorSession | null = null;
-	let currentAuthRequestId = 0;
 	let syncBusy = false;
 	let appSyncStatus: AppSyncStatus = 'synced';
 
@@ -134,22 +131,16 @@
 	let toastTimeouts = new SvelteMap<number, number>();
 	let workspacePersistQueue: Promise<void> = Promise.resolve();
 	let pagesChannel: BroadcastChannel | null = null;
-	let authBroadcastChannel: AuthBroadcastChannel | null = null;
 	let editorIdleTimeout: ReturnType<typeof setTimeout> | null = null;
 	let sidebarSwipeStart: { x: number; y: number } | null = null;
 	let sidebarSwipeTracking = false;
 
-	const tabId =
-		typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-			? crypto.randomUUID()
-			: `tab-${Math.random().toString(36).slice(2, 10)}`;
 	const LOCAL_PAGE_EVENT_TYPES: Set<LocalPageEventType> = new Set([
 		'page-updated',
 		'title-updated',
 		'new-page',
 		'deleted-page'
 	]);
-	const AUTH_CHANNEL_NAME = 'auth';
 
 	const TOP_REVEAL_HEIGHT = 112;
 	const CHROME_HIDE_DELAY = 1400;
@@ -177,6 +168,22 @@
 			await pushRemoteActivePageId(pagesApi, pageId);
 		}
 	});
+	const account = createAccountDataController<LoadedEditorAuthState>({
+		authClient: auth,
+		adapter: {
+			loadAnonymous: () => loadBlankAccountData(null),
+			loadAccount: (user) => loadBlankAccountData(user),
+			deleteAccountData: (userId) => deleteLocalUserData(userId),
+			onLoaded({ data }) {
+				applyLoadedBlankAccountData(data);
+			}
+		},
+		getErrorMessage,
+		onAuthChanged(nextUser) {
+			writeCachedAuthSession(nextUser);
+		}
+	});
+	let accountState = account.getState();
 
 	$: activePage = getActivePage(session);
 	$: visiblePages = session.pages.filter((page) => page.deletedAt === null);
@@ -200,6 +207,21 @@
 		? (session.pages.find((page) => page.id === deletePageId) ?? null)
 		: null;
 	$: syncStatusLabel = getSyncStatusLabel(appSyncStatus);
+	$: accountState = $account;
+	$: authUser = accountState.user;
+	$: authSessions = accountState.sessions;
+	$: authBusy = accountState.authBusy;
+	$: accountBusySessionId = accountState.accountBusySessionId;
+	$: authMessage = accountState.authMessage;
+	$: loginModalOpen = accountState.loginModalOpen;
+	$: accountModalOpen = accountState.accountModalOpen;
+	$: loginStep = accountState.loginStep;
+	$: emailDraft = accountState.emailDraft;
+	$: otpDraft = accountState.otpDraft;
+	$: loginSubmitting = accountState.loginSubmitting;
+	$: otpVerifying = accountState.otpVerifying;
+	$: otpShake = accountState.otpShake;
+	$: resendCooldownRemaining = accountState.resendCooldownRemaining;
 
 	$: if (!hasDocumentContent || drawerOpen || countMenuOpen || settingsMenuOpen) {
 		chromeVisible = true;
@@ -452,222 +474,51 @@
 	}
 
 	function closeLoginModal() {
-		if (loginSubmitting || otpVerifying) return;
-		loginModalOpen = false;
-		loginStep = 'email';
-		otpDraft = '';
-		stopResendCooldown();
-		authMessage = '';
+		account.closeLoginModal();
 	}
 
 	function closeAccountModal() {
-		if (authBusy || accountBusySessionId) return;
-		accountModalOpen = false;
+		account.closeAccountModal();
 	}
 
 	async function openLoginFlow() {
-		accountModalOpen = false;
-		loginModalOpen = true;
-		loginStep = 'email';
-		otpDraft = '';
-		authMessage = '';
+		account.openLoginFlow();
 	}
 
 	async function openLoginOrAccountList() {
-		authBusy = true;
-		authMessage = '';
-
-		try {
-			const nextSession = await auth.getSession();
-			authSessions = nextSession.sessions;
-			if (authSessions.length > 0) {
-				accountModalOpen = true;
-				loginModalOpen = false;
-			} else {
-				await openLoginFlow();
-			}
-		} catch (error) {
-			authMessage = getErrorMessage(error, 'Unable to load accounts.');
-		} finally {
-			authBusy = false;
-			settingsMenuOpen = false;
-		}
+		await account.openLoginOrAccountList();
 	}
 
 	async function switchAccount() {
-		if (!auth || authBusy || syncBusy) return;
-
-		authBusy = true;
-		authMessage = '';
-
-		try {
-			const nextSession = await auth.getSession();
-			authSessions = nextSession.sessions;
-			if (authSessions.length >= 2) {
-				accountModalOpen = true;
-				loginModalOpen = false;
-			} else {
-				await openLoginFlow();
-			}
-		} catch (error) {
-			authMessage = getErrorMessage(error, 'Unable to load accounts.');
-		} finally {
-			authBusy = false;
-			settingsMenuOpen = false;
-		}
+		await account.openLoginOrAccountList();
 	}
 
-	async function submitLogin() {
-		const email = emailDraft.trim();
-		if (!email) {
-			authMessage = 'Enter an email address.';
-			return;
-		}
-
-		loginSubmitting = true;
-		authMessage = '';
-
-		try {
-			await auth.login(email);
-		} catch (error) {
-			authMessage = getErrorMessage(error, 'Unable to send login code.');
-			loginSubmitting = false;
-			return;
-		}
-
-		loginSubmitting = false;
-		loginStep = 'otp';
-		otpDraft = '';
-		startResendCooldown();
+	async function submitLogin(nextEmail = emailDraft) {
+		await account.submitLogin(nextEmail);
 	}
 
 	async function verifyOtpCode(code: string) {
-		if (!auth || otpVerifying || code.length !== 8) return;
-
-		otpVerifying = true;
-		authMessage = '';
-
-		try {
-			const nextSession = await auth.verify(emailDraft.trim(), code);
-			otpVerifying = false;
-			loginModalOpen = false;
-			accountModalOpen = false;
-			loginStep = 'email';
-			otpDraft = '';
-			stopResendCooldown();
-			await applyAuthResponse(nextSession);
-		} catch (error) {
-			otpVerifying = false;
-			otpDraft = '';
-			authMessage = getErrorMessage(error, 'Unable to verify code.');
-			triggerOtpShake();
-		}
+		await account.verifyOtpCode(code);
 	}
 
 	async function resendOtpCode() {
-		if (!auth || resendCooldownRemaining > 0 || loginSubmitting || otpVerifying) return;
-
-		loginSubmitting = true;
-		authMessage = '';
-
-		try {
-			await auth.login(emailDraft.trim());
-		} catch (error) {
-			authMessage = getErrorMessage(error, 'Unable to resend code.');
-			loginSubmitting = false;
-			return;
-		}
-
-		loginSubmitting = false;
-		startResendCooldown();
-		authMessage = 'A new code was sent.';
-	}
-
-	function startResendCooldown() {
-		stopResendCooldown();
-		resendCooldownRemaining = 30;
-		resendCooldownInterval = setInterval(() => {
-			resendCooldownRemaining = Math.max(0, resendCooldownRemaining - 1);
-			if (resendCooldownRemaining === 0) {
-				stopResendCooldown();
-			}
-		}, 1000);
-	}
-
-	function stopResendCooldown() {
-		if (resendCooldownInterval) {
-			clearInterval(resendCooldownInterval);
-			resendCooldownInterval = null;
-		}
-	}
-
-	function triggerOtpShake() {
-		otpShake = false;
-		requestAnimationFrame(() => {
-			otpShake = true;
-			setTimeout(() => {
-				otpShake = false;
-			}, 300);
-		});
+		await account.resendOtpCode();
 	}
 
 	async function logoutCurrentAccount() {
 		if (!authUser || authBusy || syncBusy) return;
 
-		await logoutAccountSession(authUser.sessionId, authUser.userId);
+		await account.logoutCurrentAccount();
 		settingsMenuOpen = false;
 	}
 
 	async function logoutAccountSession(sessionId: string, userId: string) {
-		if (!auth || authBusy || accountBusySessionId) return;
-
-		const wasActiveAccount = authUser?.userId === userId;
-		authBusy = wasActiveAccount;
-		accountBusySessionId = sessionId;
-		authMessage = '';
 		clearAllToasts();
-
-		try {
-			const nextSession = await auth.logout({ sessionId });
-			authSessions = nextSession.sessions;
-			await deleteLocalUserData(userId);
-
-			if (nextSession.activeSession?.userId !== authUser?.userId) {
-				await applyAuthResponse(nextSession);
-			}
-		} catch (error) {
-			authMessage = getErrorMessage(error, 'Unable to logout.');
-		} finally {
-			authBusy = false;
-			accountBusySessionId = null;
-			if (authSessions.length === 0) {
-				accountModalOpen = false;
-			}
-		}
+		await account.logoutAccountSession(sessionId, userId);
 	}
 
 	async function selectAccountSession(nextSessionId: string) {
-		if (!auth || authBusy || syncBusy || accountBusySessionId) return;
-
-		const selectedSession = authSessions.find((entry) => entry.sessionId === nextSessionId);
-		if (selectedSession?.active) {
-			accountModalOpen = false;
-			return;
-		}
-
-		authBusy = true;
-		accountBusySessionId = nextSessionId;
-		authMessage = '';
-
-		try {
-			await applyAuthResponse(await auth.switchSession(nextSessionId));
-			accountModalOpen = false;
-		} catch (error) {
-			authMessage = getErrorMessage(error, 'Unable to switch accounts.');
-		} finally {
-			authBusy = false;
-			accountBusySessionId = null;
-		}
+		await account.selectAccountSession(nextSessionId);
 	}
 
 	async function resolveAnonymousImport(addAnonymousToAccount: boolean) {
@@ -693,10 +544,6 @@
 		pendingAnonymousImportSession = null;
 		importPromptOpen = false;
 		loginModalOpen = false;
-	}
-
-	function getAccountInitial(account: AuthSessionSummary) {
-		return account.username.trim().slice(0, 1).toUpperCase() || '?';
 	}
 
 	function clearHideChromeTimeout() {
@@ -989,9 +836,8 @@
 			previousActiveText = getActivePage(session).content;
 			applyTheme(preferences.themeMode);
 			showQueuedAppUpdatedNotice();
-			setupAuthChannel();
 			setupNotesChannel();
-			void initializeAuth();
+			void account.initialize({ initialUser: cachedAuthSession });
 		})();
 
 		window.addEventListener(APP_UPDATED_NOTICE_EVENT, handleAppUpdatedNotice);
@@ -1006,7 +852,6 @@
 		clearEditorIdleFlush();
 		syncController.cancel();
 		activePageController.cancel();
-		stopResendCooldown();
 		clearAllToasts();
 		if (browser) {
 			document.removeEventListener('visibilitychange', handleDocumentVisibilityChange);
@@ -1014,9 +859,43 @@
 		}
 		pagesChannel?.close();
 		pagesChannel = null;
-		authBroadcastChannel?.close();
-		authBroadcastChannel = null;
+		account.destroy();
 	});
+
+	async function loadBlankAccountData(user: AuthSessionSummary | null) {
+		if (user) {
+			appSyncStatus = isBrowserOnline() ? 'syncing' : 'offline';
+		}
+
+		return loadEditorAuthState({
+			user,
+			loader: {
+				loadUserState: (userId) => EditorStorage.loadUserState(userId),
+				loadAnonymousState: () => EditorStorage.loadAnonymousState(),
+				hasPromptedForAnonymousImport: (userId) =>
+					EditorStorage.hasPromptedForAnonymousImport(userId),
+				loadPreferences
+			},
+			pagesApi,
+			isOnline: isBrowserOnline()
+		});
+	}
+
+	function applyLoadedBlankAccountData(loadedAuthState: LoadedEditorAuthState) {
+		appSyncStatus = loadedAuthState.appSyncStatus;
+		preferences = loadedAuthState.preferences;
+		applyTheme(preferences.themeMode);
+
+		if (!areEditorSessionsEquivalent(loadedAuthState.session, session)) {
+			replaceLocalSession(mergeEditorSelections(loadedAuthState.session, session), {
+				source: loadedAuthState.user
+					? 'accountController:authenticated-session'
+					: 'accountController:anonymous-session'
+			});
+		}
+		pendingAnonymousImportSession = loadedAuthState.pendingAnonymousImportSession;
+		importPromptOpen = loadedAuthState.importPromptOpen;
+	}
 
 	async function loadPreferences(userId = getScopedUserId()) {
 		const loadedPreferences = await EditorStorage.loadPreferences(userId);
@@ -1114,123 +993,9 @@
 		}
 	}
 
-	async function initializeAuth(initialAuthSession?: AuthSessionSummary | null) {
-		currentAuthRequestId = beginAuthRequestId(currentAuthRequestId);
-		const requestId = currentAuthRequestId;
-		authBusy = true;
-		let authSession = initialAuthSession;
-
-		if (initialAuthSession === undefined) {
-			try {
-				const nextSession = await auth.getSession();
-				if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
-					return;
-				}
-				authSessions = nextSession.sessions;
-				authSession = nextSession.activeSession;
-			} catch (error) {
-				if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
-					return;
-				}
-				authMessage = getErrorMessage(error, 'Unable to load session.');
-				authBusy = false;
-				return;
-			}
-		}
-
-		await syncAuthState(authSession ?? null, requestId);
-		if (isLatestAuthRequest(currentAuthRequestId, requestId)) {
-			authBusy = false;
-		}
-	}
-
-	async function applyAuthResponse(nextSession: {
-		activeSession: AuthSessionSummary | null;
-		sessions: AuthSessionSummary[];
-	}) {
-		authSessions = nextSession.sessions;
-		broadcastAuthSessionChanged(nextSession.activeSession?.userId ?? null);
-		await syncAuthState(nextSession.activeSession ?? null);
-	}
-
 	async function deleteLocalUserData(userId: string) {
 		await EditorStorage.deleteUserData(userId);
 		clearCachedAuthSessionForUser(userId);
-	}
-
-	async function syncAuthState(
-		nextUser: AuthSessionSummary | null,
-		requestId = beginAuthRequestId(currentAuthRequestId)
-	) {
-		if (requestId < currentAuthRequestId) {
-			return;
-		}
-
-		currentAuthRequestId = requestId;
-		authUser = nextUser;
-		writeCachedAuthSession(nextUser);
-		authBusy = !!nextUser;
-		authMessage = '';
-		if (nextUser) {
-			appSyncStatus = isBrowserOnline() ? 'syncing' : 'offline';
-		}
-
-		try {
-			const loadedAuthState = await loadEditorAuthState({
-				user: nextUser,
-				loader: {
-					loadUserState: (userId) => EditorStorage.loadUserState(userId),
-					loadAnonymousState: () => EditorStorage.loadAnonymousState(),
-					hasPromptedForAnonymousImport: (userId) =>
-						EditorStorage.hasPromptedForAnonymousImport(userId),
-					loadPreferences
-				},
-				pagesApi,
-				isOnline: isBrowserOnline(),
-				onLocalStateLoaded: (localState) => {
-					if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
-						return;
-					}
-
-					appSyncStatus = localState.appSyncStatus;
-					preferences = localState.preferences;
-					applyTheme(preferences.themeMode);
-					if (!areEditorSessionsEquivalent(localState.session, session)) {
-						replaceLocalSession(mergeEditorSelections(localState.session, session), {
-							source: 'syncAuthState:local-session',
-							details: { requestId }
-						});
-					}
-				}
-			});
-
-			if (!isLatestAuthRequest(currentAuthRequestId, requestId)) {
-				return;
-			}
-
-			appSyncStatus = loadedAuthState.appSyncStatus;
-			preferences = loadedAuthState.preferences;
-			applyTheme(preferences.themeMode);
-
-			if (!areEditorSessionsEquivalent(loadedAuthState.session, session)) {
-				replaceLocalSession(mergeEditorSelections(loadedAuthState.session, session), {
-					source: loadedAuthState.user
-						? 'syncAuthState:authenticated-session'
-						: 'syncAuthState:anonymous-session',
-					details: { requestId }
-				});
-			}
-			pendingAnonymousImportSession = loadedAuthState.pendingAnonymousImportSession;
-			importPromptOpen = loadedAuthState.importPromptOpen;
-			loginModalOpen = false;
-		} catch (error) {
-			appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
-			authMessage = getErrorMessage(error, 'Unable to load saved notes.');
-		} finally {
-			if (isLatestAuthRequest(currentAuthRequestId, requestId)) {
-				authBusy = false;
-			}
-		}
 	}
 
 	async function persistWorkspaceState(
@@ -1255,43 +1020,6 @@
 		});
 
 		return changedEvents;
-	}
-
-	function setupAuthChannel() {
-		if (!browser || typeof BroadcastChannel === 'undefined') {
-			return;
-		}
-
-		authBroadcastChannel?.close();
-		authBroadcastChannel = new AuthBroadcastChannel({
-			channelName: AUTH_CHANNEL_NAME,
-			tabId,
-			getCurrentUserId: () => authUser?.userId ?? null,
-			onRemoteAuthChanged: () => {
-				void refreshAuthFromBroadcast();
-			}
-		});
-		authBroadcastChannel.open();
-	}
-
-	function broadcastAuthSessionChanged(userId: string | null) {
-		authBroadcastChannel?.broadcast(userId);
-	}
-
-	async function refreshAuthFromBroadcast() {
-		let nextAuthSession: AuthSessionSummary | null = null;
-		try {
-			nextAuthSession = (await auth.getSession()).activeSession;
-		} catch (error) {
-			console.error('Failed to refresh auth session from broadcast:', error);
-			return;
-		}
-
-		if (nextAuthSession?.userId === authUser?.userId) {
-			return;
-		}
-
-		void syncAuthState(nextAuthSession);
 	}
 
 	function setupNotesChannel() {
@@ -1442,7 +1170,7 @@
 	}
 
 	function requestImmediateSync(options: { showSuccessNotice?: boolean } = {}) {
-		if (!authUser || !loaded) {
+		if (!authUser || !loaded || authBusy) {
 			return;
 		}
 
@@ -1450,7 +1178,7 @@
 	}
 
 	async function executeSync(options: { showSuccessNotice: boolean }) {
-		if (!authUser || !loaded) {
+		if (!authUser || !loaded || authBusy) {
 			return;
 		}
 
@@ -1628,7 +1356,7 @@
 						{#if authUser}
 							<button
 								type="button"
-								disabled={syncBusy || appSyncStatus === 'offline'}
+								disabled={authBusy || syncBusy || appSyncStatus === 'offline'}
 								on:click={() => requestImmediateSync()}
 							>
 								{syncStatusLabel}
@@ -1667,129 +1395,50 @@
 	{/if}
 
 	{#if deletePage}
-		<Modal title="Delete page?" onClose={closeDeleteModal}>
-			<p>{deletePage.title}</p>
-			<svelte:fragment slot="actions">
-				<Button on:click={closeDeleteModal}>Cancel</Button>
-				<Button variant="danger" on:click={() => closePage(deletePage.id)}>Delete</Button>
-			</svelte:fragment>
-		</Modal>
+		<ConfirmModal
+			title="Delete page?"
+			message={deletePage.title}
+			actionLabel="Delete"
+			danger
+			onCancel={closeDeleteModal}
+			onConfirm={() => closePage(deletePage.id)}
+		/>
 	{/if}
 
 	{#if loginModalOpen}
-		<Modal title="Login" onClose={closeLoginModal}>
-			{#if loginStep === 'email'}
-				<label class="auth-field">
-					<span>Email</span>
-					<TextInput
-						bind:value={emailDraft}
-						type="email"
-						placeholder="you@example.com"
-						autocomplete="email"
-						on:keydown={(event) => {
-							if (event.key === 'Enter') {
-								event.preventDefault();
-								void submitLogin();
-							}
-						}}
-					/>
-				</label>
-			{:else}
-				<div class="auth-field">
-					<span>Code sent to {emailDraft.trim()}</span>
-					<OtpInput
-						value={otpDraft}
-						disabled={otpVerifying}
-						shake={otpShake}
-						on:change={(event) => {
-							otpDraft = event.detail.value;
-						}}
-						on:complete={(event) => {
-							void verifyOtpCode(event.detail.value);
-						}}
-					/>
-				</div>
-			{/if}
-			{#if authMessage}
-				<p class="auth-message">{authMessage}</p>
-			{/if}
-			<svelte:fragment slot="actions">
-				{#if loginStep === 'otp'}
-					<Button
-						disabled={resendCooldownRemaining > 0 || loginSubmitting || otpVerifying}
-						on:click={resendOtpCode}
-					>
-						{#if resendCooldownRemaining > 0}
-							Resend code ({resendCooldownRemaining}s)
-						{:else}
-							Resend code
-						{/if}
-					</Button>
-					<Button
-						disabled={otpVerifying}
-						on:click={() => {
-							loginStep = 'email';
-							otpDraft = '';
-							authMessage = '';
-						}}
-					>
-						Back
-					</Button>
-					<div class="auth-status" aria-live="polite">
-						{otpVerifying ? 'Verifying…' : ''}
-					</div>
-				{:else}
-					<Button on:click={closeLoginModal}>Cancel</Button>
-					<Button variant="primary" disabled={loginSubmitting} on:click={submitLogin}>
-						{loginSubmitting ? 'Sending…' : 'Send Email'}
-					</Button>
-				{/if}
-			</svelte:fragment>
-		</Modal>
+		<LoginModal
+			step={loginStep}
+			email={emailDraft}
+			otp={otpDraft}
+			message={authMessage}
+			{loginSubmitting}
+			{otpVerifying}
+			{otpShake}
+			{resendCooldownRemaining}
+			onClose={closeLoginModal}
+			onSubmitEmail={(email) => void submitLogin(email)}
+			onVerifyOtp={(code) => void verifyOtpCode(code)}
+			onResendOtp={resendOtpCode}
+			onBackToEmail={() => {
+				loginStep = 'email';
+				otpDraft = '';
+				authMessage = '';
+			}}
+		/>
 	{/if}
 
 	{#if accountModalOpen}
-		<Modal title="Accounts" onClose={closeAccountModal}>
-			<div class="account-list">
-				{#each authSessions as account (account.sessionId)}
-					<div class:active={account.active} class="account-row">
-						<button
-							class="account-select"
-							type="button"
-							disabled={authBusy || syncBusy || accountBusySessionId !== null}
-							on:click={() => selectAccountSession(account.sessionId)}
-						>
-							<span class="account-avatar" aria-hidden="true">
-								{getAccountInitial(account)}
-							</span>
-							<span class="account-copy">
-								<span class="account-name">{account.username}</span>
-								{#if account.email && account.email !== account.username}
-									<span class="account-meta">{account.email}</span>
-								{/if}
-							</span>
-						</button>
-						<button
-							class="account-remove"
-							type="button"
-							aria-label={`Logout ${account.username}`}
-							disabled={authBusy || syncBusy || accountBusySessionId !== null}
-							on:click={() => logoutAccountSession(account.sessionId, account.userId)}
-						>
-							x
-						</button>
-					</div>
-				{/each}
-			</div>
-			{#if authMessage}
-				<p class="auth-message">{authMessage}</p>
-			{/if}
-			<svelte:fragment slot="actions">
-				<div class="account-actions">
-					<Button size="sm" on:click={openLoginFlow}>Sign into another account</Button>
-				</div>
-			</svelte:fragment>
-		</Modal>
+		<AccountModal
+			accounts={authSessions}
+			message={authMessage}
+			busy={authBusy}
+			{syncBusy}
+			busySessionId={accountBusySessionId}
+			onClose={closeAccountModal}
+			onSelectAccount={(sessionId) => void selectAccountSession(sessionId)}
+			onLogoutAccount={(sessionId, userId) => void logoutAccountSession(sessionId, userId)}
+			onAddAccount={openLoginFlow}
+		/>
 	{/if}
 
 	{#if importPromptOpen && pendingAnonymousImportSession}
@@ -2111,129 +1760,6 @@
 		border: 0;
 		background-color: var(--color-scrim);
 		transition: var(--theme-transition);
-	}
-
-	.auth-field {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		font-size: var(--font-size-2xs);
-	}
-
-	.auth-message {
-		margin-top: var(--space-2);
-	}
-
-	.auth-status {
-		font: inherit;
-		font-size: var(--font-size-xs);
-		color: var(--color-muted);
-	}
-
-	.auth-status {
-		min-width: 4.5rem;
-		text-align: right;
-	}
-
-	.account-list {
-		max-height: min(18rem, 55vh);
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		padding-right: var(--space-1);
-	}
-
-	.account-row {
-		display: grid;
-		grid-template-columns: 1fr 2rem;
-		align-items: center;
-		gap: var(--space-1);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-2);
-		background-color: var(--color-bg);
-		transition: var(--theme-transition);
-	}
-
-	.account-row.active {
-		border-color: var(--color-fg);
-		background-color: var(--color-hover);
-	}
-
-	.account-select,
-	.account-remove {
-		border: 0;
-		background: transparent;
-		color: inherit;
-		font: inherit;
-		cursor: pointer;
-	}
-
-	.account-select {
-		min-width: 0;
-		display: grid;
-		grid-template-columns: 2rem 1fr;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2);
-		text-align: left;
-	}
-
-	.account-avatar {
-		width: 2rem;
-		height: 2rem;
-		border-radius: var(--radius-round);
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background-color: var(--color-panel);
-		border: 1px solid var(--color-border);
-		font-size: var(--font-size-sm);
-		color: var(--color-fg);
-		transition: var(--theme-transition);
-	}
-
-	.account-copy {
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.125rem;
-	}
-
-	.account-name,
-	.account-meta {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.account-name {
-		font-size: var(--font-size-sm);
-		color: var(--color-fg);
-	}
-
-	.account-meta {
-		font-size: var(--font-size-xs);
-		color: var(--color-muted);
-	}
-
-	.account-actions {
-		width: 100%;
-		display: flex;
-		justify-content: center;
-	}
-
-	.account-remove {
-		width: 2rem;
-		height: 2rem;
-		border-radius: var(--radius-round);
-		color: var(--color-muted);
-	}
-
-	.account-select:disabled,
-	.account-remove:disabled {
-		cursor: not-allowed;
-		opacity: 0.55;
 	}
 
 	.drawer-header {

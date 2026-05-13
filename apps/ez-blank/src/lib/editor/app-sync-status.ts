@@ -1,6 +1,7 @@
 import type { EditorSession } from './core/session';
+import type { AppSyncStatus } from '@ez/sync';
 
-export type AppSyncStatus = 'offline' | 'syncing' | 'synced' | 'saved_locally' | 'error';
+export type { AppSyncStatus } from '@ez/sync';
 
 export function hasUnsyncedRealPages(session: EditorSession) {
 	return session.pages.some(
@@ -17,19 +18,4 @@ export function getSettledAppSyncStatus(
 	}
 
 	return hasUnsyncedRealPages(session) ? 'saved_locally' : 'synced';
-}
-
-export function getSyncStatusLabel(status: AppSyncStatus) {
-	switch (status) {
-		case 'offline':
-			return 'Offline';
-		case 'syncing':
-			return 'Syncing…';
-		case 'synced':
-			return 'Synced';
-		case 'saved_locally':
-			return 'Saved locally';
-		case 'error':
-			return 'Sync error';
-	}
 }

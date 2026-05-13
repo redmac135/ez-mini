@@ -1,0 +1,621 @@
+<script lang="ts">
+	import { createAccountDataController } from '@ez/account';
+	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
+	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
+	import {
+		AccountModal,
+		AppShell,
+		Button,
+		ConfirmModal,
+		FloatingMenu,
+		Icon,
+		LoginModal,
+		Navbar,
+		Workspace
+	} from '@ez/ui';
+	import { auth, repeatApi } from '$lib/api';
+	import CalendarDrawer from '$lib/components/CalendarDrawer.svelte';
+	import DateNavigator from '$lib/components/DateNavigator.svelte';
+	import HabitCreateModal from '$lib/components/HabitCreateModal.svelte';
+	import HabitList from '$lib/components/HabitList.svelte';
+	import { createRepeatController, type RepeatViewModel, type ThemeMode } from '$lib';
+	import { getRepeatSyncNotice, syncRepeatData } from '$lib/repeat/sync';
+	import type { HabitProgress, ParsedHabitInput } from '$lib/repeat/types';
+
+	const repeat = createRepeatController();
+	const account = createAccountDataController<null>({
+		authClient: auth,
+		adapter: {
+			async loadAnonymous() {
+				await repeat.setUserId(null);
+				return null;
+			},
+			async loadAccount(user) {
+				await repeat.setUserId(user.userId);
+				return null;
+			},
+			onLoaded({ user }) {
+				appSyncStatus = getSettledAppSyncStatus();
+				if (user) {
+					requestImmediateSync();
+				}
+			}
+		},
+		getErrorMessage
+	});
+
+	let view: RepeatViewModel;
+	let accountState = account.getState();
+	$: view = $repeat;
+	$: accountState = $account;
+
+	let addModalOpen = false;
+	let drawerOpen = false;
+	let editMode = false;
+	let editHabitProgress: HabitProgress | null = null;
+	let settingsMenuOpen = false;
+	let confirmAction: { type: 'archive' | 'delete'; progress: HabitProgress } | null = null;
+	let settingsControl: HTMLDivElement | null = null;
+	let syncBusy = false;
+	let appSyncStatus: AppSyncStatus = 'synced';
+	let toastNotices: Array<{ id: number; message: string }> = [];
+	let nextToastId = 1;
+	const toastTimeouts = new SvelteMap<number, number>();
+
+	const EDIT_SYNC_DEBOUNCE_MS = 3000;
+	const syncController = createSyncController({
+		delayMs: EDIT_SYNC_DEBOUNCE_MS,
+		runSync: executeSync
+	});
+
+	onMount(() => {
+		void initializeApp();
+		const unsubscribeStorage = repeat.subscribeToExternalChanges();
+
+		function handlePointerDown(event: PointerEvent) {
+			if (!settingsMenuOpen) {
+				return;
+			}
+
+			const target = event.target;
+			if (
+				target instanceof Node &&
+				(settingsControl?.contains(target) ||
+					(target instanceof Element && target.closest('.settings-control')))
+			) {
+				return;
+			}
+
+			settingsMenuOpen = false;
+		}
+
+		window.addEventListener('pointerdown', handlePointerDown);
+		return () => {
+			window.removeEventListener('pointerdown', handlePointerDown);
+			unsubscribeStorage();
+			account.destroy();
+			syncController.cancel();
+			clearAllToasts();
+		};
+	});
+
+	$: applyTheme(view?.themeMode ?? 'light');
+	$: syncStatusLabel = getSyncStatusLabel(appSyncStatus);
+
+	async function initializeApp() {
+		await account.initialize();
+	}
+
+	function applyTheme(themeMode: ThemeMode) {
+		if (typeof document === 'undefined') {
+			return;
+		}
+
+		document.body.dataset.theme = themeMode;
+	}
+
+	async function createHabit(parsed: ParsedHabitInput) {
+		await repeat.createHabit(parsed);
+		addModalOpen = false;
+		markSavedLocally();
+		scheduleSync();
+	}
+
+	async function editHabit(parsed: ParsedHabitInput) {
+		if (!editHabitProgress) {
+			return;
+		}
+
+		await repeat.editHabit(editHabitProgress.habit.id, parsed);
+		editHabitProgress = null;
+		markSavedLocally();
+		scheduleSync();
+	}
+
+	async function confirmSelectedAction() {
+		if (!confirmAction) {
+			return;
+		}
+
+		if (confirmAction.type === 'archive') {
+			await repeat.archiveHabit(confirmAction.progress.habit.id);
+		} else {
+			await repeat.deleteHabit(confirmAction.progress.habit.id);
+		}
+
+		confirmAction = null;
+		markSavedLocally();
+		scheduleSync();
+	}
+
+	async function toggleTheme() {
+		await repeat.setThemeMode(view.themeMode === 'dark' ? 'light' : 'dark');
+		settingsMenuOpen = false;
+	}
+
+	async function addCompletion(progress: HabitProgress) {
+		await repeat.addCompletion(progress);
+		markSavedLocally();
+		scheduleSync();
+	}
+
+	async function undoCompletion(progress: HabitProgress) {
+		await repeat.undoCompletion(progress);
+		markSavedLocally();
+		scheduleSync();
+	}
+
+	async function logoutCurrentAccount() {
+		if (!accountState.user || accountState.authBusy || syncBusy) return;
+		await account.logoutCurrentAccount();
+		settingsMenuOpen = false;
+	}
+
+	function scheduleSync() {
+		if (accountState.user) {
+			syncController.scheduleDebounced();
+		}
+	}
+
+	function requestImmediateSync(options: { showSuccessNotice?: boolean } = {}) {
+		if (!accountState.user) return;
+		syncController.requestImmediate({ showSuccessNotice: options.showSuccessNotice ?? false });
+	}
+
+	async function executeSync(options: { showSuccessNotice: boolean }) {
+		if (!repeatApi || !accountState.user) {
+			return;
+		}
+
+		syncBusy = true;
+		appSyncStatus = isBrowserOnline() ? 'syncing' : 'offline';
+		try {
+			const result = await syncRepeatData(repeatApi, accountState.user.userId);
+			await repeat.refresh();
+			const notice = getRepeatSyncNotice(result, options);
+			if (notice) {
+				showStatusNotice(notice);
+			}
+			appSyncStatus = getSettledAppSyncStatus();
+		} catch {
+			appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
+		} finally {
+			syncBusy = false;
+		}
+	}
+
+	function markSavedLocally() {
+		if (!accountState.user) {
+			return;
+		}
+
+		appSyncStatus = getSettledAppSyncStatus(true);
+	}
+
+	function getSettledAppSyncStatus(hasUnsyncedChanges = hasUnsyncedRepeatData()) {
+		if (!isBrowserOnline()) {
+			return 'offline';
+		}
+
+		return hasUnsyncedChanges ? 'saved_locally' : 'synced';
+	}
+
+	function hasUnsyncedRepeatData() {
+		if (!view?.loaded) {
+			return false;
+		}
+
+		return [...view.snapshot.habits, ...view.snapshot.completions].some(
+			(item) => item.lastSyncedAt === null || item.updatedAt > item.lastSyncedAt
+		);
+	}
+
+	function isBrowserOnline() {
+		return typeof navigator === 'undefined' ? true : navigator.onLine;
+	}
+
+	function handleWindowOnline() {
+		appSyncStatus = getSettledAppSyncStatus();
+		requestImmediateSync();
+	}
+
+	function handleWindowOffline() {
+		appSyncStatus = 'offline';
+	}
+
+	function showStatusNotice(message: string) {
+		if (typeof window === 'undefined') return;
+
+		const id = nextToastId++;
+		toastNotices = [{ id, message }, ...toastNotices];
+		toastTimeouts.set(
+			id,
+			window.setTimeout(() => {
+				dismissToast(id);
+			}, 4000)
+		);
+	}
+
+	function dismissToast(id: number) {
+		const timeout = toastTimeouts.get(id);
+		if (timeout) {
+			window.clearTimeout(timeout);
+			toastTimeouts.delete(id);
+		}
+
+		toastNotices = toastNotices.filter((toast) => toast.id !== id);
+	}
+
+	function clearAllToasts() {
+		for (const timeout of toastTimeouts.values()) {
+			window.clearTimeout(timeout);
+		}
+		toastTimeouts.clear();
+		toastNotices = [];
+	}
+
+	function getErrorMessage(error: unknown, fallback: string) {
+		return error instanceof Error && error.message ? error.message : fallback;
+	}
+</script>
+
+<svelte:head>
+	<title>ez-repeat</title>
+</svelte:head>
+
+<svelte:window on:online={handleWindowOnline} on:offline={handleWindowOffline} />
+
+<AppShell>
+	{#if view?.loaded}
+		<button
+			class="drawer-toggle"
+			type="button"
+			aria-label={drawerOpen ? 'Close calendar' : 'Open calendar'}
+			aria-expanded={drawerOpen}
+			on:click={() => (drawerOpen = !drawerOpen)}
+		>
+			<Icon name={drawerOpen ? 'x-mark' : 'calendar-days'} />
+		</button>
+	{/if}
+
+	<Navbar visible={view?.loaded ?? false}>
+		{#if view?.loaded && !view.isToday && !drawerOpen}
+			<div class="nav-left">
+				<Button size="sm" on:click={repeat.selectToday}>today</Button>
+			</div>
+		{/if}
+		<div class="nav-actions">
+			<Button size="icon" ariaLabel="Edit habits" on:click={() => (editMode = !editMode)}>
+				<Icon name="pencil-square" />
+			</Button>
+			<Button size="icon" ariaLabel="Add habit" on:click={() => (addModalOpen = true)}>
+				<Icon name="plus" />
+			</Button>
+			<div class="settings-control" bind:this={settingsControl}>
+				<Button
+					size="icon"
+					ariaLabel="Open settings"
+					on:click={() => (settingsMenuOpen = !settingsMenuOpen)}
+				>
+					<Icon name="ellipsis-horizontal" />
+				</Button>
+				{#if settingsMenuOpen}
+					<FloatingMenu label="Settings" verticalOffset="var(--space-2)">
+						<button type="button" on:click={toggleTheme}>
+							{view.themeMode === 'dark' ? 'Light mode' : 'Dark mode'}
+						</button>
+						{#if accountState.user}
+							<button
+								type="button"
+								disabled={syncBusy || appSyncStatus === 'offline'}
+								on:click={() => requestImmediateSync()}
+							>
+								{syncStatusLabel}
+							</button>
+							<button
+								type="button"
+								disabled={accountState.authBusy || syncBusy}
+								on:click={account.openLoginOrAccountList}
+							>
+								Switch Account
+							</button>
+							<button
+								type="button"
+								disabled={accountState.authBusy || syncBusy}
+								on:click={logoutCurrentAccount}
+							>
+								Logout
+							</button>
+							<div class="menu-stat">{accountState.user.email ?? accountState.user.userId}</div>
+						{:else}
+							<button
+								type="button"
+								disabled={!auth || accountState.authBusy}
+								on:click={account.openLoginOrAccountList}
+							>
+								Login
+							</button>
+						{/if}
+						{#if accountState.authMessage && !accountState.loginModalOpen}
+							<div class="menu-stat">{accountState.authMessage}</div>
+						{/if}
+					</FloatingMenu>
+				{/if}
+			</div>
+		</div>
+	</Navbar>
+
+	{#if drawerOpen}
+		<button
+			class="scrim"
+			type="button"
+			aria-label="Close calendar"
+			on:click={() => (drawerOpen = false)}
+		></button>
+	{/if}
+
+	{#if view?.loaded}
+		<CalendarDrawer
+			open={drawerOpen}
+			habits={view.snapshot.habits}
+			completions={view.snapshot.completions}
+			todayDate={view.todayDate}
+			selectedDate={view.selectedDate}
+			onSelectDate={(dateKey) => {
+				repeat.selectDate(dateKey);
+				drawerOpen = false;
+			}}
+		/>
+	{/if}
+
+	<Workspace>
+		{#if view?.loaded}
+			<DateNavigator
+				selectedDate={view.selectedDate}
+				todayDate={view.todayDate}
+				onMove={repeat.moveDate}
+			/>
+
+			<HabitList
+				progress={view.progress}
+				{editMode}
+				onComplete={addCompletion}
+				onUndo={undoCompletion}
+				onEdit={(progress) => (editHabitProgress = progress)}
+				onArchive={(progress) => (confirmAction = { type: 'archive', progress })}
+				onDelete={(progress) => (confirmAction = { type: 'delete', progress })}
+			/>
+		{/if}
+	</Workspace>
+
+	{#if addModalOpen}
+		<HabitCreateModal onCancel={() => (addModalOpen = false)} onCreate={createHabit} />
+	{/if}
+
+	{#if accountState.loginModalOpen}
+		<LoginModal
+			step={accountState.loginStep}
+			email={accountState.emailDraft}
+			otp={accountState.otpDraft}
+			message={accountState.authMessage}
+			loginSubmitting={accountState.loginSubmitting}
+			otpVerifying={accountState.otpVerifying}
+			otpShake={accountState.otpShake}
+			resendCooldownRemaining={accountState.resendCooldownRemaining}
+			onClose={account.closeLoginModal}
+			onSubmitEmail={(email) => void account.submitLogin(email)}
+			onVerifyOtp={(code) => void account.verifyOtpCode(code)}
+			onResendOtp={account.resendOtpCode}
+			onBackToEmail={account.backToEmail}
+		/>
+	{/if}
+
+	{#if accountState.accountModalOpen}
+		<AccountModal
+			accounts={accountState.sessions}
+			message={accountState.authMessage}
+			busy={accountState.authBusy}
+			{syncBusy}
+			busySessionId={accountState.accountBusySessionId}
+			onClose={account.closeAccountModal}
+			onSelectAccount={(sessionId) => void account.selectAccountSession(sessionId)}
+			onLogoutAccount={(sessionId, userId) => void account.logoutAccountSession(sessionId, userId)}
+			onAddAccount={account.openLoginFlow}
+		/>
+	{/if}
+
+	{#if editHabitProgress}
+		<HabitCreateModal
+			title="Edit Habit"
+			submitLabel="Save"
+			initialValue={editHabitProgress.habit.title}
+			initialTargetCount={editHabitProgress.habit.targetCount}
+			initialRecurrence={editHabitProgress.habit.recurrence}
+			disclaimer="This will archive the old habit and create a new habit in its place."
+			onCancel={() => (editHabitProgress = null)}
+			onCreate={editHabit}
+		/>
+	{/if}
+
+	{#if confirmAction}
+		{#if confirmAction.type === 'archive'}
+			<ConfirmModal
+				title="Archive habit"
+				message="Archive this habit from this date forward. Earlier dates and completions will stay visible."
+				actionLabel="Archive"
+				onCancel={() => (confirmAction = null)}
+				onConfirm={confirmSelectedAction}
+			/>
+		{:else}
+			<ConfirmModal
+				title="Delete habit"
+				message="Delete this habit and all of its completions from every date."
+				actionLabel="Delete"
+				danger
+				onCancel={() => (confirmAction = null)}
+				onConfirm={confirmSelectedAction}
+			/>
+		{/if}
+	{/if}
+
+	{#if toastNotices.length > 0}
+		<div class="toast-stack" aria-live="polite" aria-atomic="false">
+			{#each toastNotices as toast (toast.id)}
+				<button type="button" class="toast" on:click={() => dismissToast(toast.id)}>
+					<span class="toast-message">{toast.message}</span>
+				</button>
+			{/each}
+		</div>
+	{/if}
+</AppShell>
+
+<style>
+	.drawer-toggle {
+		position: absolute;
+		top: max(var(--space-3), env(safe-area-inset-top));
+		left: max(var(--space-3), env(safe-area-inset-left));
+		z-index: 28;
+		width: 2rem;
+		height: 2rem;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-1);
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		transition: var(--theme-transition);
+	}
+
+	.drawer-toggle:hover,
+	.drawer-toggle:focus-visible {
+		background-color: var(--color-hover);
+		outline: none;
+	}
+
+	.drawer-toggle :global(svg) {
+		width: 1.1rem;
+		height: 1.1rem;
+		color: var(--color-fg);
+		fill: currentColor;
+	}
+
+	.scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 10;
+		border: 0;
+		background-color: var(--color-scrim);
+		transition: var(--theme-transition);
+	}
+
+	.nav-left,
+	.nav-actions {
+		position: absolute;
+		top: 0;
+		display: flex;
+		align-items: center;
+	}
+
+	.nav-left {
+		left: 2.5rem;
+	}
+
+	.nav-actions {
+		right: 0;
+		gap: var(--space-0);
+	}
+
+	.settings-control {
+		position: relative;
+	}
+
+	.nav-left :global(button),
+	.nav-actions :global(button) {
+		border-radius: var(--radius-1);
+		font-family: var(--font-family-mono);
+		transition: var(--theme-transition);
+	}
+
+	.nav-left :global(button) {
+		min-height: 2rem;
+		padding: var(--space-2) var(--space-3);
+		font-size: var(--font-size-sm);
+		letter-spacing: var(--letter-spacing-count);
+	}
+
+	.nav-actions :global(svg) {
+		width: 1.1rem;
+		height: 1.1rem;
+		color: var(--color-fg);
+		fill: currentColor;
+	}
+
+	.toast-stack {
+		position: fixed;
+		top: max(
+			calc(var(--space-8) + var(--space-1)),
+			calc(env(safe-area-inset-top) + var(--space-7))
+		);
+		right: max(var(--space-4), env(safe-area-inset-right));
+		z-index: 40;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: var(--space-3);
+		pointer-events: none;
+	}
+
+	.toast {
+		pointer-events: auto;
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-3);
+		max-width: min(22rem, calc(100vw - 2rem));
+		padding: var(--space-3) var(--space-4);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-2);
+		background-color: var(--color-panel);
+		color: var(--color-fg);
+		box-shadow: 0 18px 38px -24px var(--color-shadow);
+		backdrop-filter: blur(12px);
+		cursor: pointer;
+		text-align: left;
+		white-space: normal;
+		font: inherit;
+		font-family: inherit;
+		appearance: none;
+		-webkit-appearance: none;
+		transition: var(--theme-transition);
+	}
+
+	.toast-message {
+		min-width: 0;
+		flex: 1;
+		font-size: var(--font-size-md);
+		line-height: var(--line-height-tight);
+	}
+</style>

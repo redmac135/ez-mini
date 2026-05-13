@@ -1,9 +1,14 @@
 export { default as AppShell } from './AppShell.svelte';
+export { default as AccountModal } from './AccountModal.svelte';
 export { default as Button } from './Button.svelte';
+export { default as Chip } from './Chip.svelte';
+export { default as ConfirmModal } from './ConfirmModal.svelte';
 export { default as FloatingMenu } from './FloatingMenu.svelte';
 export { default as Icon } from './Icon.svelte';
+export { default as LoginModal } from './LoginModal.svelte';
 export { default as Modal } from './Modal.svelte';
 export { default as Navbar } from './Navbar.svelte';
 export { default as OtpInput } from './OtpInput.svelte';
 export { default as Sidebar } from './Sidebar.svelte';
 export { default as TextInput } from './TextInput.svelte';
+export { default as Workspace } from './Workspace.svelte';

@@ -146,6 +146,9 @@ importers:
 
   apps/ez-blank:
     dependencies:
+      '@ez/account':
+        specifier: workspace:*
+        version: link:../../packages/account
       '@ez/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -162,6 +165,34 @@ importers:
       wrangler:
         specifier: 'catalog:'
         version: 4.87.0(@cloudflare/workers-types@4.20260502.1)
+
+  apps/ez-repeat:
+    dependencies:
+      '@ez/account':
+        specifier: workspace:*
+        version: link:../../packages/account
+      '@ez/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@ez/design':
+        specifier: workspace:*
+        version: link:../../packages/design
+      '@ez/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
+      '@ez/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+    devDependencies:
+      wrangler:
+        specifier: 'catalog:'
+        version: 4.87.0(@cloudflare/workers-types@4.20260502.1)
+
+  packages/account:
+    dependencies:
+      '@ez/auth':
+        specifier: workspace:*
+        version: link:../auth
 
   packages/auth: {}
 

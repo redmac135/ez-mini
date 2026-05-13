@@ -12,7 +12,8 @@ export async function handleSettings(request: Request, env: Env, context: Reques
 		const rows = await supabaseRest<Record<string, unknown>[]>(
 			env,
 			active,
-			`/user_settings?select=${SETTINGS_COLUMNS}&user_id=eq.${encodeURIComponent(active.userId)}`
+			`/user_settings?select=${SETTINGS_COLUMNS}&user_id=eq.${encodeURIComponent(active.userId)}`,
+			{ schema: 'blank' }
 		);
 		return rows[0] ?? null;
 	}
@@ -34,6 +35,7 @@ export async function handleSettings(request: Request, env: Env, context: Reques
 				`/user_settings?select=${SETTINGS_COLUMNS}&on_conflict=user_id`,
 				{
 					method: 'POST',
+					schema: 'blank',
 					prefer: 'resolution=merge-duplicates,return=representation',
 					body: { user_id: active.userId, active_page_id: activePageId }
 				}

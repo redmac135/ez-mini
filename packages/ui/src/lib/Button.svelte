@@ -3,6 +3,7 @@
 	export let size: 'sm' | 'md' | 'icon' = 'md';
 	export let type: 'button' | 'submit' | 'reset' = 'button';
 	export let disabled = false;
+	export let ariaLabel = '';
 </script>
 
 <button
@@ -12,6 +13,7 @@
 	class:small={size === 'sm'}
 	{type}
 	{disabled}
+	aria-label={ariaLabel || undefined}
 	on:click
 >
 	<slot />
@@ -56,7 +58,7 @@
 		width: 2rem;
 		height: 2rem;
 		padding: 0;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-1);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;

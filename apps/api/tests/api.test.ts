@@ -319,6 +319,8 @@ test('pages upsert scopes payloads to the active user', async () => {
 			'https://supabase.example.test/rest/v1/pages?select=id,user_id,title,content,created_at,updated_at,deleted_at&on_conflict=id'
 		);
 		assert.equal(request.method, 'POST');
+		assert.equal(request.headers.get('accept-profile'), 'blank');
+		assert.equal(request.headers.get('content-profile'), 'blank');
 		assert.equal(
 			request.headers.get('prefer'),
 			'resolution=merge-duplicates,return=representation'
@@ -397,6 +399,8 @@ test('settings patch accepts null active page ids and upserts by active user', a
 			'https://supabase.example.test/rest/v1/user_settings?select=user_id,active_page_id,created_at,updated_at&on_conflict=user_id'
 		);
 		assert.equal(request.method, 'POST');
+		assert.equal(request.headers.get('accept-profile'), 'blank');
+		assert.equal(request.headers.get('content-profile'), 'blank');
 		assert.deepEqual(await request.json(), { user_id: 'user-a', active_page_id: null });
 		return Response.json([
 			{
@@ -422,6 +426,146 @@ test('settings patch accepts null active page ids and upserts by active user', a
 
 	assert.equal(response.status, 200);
 	assert.equal(((await response.json()) as { active_page_id: null }).active_page_id, null);
+});
+
+test('settings get returns null when the blank schema has no row', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	mockFetch(async (request) => {
+		assert.equal(
+			request.url,
+			'https://supabase.example.test/rest/v1/user_settings?select=user_id,active_page_id,created_at,updated_at&user_id=eq.user-a'
+		);
+		assert.equal(request.headers.get('accept-profile'), 'blank');
+		return Response.json([]);
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/settings', {
+			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
+		}),
+		env
+	);
+
+	assert.equal(response.status, 200);
+	assert.equal(await response.json(), null);
+});
+
+test('repeat habit upsert uses repeat schema and active user ownership', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	mockFetch(async (request) => {
+		assert.equal(
+			request.url,
+			'https://supabase.example.test/rest/v1/habits?select=id,user_id,title,target_count,recurrence,replaces_habit_id,archived_at,deleted_at,created_at,updated_at&on_conflict=id'
+		);
+		assert.equal(request.method, 'POST');
+		assert.equal(request.headers.get('accept-profile'), 'repeat');
+		assert.equal(request.headers.get('content-profile'), 'repeat');
+		assert.deepEqual(await request.json(), {
+			id: 'habit-a',
+			user_id: 'user-a',
+			title: 'Stretch',
+			target_count: 2,
+			recurrence: { type: 'days', interval: 1 },
+			replaces_habit_id: null,
+			archived_at: null,
+			deleted_at: null,
+			created_at: '2026-05-12T00:00:00.000Z',
+			updated_at: '2026-05-13T00:00:00.000Z'
+		});
+		return Response.json([
+			{
+				id: 'habit-a',
+				user_id: 'user-a',
+				title: 'Stretch',
+				target_count: 2,
+				recurrence: { type: 'days', interval: 1 },
+				replaces_habit_id: null,
+				archived_at: null,
+				deleted_at: null,
+				created_at: '2026-05-12T00:00:00.000Z',
+				updated_at: '2026-05-13T00:00:00.000Z'
+			}
+		]);
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/repeat/habits', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				id: 'habit-a',
+				user_id: 'other-user',
+				title: 'Stretch',
+				target_count: 2,
+				recurrence: { type: 'days', interval: 1 },
+				created_at: '2026-05-12T00:00:00.000Z',
+				updated_at: '2026-05-13T00:00:00.000Z'
+			})
+		}),
+		env
+	);
+
+	assert.equal(response.status, 200);
+	assert.equal(((await response.json()) as { user_id: string }).user_id, 'user-a');
+});
+
+test('repeat completion upsert uses composite conflict identity', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	mockFetch(async (request) => {
+		assert.equal(
+			request.url,
+			'https://supabase.example.test/rest/v1/completions?select=user_id,habit_id,completed_on,count,created_at,updated_at&on_conflict=habit_id,completed_on'
+		);
+		assert.equal(request.method, 'POST');
+		assert.equal(request.headers.get('accept-profile'), 'repeat');
+		assert.equal(request.headers.get('content-profile'), 'repeat');
+		assert.deepEqual(await request.json(), {
+			user_id: 'user-a',
+			habit_id: 'habit-a',
+			completed_on: '2026-05-13',
+			count: 0,
+			created_at: '2026-05-13T00:00:00.000Z',
+			updated_at: '2026-05-13T01:00:00.000Z'
+		});
+		return Response.json([
+			{
+				user_id: 'user-a',
+				habit_id: 'habit-a',
+				completed_on: '2026-05-13',
+				count: 0,
+				created_at: '2026-05-13T00:00:00.000Z',
+				updated_at: '2026-05-13T01:00:00.000Z'
+			}
+		]);
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/repeat/completions', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				user_id: 'other-user',
+				habit_id: 'habit-a',
+				completed_on: '2026-05-13',
+				count: 0,
+				created_at: '2026-05-13T00:00:00.000Z',
+				updated_at: '2026-05-13T01:00:00.000Z'
+			})
+		}),
+		env
+	);
+
+	assert.equal(response.status, 200);
+	assert.equal(((await response.json()) as { user_id: string; count: number }).user_id, 'user-a');
 });
 
 test('unknown routes return a JSON 404', async () => {

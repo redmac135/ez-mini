@@ -25,7 +25,7 @@ export async function supabaseRest<T>(
 	env: Env,
 	session: StoredSession,
 	path: string,
-	options: { method?: string; body?: unknown; prefer?: string } = {}
+	options: { method?: string; body?: unknown; prefer?: string; schema?: string } = {}
 ): Promise<T> {
 	const headers: Record<string, string> = {
 		apikey: env.SUPABASE_PUBLISHABLE_KEY,
@@ -37,6 +37,12 @@ export async function supabaseRest<T>(
 	}
 	if (options.prefer) {
 		headers.prefer = options.prefer;
+	}
+	if (options.schema) {
+		headers['accept-profile'] = options.schema;
+		if (options.body !== undefined || (options.method && options.method !== 'GET')) {
+			headers['content-profile'] = options.schema;
+		}
 	}
 
 	const response = await fetch(`${supabaseBaseUrl(env)}/rest/v1${path}`, {

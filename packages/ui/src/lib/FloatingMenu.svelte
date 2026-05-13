@@ -1,9 +1,42 @@
 <script lang="ts">
+	import { onMount, tick } from 'svelte';
+
 	export let label = 'Menu';
 	export let verticalOffset = '0.25rem';
+
+	let menu: HTMLDivElement | null = null;
+	let alignLeft = false;
+
+	async function updateAlignment() {
+		await tick();
+		if (!menu || typeof window === 'undefined') {
+			return;
+		}
+
+		const parentRect = menu.parentElement?.getBoundingClientRect();
+		if (!parentRect) {
+			return;
+		}
+
+		const menuWidth = menu.offsetWidth;
+		const rightAlignedLeft = parentRect.right - menuWidth;
+		const leftAlignedRight = parentRect.left + menuWidth;
+		alignLeft = rightAlignedLeft < 8 && leftAlignedRight <= window.innerWidth - 8;
+	}
+
+	onMount(() => {
+		void updateAlignment();
+		window.addEventListener('resize', updateAlignment);
+
+		return () => {
+			window.removeEventListener('resize', updateAlignment);
+		};
+	});
 </script>
 
 <div
+	bind:this={menu}
+	class:align-left={alignLeft}
 	class="floating-menu"
 	role="menu"
 	aria-label={label}
@@ -18,6 +51,7 @@
 		right: 0;
 		z-index: 2;
 		min-width: 8.5rem;
+		max-width: calc(100vw - 1rem);
 		padding: var(--space-1);
 		background-color: var(--color-panel);
 		border: 1px solid var(--color-border);
@@ -28,6 +62,11 @@
 		font-size: var(--font-size-sm);
 		color: var(--color-fg);
 		transition: var(--theme-transition);
+	}
+
+	.floating-menu.align-left {
+		right: auto;
+		left: 0;
 	}
 
 	.floating-menu :global(button) {
