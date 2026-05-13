@@ -1,4 +1,5 @@
 import { getSessionResponse, getRequestContext } from './auth/session-store.ts';
+import { authBroadcastFrame } from './auth/broadcast-frame.ts';
 import { login, logout, switchSession, verifyOtp } from './auth/routes.ts';
 import { getCorsHeaders, stripApiPrefix } from './http/cors.ts';
 import { ApiError } from './http/errors.ts';
@@ -26,9 +27,13 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 	responseHeaders.set('content-type', 'application/json');
 
 	try {
-		const context = await getRequestContext(request, env, responseHeaders);
 		const url = new URL(request.url);
 		const path = stripApiPrefix(url.pathname);
+		if (request.method === 'GET' && path === '/auth/broadcast-frame') {
+			return authBroadcastFrame(env);
+		}
+
+		const context = await getRequestContext(request, env, responseHeaders);
 
 		if (request.method === 'POST' && path === '/auth/login') {
 			return json(await login(request, env), { headers: responseHeaders });

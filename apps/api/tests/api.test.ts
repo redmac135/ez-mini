@@ -81,6 +81,20 @@ test('session includes CORS headers for allowed app origins', async () => {
 	assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
 });
 
+test('auth broadcast frame is served without creating cookies', async () => {
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/broadcast-frame'),
+		env
+	);
+	const body = await response.text();
+
+	assert.equal(response.status, 200);
+	assert.match(response.headers.get('content-type') ?? '', /text\/html/);
+	assert.match(response.headers.get('cache-control') ?? '', /no-store/);
+	assert.match(body, /ez-auth-relay/);
+	assert.equal(response.headers.get('set-cookie'), null);
+});
+
 test('session lists device accounts with usernames and active state', async () => {
 	const deviceId = 'device-a';
 	await putStoredSession({

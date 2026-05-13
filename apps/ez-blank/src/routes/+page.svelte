@@ -165,7 +165,11 @@
 				return;
 			}
 
-			await pushRemoteActivePageId(pagesApi, pageId);
+			try {
+				await pushRemoteActivePageId(pagesApi, pageId);
+			} catch (error) {
+				await account.handleAuthFailure(error);
+			}
 		}
 	});
 	const account = createAccountDataController<LoadedEditorAuthState>({
@@ -179,6 +183,9 @@
 			}
 		},
 		getErrorMessage,
+		onNotice(message) {
+			showStatusNotice(message);
+		},
 		onAuthChanged(nextUser) {
 			writeCachedAuthSession(nextUser);
 		}
@@ -1220,6 +1227,10 @@
 			}
 			appSyncStatus = getSettledAppSyncStatus(session);
 		} catch (error) {
+			if (await account.handleAuthFailure(error)) {
+				appSyncStatus = getSettledAppSyncStatus(session);
+				return;
+			}
 			appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
 			authMessage = getErrorMessage(error, 'Unable to sync pages.');
 		} finally {

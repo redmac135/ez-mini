@@ -15,6 +15,11 @@
 		Workspace
 	} from '@ez/ui';
 	import { auth, repeatApi } from '$lib/api';
+	import {
+		APP_UPDATED_NOTICE,
+		APP_UPDATED_NOTICE_EVENT,
+		consumeQueuedAppUpdatedNotice
+	} from '$lib/pwa-update-notice';
 	import CalendarDrawer from '$lib/components/CalendarDrawer.svelte';
 	import DateNavigator from '$lib/components/DateNavigator.svelte';
 	import HabitCreateModal from '$lib/components/HabitCreateModal.svelte';
@@ -42,7 +47,10 @@
 				}
 			}
 		},
-		getErrorMessage
+		getErrorMessage,
+		onNotice(message) {
+			showStatusNotice(message);
+		}
 	});
 
 	let view: RepeatViewModel;
@@ -71,6 +79,7 @@
 
 	onMount(() => {
 		void initializeApp();
+		showQueuedAppUpdatedNotice();
 		const unsubscribeStorage = repeat.subscribeToExternalChanges();
 
 		function handlePointerDown(event: PointerEvent) {
@@ -91,8 +100,10 @@
 		}
 
 		window.addEventListener('pointerdown', handlePointerDown);
+		window.addEventListener(APP_UPDATED_NOTICE_EVENT, handleAppUpdatedNotice);
 		return () => {
 			window.removeEventListener('pointerdown', handlePointerDown);
+			window.removeEventListener(APP_UPDATED_NOTICE_EVENT, handleAppUpdatedNotice);
 			unsubscribeStorage();
 			account.destroy();
 			syncController.cancel();
@@ -151,7 +162,6 @@
 
 	async function toggleTheme() {
 		await repeat.setThemeMode(view.themeMode === 'dark' ? 'light' : 'dark');
-		settingsMenuOpen = false;
 	}
 
 	async function addCompletion(progress: HabitProgress) {
@@ -198,7 +208,11 @@
 				showStatusNotice(notice);
 			}
 			appSyncStatus = getSettledAppSyncStatus();
-		} catch {
+		} catch (error) {
+			if (await account.handleAuthFailure(error)) {
+				appSyncStatus = getSettledAppSyncStatus();
+				return;
+			}
 			appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
 		} finally {
 			syncBusy = false;
@@ -273,6 +287,28 @@
 		}
 		toastTimeouts.clear();
 		toastNotices = [];
+	}
+
+	function showQueuedAppUpdatedNotice() {
+		if (typeof window === 'undefined') {
+			return;
+		}
+
+		try {
+			const message = consumeQueuedAppUpdatedNotice();
+			if (message) {
+				showStatusNotice(message);
+			}
+		} catch (error) {
+			void error;
+		}
+	}
+
+	function handleAppUpdatedNotice() {
+		showQueuedAppUpdatedNotice();
+		if (toastNotices.length === 0) {
+			showStatusNotice(APP_UPDATED_NOTICE);
+		}
 	}
 
 	function getErrorMessage(error: unknown, fallback: string) {

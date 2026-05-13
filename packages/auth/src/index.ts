@@ -18,6 +18,18 @@ export interface AuthClientOptions {
 	fetch?: typeof fetch;
 }
 
+export class AuthApiError extends Error {
+	readonly status: number;
+	readonly body: unknown;
+
+	constructor(status: number, message: string, body: unknown = null) {
+		super(message);
+		this.name = 'AuthApiError';
+		this.status = status;
+		this.body = body;
+	}
+}
+
 export interface AuthClient {
 	login(email: string): Promise<{ sent: true }>;
 	verify(email: string, token: string): Promise<AuthSessionResponse>;
@@ -25,6 +37,7 @@ export interface AuthClient {
 	switchSession(sessionId: string): Promise<AuthSessionResponse>;
 	logout(options?: { all?: boolean; sessionId?: string }): Promise<AuthSessionResponse>;
 	authFetch(input: string, init?: RequestInit): Promise<Response>;
+	getBroadcastRelayUrl(): string;
 }
 
 let defaultClient: AuthClient | null = null;
@@ -44,7 +57,7 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
 
 		const body = (await response.json().catch(() => null)) as unknown;
 		if (!response.ok) {
-			throw new Error(readErrorMessage(body) ?? `Request failed with ${response.status}`);
+			throw createApiError(response.status, body);
 		}
 
 		return body as T;
@@ -92,6 +105,9 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
 				body: options.sessionId ? JSON.stringify({ sessionId: options.sessionId }) : undefined
 			});
 		},
+		getBroadcastRelayUrl() {
+			return `${apiUrl}/auth/broadcast-frame`;
+		},
 		authFetch
 	};
 }
@@ -123,6 +139,26 @@ export function logout(options?: { all?: boolean; sessionId?: string }) {
 
 export function authFetch(input: string, init?: RequestInit) {
 	return getDefaultClient().authFetch(input, init);
+}
+
+export function getBroadcastRelayUrl() {
+	return getDefaultClient().getBroadcastRelayUrl();
+}
+
+export function createApiError(status: number, body: unknown = null) {
+	return new AuthApiError(status, readErrorMessage(body) ?? `Request failed with ${status}`, body);
+}
+
+export function isUnauthorizedError(error: unknown) {
+	if (error instanceof AuthApiError) {
+		return error.status === 401;
+	}
+
+	if (!(error instanceof Error)) {
+		return false;
+	}
+
+	return /no active session|session not found|request failed with 401/i.test(error.message);
 }
 
 function getDefaultClient() {

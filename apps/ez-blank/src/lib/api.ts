@@ -1,5 +1,5 @@
 import { PUBLIC_EZ_API_URL } from '$env/static/public';
-import { configureAuth } from '@ez/auth';
+import { configureAuth, createApiError } from '@ez/auth';
 import type { PagesApi } from '$lib/editor/sync';
 
 const apiUrl = PUBLIC_EZ_API_URL.trim();
@@ -43,19 +43,10 @@ export const pagesApi: PagesApi = {
 async function readJson<T>(response: Response): Promise<T> {
 	const body = (await response.json().catch(() => null)) as unknown;
 	if (!response.ok) {
-		throw new Error(readErrorMessage(body) ?? `Request failed with ${response.status}`);
+		throw createApiError(response.status, body);
 	}
 
 	return body as T;
-}
-
-function readErrorMessage(body: unknown) {
-	if (body && typeof body === 'object' && 'error' in body) {
-		const error = (body as { error?: unknown }).error;
-		return typeof error === 'string' ? error : null;
-	}
-
-	return null;
 }
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {

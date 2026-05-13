@@ -102,6 +102,52 @@ test('logout deletes account data and falls back to anonymous data', async () =>
 	account.destroy();
 });
 
+test('unauthorized failures refresh session, load anonymous data, and emit a notice', async () => {
+	const notices: string[] = [];
+	const auth = createAuthClient({
+		activeSession: null,
+		sessions: []
+	});
+	const adapter = createDataAdapter();
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		onNotice: (message) => notices.push(message)
+	});
+
+	await account.initialize({ initialUser: userA });
+	const handled = await account.handleAuthFailure(new Error('No active session.'));
+
+	assert.equal(handled, true);
+	assert.deepEqual(notices, ['Session expired']);
+	assert.equal(account.getState().user, null);
+	assert.equal(account.getState().data, 'anonymous');
+	account.destroy();
+});
+
+test('ignores stale login verify responses after a newer session load starts', async () => {
+	let resolveVerify: ((response: AuthSessionResponse) => void) | null = null;
+	const auth = createAuthClient({
+		activeSession: userB,
+		sessions: [userB],
+		verifyPromise: new Promise((resolve) => {
+			resolveVerify = resolve;
+		})
+	});
+	const adapter = createDataAdapter();
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	account.openLoginFlow();
+	const verifyPromise = account.verifyOtpCode('12345678');
+	await account.initialize();
+	resolveVerify?.({ activeSession: userA, sessions: [userA] });
+	await verifyPromise;
+
+	assert.equal(account.getState().user?.userId, 'user-b');
+	assert.equal(account.getState().data, 'account:user-b');
+	account.destroy();
+});
+
 test('refreshes data when the adapter reports storage changes', async () => {
 	let refresh: (() => void) | null = null;
 	let version = 0;
@@ -154,6 +200,7 @@ function createAuthClient(options: {
 	verifyResponse?: AuthSessionResponse;
 	switchResponse?: AuthSessionResponse;
 	logoutResponse?: AuthSessionResponse;
+	verifyPromise?: Promise<AuthSessionResponse>;
 }): AuthClient {
 	return {
 		async login() {
@@ -163,6 +210,9 @@ function createAuthClient(options: {
 			return { sent: true };
 		},
 		async verify() {
+			if (options.verifyPromise) {
+				return options.verifyPromise;
+			}
 			return (
 				options.verifyResponse ?? {
 					activeSession: options.activeSession,
@@ -194,6 +244,9 @@ function createAuthClient(options: {
 		},
 		async authFetch() {
 			return new Response(null);
+		},
+		getBroadcastRelayUrl() {
+			return 'https://api.example.test/v1/auth/broadcast-frame';
 		}
 	};
 }

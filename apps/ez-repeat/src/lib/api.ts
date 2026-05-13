@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/public';
-import { createAuthClient, type AuthClient } from '@ez/auth';
+import { createApiError, createAuthClient, type AuthClient } from '@ez/auth';
 import type { RemoteRepeatCompletionRow, RemoteRepeatHabitRow, RepeatApi } from '$lib/repeat/sync';
 
 const API_FETCH_TIMEOUT_MS = 8000;
@@ -41,7 +41,7 @@ export const repeatApi: RepeatApi | null = auth
 async function readJson<T>(response: Response): Promise<T> {
 	const body = (await response.json().catch(() => null)) as unknown;
 	if (!response.ok) {
-		throw new Error(readErrorMessage(body) ?? `Request failed with ${response.status}`);
+		throw createApiError(response.status, body);
 	}
 
 	return body as T;
@@ -53,15 +53,6 @@ function buildSinceQuery(since?: string | null) {
 	}
 	const params = new URLSearchParams({ since });
 	return `?${params}`;
-}
-
-function readErrorMessage(body: unknown) {
-	if (body && typeof body === 'object' && 'error' in body) {
-		const error = (body as { error?: unknown }).error;
-		return typeof error === 'string' ? error : null;
-	}
-
-	return null;
 }
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}) {

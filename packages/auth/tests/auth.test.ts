@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authFetch, configureAuth, createAuthClient, getSession } from '../src/index.ts';
+import {
+	AuthApiError,
+	authFetch,
+	configureAuth,
+	createAuthClient,
+	getSession,
+	isUnauthorizedError
+} from '../src/index.ts';
 
 test('auth client sends credentials and normalizes API URL', async () => {
 	const requests: Request[] = [];
@@ -28,6 +35,26 @@ test('auth client surfaces API error messages', async () => {
 	});
 
 	await assert.rejects(() => client.verify('a@example.com', '12345678'), /Invalid code/);
+	await assert.rejects(
+		() => client.verify('a@example.com', '12345678'),
+		(error) => error instanceof AuthApiError && error.status === 400
+	);
+});
+
+test('auth client exposes broadcast relay URL', () => {
+	const client = createAuthClient({
+		apiUrl: 'https://api.example.test/v1/',
+		fetch: async () => Response.json({})
+	});
+
+	assert.equal(client.getBroadcastRelayUrl(), 'https://api.example.test/v1/auth/broadcast-frame');
+});
+
+test('unauthorized helper recognizes expired session failures', () => {
+	assert.equal(isUnauthorizedError(new AuthApiError(401, 'No active session.')), true);
+	assert.equal(isUnauthorizedError(new Error('Session not found.')), true);
+	assert.equal(isUnauthorizedError(new AuthApiError(500, 'No active session.')), false);
+	assert.equal(isUnauthorizedError(new Error('Failed to fetch.')), false);
 });
 
 test('auth client appends logout query params and optional session body', async () => {

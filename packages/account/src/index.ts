@@ -1,4 +1,9 @@
-import type { AuthClient, AuthSessionResponse, AuthSessionSummary } from '@ez/auth';
+import {
+	isUnauthorizedError,
+	type AuthClient,
+	type AuthSessionResponse,
+	type AuthSessionSummary
+} from '@ez/auth';
 
 export type LoginStep = 'email' | 'otp';
 export type AccountPhase = 'idle' | 'loading-session' | 'loading-data' | 'ready' | 'error';
@@ -45,6 +50,7 @@ export interface AccountControllerOptions<TData> {
 	resendCooldownSeconds?: number;
 	getErrorMessage?: (error: unknown, fallback: string) => string;
 	onAuthChanged?: (user: AuthSessionSummary | null) => void;
+	onNotice?: (message: string) => void;
 }
 
 export interface AccountController<TData> {
@@ -63,11 +69,28 @@ export interface AccountController<TData> {
 	logoutAccountSession(sessionId: string, userId: string): Promise<void>;
 	logoutCurrentAccount(): Promise<void>;
 	refresh(): Promise<void>;
+	handleAuthFailure(error: unknown): Promise<boolean>;
 	destroy(): void;
 }
 
 const DEFAULT_CHANNEL_NAME = 'auth';
 const DEFAULT_RESEND_COOLDOWN_SECONDS = 30;
+const AUTH_RELAY_SOURCE = 'ez-auth-relay';
+const SESSION_EXPIRED_NOTICE = 'Session expired';
+
+type AccountBroadcastMessage =
+	| {
+			type: 'auth-session-updated';
+			sourceTabId: string;
+			userId: string | null;
+			sessionId: string | null;
+	  }
+	| {
+			type: 'auth-session-removed';
+			sourceTabId: string;
+			userId: string;
+			sessionId: string;
+	  };
 
 export function createAccountDataController<TData>(
 	options: AccountControllerOptions<TData>
@@ -98,6 +121,10 @@ export function createAccountDataController<TData>(
 	let unsubscribeDataChanges: (() => void) | null = null;
 	let resendCooldownInterval: ReturnType<typeof setInterval> | null = null;
 	let authChannel: BroadcastChannel | null = null;
+	let relayFrame: HTMLIFrameElement | null = null;
+	let relayOrigin: string | null = null;
+	let relayReady = false;
+	const relayQueue: AccountBroadcastMessage[] = [];
 	let destroyed = false;
 
 	function subscribe(run: (state: AccountControllerState<TData>) => void) {
@@ -235,9 +262,11 @@ export function createAccountDataController<TData>(
 	async function verifyOtpCode(code: string) {
 		if (!options.authClient || state.otpVerifying || code.length !== 8) return;
 
+		const nextRequestId = beginRequest();
 		setState({ otpVerifying: true, authMessage: '' });
 		try {
 			const response = await options.authClient.verify(state.emailDraft.trim(), code);
+			if (!isLatest(nextRequestId)) return;
 			stopResendCooldown();
 			setState({
 				otpVerifying: false,
@@ -246,8 +275,9 @@ export function createAccountDataController<TData>(
 				loginStep: 'email',
 				otpDraft: ''
 			});
-			await applyAuthResponse(response);
+			await applyAuthResponse(response, { requestId: nextRequestId });
 		} catch (error) {
+			if (!isLatest(nextRequestId)) return;
 			setState({
 				otpVerifying: false,
 				otpDraft: '',
@@ -291,15 +321,20 @@ export function createAccountDataController<TData>(
 			return;
 		}
 
+		const nextRequestId = beginRequest();
 		setState({ authBusy: true, accountBusySessionId: sessionId, authMessage: '' });
 		try {
 			const response = await options.authClient.switchSession(sessionId);
-			await applyAuthResponse(response);
+			if (!isLatest(nextRequestId)) return;
+			await applyAuthResponse(response, { requestId: nextRequestId });
 			setState({ accountModalOpen: false });
 		} catch (error) {
+			if (!isLatest(nextRequestId)) return;
 			setState({ authMessage: getErrorMessage(error, 'Unable to switch accounts.') });
 		} finally {
-			setState({ authBusy: false, accountBusySessionId: null });
+			if (isLatest(nextRequestId)) {
+				setState({ authBusy: false, accountBusySessionId: null });
+			}
 		}
 	}
 
@@ -311,6 +346,7 @@ export function createAccountDataController<TData>(
 	async function logoutAccountSession(sessionId: string, userId: string) {
 		if (!options.authClient || state.authBusy || state.accountBusySessionId) return;
 
+		const nextRequestId = beginRequest();
 		const previousActiveUserId = state.user?.userId ?? null;
 		const wasActiveAccount = previousActiveUserId === userId;
 		setState({
@@ -320,25 +356,41 @@ export function createAccountDataController<TData>(
 		});
 		try {
 			const response = await options.authClient.logout({ sessionId });
+			if (!isLatest(nextRequestId)) return;
 			await options.adapter.deleteAccountData?.(userId);
 			if (wasActiveAccount || response.activeSession?.userId !== previousActiveUserId) {
-				await applyAuthResponse(response);
+				broadcastAuthSessionRemoved(userId, sessionId);
+				await applyAuthResponse(response, { requestId: nextRequestId });
 			} else {
+				broadcastAuthSessionRemoved(userId, sessionId);
 				setState({ sessions: response.sessions });
 			}
 		} catch (error) {
+			if (!isLatest(nextRequestId)) return;
 			setState({ authMessage: getErrorMessage(error, 'Unable to logout.') });
 		} finally {
-			setState({
-				authBusy: false,
-				accountBusySessionId: null,
-				accountModalOpen: state.sessions.length > 0 ? state.accountModalOpen : false
-			});
+			if (isLatest(nextRequestId)) {
+				setState({
+					authBusy: false,
+					accountBusySessionId: null,
+					accountModalOpen: state.sessions.length > 0 ? state.accountModalOpen : false
+				});
+			}
 		}
 	}
 
 	async function refresh() {
 		await loadDataForUser(state.user, { setBusy: false });
+	}
+
+	async function handleAuthFailure(error: unknown) {
+		if (!isUnauthorizedError(error) || !options.authClient) {
+			return false;
+		}
+
+		options.onNotice?.(SESSION_EXPIRED_NOTICE);
+		await refreshAuthFromBroadcast({ broadcast: true });
+		return true;
 	}
 
 	async function applyAuthResponse(
@@ -349,7 +401,7 @@ export function createAccountDataController<TData>(
 		setState({ sessions: response.sessions, user: nextUser, authMessage: '' });
 		options.onAuthChanged?.(nextUser);
 		if (applyOptions.broadcast !== false) {
-			broadcastAuthSessionChanged(nextUser?.userId ?? null);
+			broadcastAuthSessionChanged(nextUser);
 		}
 		await loadDataForUser(nextUser, {
 			requestId: applyOptions.requestId,
@@ -408,39 +460,131 @@ export function createAccountDataController<TData>(
 	}
 
 	function openAuthChannel() {
+		openSameOriginAuthChannel();
+		openRelayAuthChannel();
+	}
+
+	function openSameOriginAuthChannel() {
 		if (typeof BroadcastChannel === 'undefined') return;
 		authChannel?.close();
 		authChannel = new BroadcastChannel(options.channelName ?? DEFAULT_CHANNEL_NAME);
 		authChannel.onmessage = (event) => {
-			const message = event.data as {
-				type?: unknown;
-				sourceTabId?: unknown;
-				userId?: unknown;
-			} | null;
-			if (!message || message.type !== 'auth-session-updated' || message.sourceTabId === tabId) {
-				return;
-			}
-
-			const currentUserId = state.user?.userId ?? null;
-			if (message.userId === currentUserId) {
-				return;
-			}
-			void refreshAuthFromBroadcast();
+			handleAuthBroadcastMessage(event.data);
 		};
 	}
 
-	function broadcastAuthSessionChanged(userId: string | null) {
-		authChannel?.postMessage({
+	function openRelayAuthChannel() {
+		if (!options.authClient || typeof document === 'undefined' || typeof window === 'undefined') {
+			return;
+		}
+
+		const relayUrl = options.authClient.getBroadcastRelayUrl();
+		relayOrigin = new URL(relayUrl).origin;
+		relayReady = false;
+		relayQueue.length = 0;
+		relayFrame?.remove();
+		relayFrame = document.createElement('iframe');
+		relayFrame.src = relayUrl;
+		relayFrame.title = 'auth relay';
+		relayFrame.hidden = true;
+		relayFrame.setAttribute('aria-hidden', 'true');
+		relayFrame.style.display = 'none';
+		relayFrame.addEventListener('load', () => {
+			relayReady = true;
+			flushRelayQueue();
+		});
+		window.addEventListener('message', handleRelayWindowMessage);
+		document.body.appendChild(relayFrame);
+	}
+
+	function broadcastAuthSessionChanged(user: AuthSessionSummary | null) {
+		postAuthBroadcast({
 			type: 'auth-session-updated',
 			sourceTabId: tabId,
-			userId
+			userId: user?.userId ?? null,
+			sessionId: user?.sessionId ?? null
 		});
 	}
 
-	async function refreshAuthFromBroadcast() {
+	function broadcastAuthSessionRemoved(userId: string, sessionId: string) {
+		postAuthBroadcast({
+			type: 'auth-session-removed',
+			sourceTabId: tabId,
+			userId,
+			sessionId
+		});
+	}
+
+	function postAuthBroadcast(message: AccountBroadcastMessage) {
+		authChannel?.postMessage(message);
+		postRelayMessage(message);
+	}
+
+	function postRelayMessage(message: AccountBroadcastMessage) {
+		if (!relayFrame?.contentWindow || !relayOrigin || !relayReady) {
+			relayQueue.push(message);
+			return;
+		}
+
+		relayFrame.contentWindow.postMessage({ source: AUTH_RELAY_SOURCE, message }, relayOrigin);
+	}
+
+	function flushRelayQueue() {
+		const queued = relayQueue.splice(0);
+		for (const message of queued) {
+			postRelayMessage(message);
+		}
+	}
+
+	function handleRelayWindowMessage(event: MessageEvent) {
+		if (!relayOrigin || event.origin !== relayOrigin) {
+			return;
+		}
+
+		const data = event.data as { source?: unknown; message?: unknown } | null;
+		if (!data || data.source !== AUTH_RELAY_SOURCE) {
+			return;
+		}
+
+		handleAuthBroadcastMessage(data.message);
+	}
+
+	function handleAuthBroadcastMessage(value: unknown) {
+		const message = readAccountBroadcastMessage(value);
+		if (!message || message.sourceTabId === tabId) {
+			return;
+		}
+
+		const currentUserId = state.user?.userId ?? null;
+		const currentSessionId = state.user?.sessionId ?? null;
+		if (message.type === 'auth-session-updated') {
+			if (message.userId === currentUserId && message.sessionId === currentSessionId) {
+				return;
+			}
+			void refreshAuthFromBroadcast({ broadcast: false });
+			return;
+		}
+
+		if (message.userId === currentUserId || message.sessionId === currentSessionId) {
+			void refreshAuthFromBroadcast({ broadcast: false });
+			return;
+		}
+
+		setState({
+			sessions: state.sessions.filter((session) => session.sessionId !== message.sessionId)
+		});
+	}
+
+	async function refreshAuthFromBroadcast(
+		optionsOverride: { broadcast: boolean } = { broadcast: false }
+	) {
 		if (!options.authClient) return;
+		const nextRequestId = beginRequest();
 		try {
-			await applyAuthResponse(await options.authClient.getSession(), { broadcast: false });
+			await applyAuthResponse(await options.authClient.getSession(), {
+				broadcast: optionsOverride.broadcast,
+				requestId: nextRequestId
+			});
 		} catch (error) {
 			void error;
 		}
@@ -500,6 +644,14 @@ export function createAccountDataController<TData>(
 		unsubscribeDataChanges = null;
 		authChannel?.close();
 		authChannel = null;
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('message', handleRelayWindowMessage);
+		}
+		relayFrame?.remove();
+		relayFrame = null;
+		relayOrigin = null;
+		relayReady = false;
+		relayQueue.length = 0;
 		subscribers.clear();
 	}
 
@@ -519,6 +671,7 @@ export function createAccountDataController<TData>(
 		logoutAccountSession,
 		logoutCurrentAccount,
 		refresh,
+		handleAuthFailure,
 		destroy
 	};
 }
@@ -533,6 +686,41 @@ function createTabId() {
 
 function defaultGetErrorMessage(error: unknown, fallback: string) {
 	return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function readAccountBroadcastMessage(value: unknown): AccountBroadcastMessage | null {
+	if (!value || typeof value !== 'object') {
+		return null;
+	}
+
+	const record = value as Record<string, unknown>;
+	if (record.type === 'auth-session-updated') {
+		return typeof record.sourceTabId === 'string' &&
+			(typeof record.userId === 'string' || record.userId === null) &&
+			(typeof record.sessionId === 'string' || record.sessionId === null)
+			? {
+					type: 'auth-session-updated',
+					sourceTabId: record.sourceTabId,
+					userId: record.userId,
+					sessionId: record.sessionId
+				}
+			: null;
+	}
+
+	if (record.type === 'auth-session-removed') {
+		return typeof record.sourceTabId === 'string' &&
+			typeof record.userId === 'string' &&
+			typeof record.sessionId === 'string'
+			? {
+					type: 'auth-session-removed',
+					sourceTabId: record.sourceTabId,
+					userId: record.userId,
+					sessionId: record.sessionId
+				}
+			: null;
+	}
+
+	return null;
 }
 
 function hasPulledRemoteChanges(value: unknown) {
