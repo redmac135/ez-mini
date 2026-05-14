@@ -3,6 +3,7 @@
 
 	export let label = 'Menu';
 	export let verticalOffset = '0.25rem';
+	export let placement: 'bottom' | 'top' = 'bottom';
 
 	let menu: HTMLDivElement | null = null;
 	let alignLeft = false;
@@ -40,7 +41,9 @@
 	class="floating-menu"
 	role="menu"
 	aria-label={label}
-	style={`top: calc(100% + ${verticalOffset})`}
+	style={placement === 'top'
+		? `bottom: calc(100% + ${verticalOffset})`
+		: `top: calc(100% + ${verticalOffset})`}
 >
 	<slot />
 </div>

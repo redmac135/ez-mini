@@ -16,6 +16,7 @@
 	export let todayDate: string;
 	export let selectedDate: string;
 	export let onSelectDate: (dateKey: string) => void = () => {};
+	export let onClose: () => void = () => {};
 
 	let scroller: HTMLDivElement | null = null;
 	let monthKeys: string[] = [];
@@ -130,7 +131,15 @@
 	}
 </script>
 
-<Sidebar {open} label="Calendar" mobileFullScreen ariaHidden={!open} inert={!open}>
+<Sidebar
+	{open}
+	label="Calendar"
+	mobileFullScreen
+	ariaHidden={!open}
+	inert={!open}
+	closeLabel="Close calendar"
+	{onClose}
+>
 	<div class="calendar-drawer">
 		<div class="calendar-heading">
 			<h1>Calendar {visibleYear || todayDate.slice(0, 4)}</h1>

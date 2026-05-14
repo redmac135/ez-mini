@@ -2,7 +2,6 @@
 	import { createAccountDataController } from '@ez/account';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
 	import {
 		AccountModal,
 		AppShell,
@@ -12,6 +11,8 @@
 		Icon,
 		LoginModal,
 		Navbar,
+		ToastStack,
+		createToastController,
 		Workspace
 	} from '@ez/ui';
 	import { auth, repeatApi } from '$lib/api';
@@ -29,6 +30,7 @@
 	import type { HabitProgress, ParsedHabitInput } from '$lib/repeat/types';
 
 	const repeat = createRepeatController();
+	const toasts = createToastController();
 	const account = createAccountDataController<null>({
 		authClient: auth,
 		adapter: {
@@ -67,9 +69,8 @@
 	let settingsControl: HTMLDivElement | null = null;
 	let syncBusy = false;
 	let appSyncStatus: AppSyncStatus = 'synced';
-	let toastNotices: Array<{ id: number; message: string }> = [];
-	let nextToastId = 1;
-	const toastTimeouts = new SvelteMap<number, number>();
+	let toastNotices = $toasts;
+	$: toastNotices = $toasts;
 
 	const EDIT_SYNC_DEBOUNCE_MS = 3000;
 	const syncController = createSyncController({
@@ -107,7 +108,7 @@
 			unsubscribeStorage();
 			account.destroy();
 			syncController.cancel();
-			clearAllToasts();
+			toasts.clear();
 		};
 	});
 
@@ -259,34 +260,7 @@
 	}
 
 	function showStatusNotice(message: string) {
-		if (typeof window === 'undefined') return;
-
-		const id = nextToastId++;
-		toastNotices = [{ id, message }, ...toastNotices];
-		toastTimeouts.set(
-			id,
-			window.setTimeout(() => {
-				dismissToast(id);
-			}, 4000)
-		);
-	}
-
-	function dismissToast(id: number) {
-		const timeout = toastTimeouts.get(id);
-		if (timeout) {
-			window.clearTimeout(timeout);
-			toastTimeouts.delete(id);
-		}
-
-		toastNotices = toastNotices.filter((toast) => toast.id !== id);
-	}
-
-	function clearAllToasts() {
-		for (const timeout of toastTimeouts.values()) {
-			window.clearTimeout(timeout);
-		}
-		toastTimeouts.clear();
-		toastNotices = [];
+		toasts.show(message);
 	}
 
 	function showQueuedAppUpdatedNotice() {
@@ -323,15 +297,15 @@
 <svelte:window on:online={handleWindowOnline} on:offline={handleWindowOffline} />
 
 <AppShell>
-	{#if view?.loaded}
+	{#if view?.loaded && !drawerOpen}
 		<button
 			class="drawer-toggle"
 			type="button"
-			aria-label={drawerOpen ? 'Close calendar' : 'Open calendar'}
+			aria-label="Open calendar"
 			aria-expanded={drawerOpen}
 			on:click={() => (drawerOpen = !drawerOpen)}
 		>
-			<Icon name={drawerOpen ? 'x-mark' : 'calendar-days'} />
+			<Icon name="calendar-days" />
 		</button>
 	{/if}
 
@@ -418,6 +392,7 @@
 			completions={view.snapshot.completions}
 			todayDate={view.todayDate}
 			selectedDate={view.selectedDate}
+			onClose={() => (drawerOpen = false)}
 			onSelectDate={(dateKey) => {
 				repeat.selectDate(dateKey);
 				drawerOpen = false;
@@ -515,15 +490,7 @@
 		{/if}
 	{/if}
 
-	{#if toastNotices.length > 0}
-		<div class="toast-stack" aria-live="polite" aria-atomic="false">
-			{#each toastNotices as toast (toast.id)}
-				<button type="button" class="toast" on:click={() => dismissToast(toast.id)}>
-					<span class="toast-message">{toast.message}</span>
-				</button>
-			{/each}
-		</div>
-	{/if}
+	<ToastStack toasts={toastNotices} onDismiss={toasts.dismiss} />
 </AppShell>
 
 <style>
@@ -608,50 +575,5 @@
 		height: 1.1rem;
 		color: var(--color-fg);
 		fill: currentColor;
-	}
-
-	.toast-stack {
-		position: fixed;
-		top: max(
-			calc(var(--space-8) + var(--space-1)),
-			calc(env(safe-area-inset-top) + var(--space-7))
-		);
-		right: max(var(--space-4), env(safe-area-inset-right));
-		z-index: 40;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: var(--space-3);
-		pointer-events: none;
-	}
-
-	.toast {
-		pointer-events: auto;
-		display: flex;
-		align-items: flex-start;
-		gap: var(--space-3);
-		max-width: min(22rem, calc(100vw - 2rem));
-		padding: var(--space-3) var(--space-4);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-2);
-		background-color: var(--color-panel);
-		color: var(--color-fg);
-		box-shadow: 0 18px 38px -24px var(--color-shadow);
-		backdrop-filter: blur(12px);
-		cursor: pointer;
-		text-align: left;
-		white-space: normal;
-		font: inherit;
-		font-family: inherit;
-		appearance: none;
-		-webkit-appearance: none;
-		transition: var(--theme-transition);
-	}
-
-	.toast-message {
-		min-width: 0;
-		flex: 1;
-		font-size: var(--font-size-md);
-		line-height: var(--line-height-tight);
 	}
 </style>

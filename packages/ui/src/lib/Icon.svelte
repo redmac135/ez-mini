@@ -9,6 +9,7 @@
 		| 'ellipsis-horizontal'
 		| 'pencil-square'
 		| 'plus'
+		| 'repeat'
 		| 'trash'
 		| 'x-mark';
 </script>
@@ -103,6 +104,17 @@
 			stroke="currentColor"
 			stroke-linecap="round"
 			stroke-width="1.6"
+		></path>
+	</svg>
+{:else if name === 'repeat'}
+	<svg viewBox="0 0 24 24" aria-hidden="true">
+		<path
+			d="M17 2.75l3.25 3.25L17 9.25M4 11V9a3 3 0 013-3h13M7 21.25L3.75 18 7 14.75M20 13v2a3 3 0 01-3 3H4"
+			fill="none"
+			stroke="currentColor"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			stroke-width="1.7"
 		></path>
 	</svg>
 {:else if name === 'trash'}

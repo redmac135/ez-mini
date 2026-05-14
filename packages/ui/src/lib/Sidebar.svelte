@@ -1,9 +1,14 @@
 <script lang="ts">
+	import Button from './Button.svelte';
+	import Icon from './Icon.svelte';
+
 	export let open = false;
 	export let label = 'Navigation';
 	export let mobileFullScreen = false;
 	export let inert = false;
 	export let ariaHidden = false;
+	export let closeLabel = 'Close navigation';
+	export let onClose: () => void = () => {};
 </script>
 
 <aside
@@ -14,6 +19,11 @@
 	aria-hidden={ariaHidden}
 	{inert}
 >
+	{#if open}
+		<Button size="icon" ariaLabel={closeLabel} on:click={onClose}>
+			<Icon name="x-mark" />
+		</Button>
+	{/if}
 	<slot />
 </aside>
 
@@ -37,6 +47,13 @@
 
 	.sidebar.open {
 		transform: translateX(0);
+	}
+
+	.sidebar > :global(button:first-child) {
+		position: absolute;
+		top: max(var(--space-3), env(safe-area-inset-top));
+		left: max(var(--space-3), env(safe-area-inset-left));
+		z-index: 1;
 	}
 
 	@media (max-width: 720px) {
