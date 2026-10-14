@@ -47,6 +47,7 @@ export async function syncJourneyEntries(api: JourneyApi, userId: string) {
 			lastRemoteChangeAt: remote.sync_updated_at
 		}),
 		getId: (entry) => entry.id,
+		pullIsDelta: true,
 		getSince: (entries) => {
 			const syncedAt = entries
 				.map((entry) => entry.lastRemoteChangeAt ?? null)
@@ -73,7 +74,10 @@ export async function syncJourneyEntries(api: JourneyApi, userId: string) {
 					createdAt: remote.created_at,
 					updatedAt: remote.updated_at,
 					deletedAt: remote.deleted_at,
-					lastSyncedAt: remote.updated_at,
+					lastSyncedAt:
+						remote.deleted_at && remote.deleted_at > remote.updated_at
+							? remote.deleted_at
+							: remote.updated_at,
 					lastRemoteChangeAt: remote.sync_updated_at
 				}
 			];

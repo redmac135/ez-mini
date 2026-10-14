@@ -676,6 +676,62 @@ test('Journey entry list uses the journey schema and returns a stable page curso
 	assert.equal(body.nextCursor?.id, body.entries[0].id);
 });
 
+test('Journey upserts recheck the device-clock winner after a concurrent server update', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	const currentEntry = (updatedAt: string, syncUpdatedAt: string) => ({
+		id: '57b177d2-4a84-42df-873d-dbb8e45def49',
+		user_id: 'user-a',
+		text: 'remote version',
+		created_at: '2026-01-02T00:00:00.000Z',
+		updated_at: updatedAt,
+		sync_updated_at: syncUpdatedAt,
+		deleted_at: null
+	});
+	let readCount = 0;
+	let patchCount = 0;
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		assert.equal(request.headers.get('content-profile'), 'journey');
+		if (request.method === 'GET') {
+			readCount += 1;
+			return Response.json([
+				readCount === 1
+					? currentEntry('2026-01-02T10:00:00.000Z', '2026-01-02T10:00:01.000Z')
+					: currentEntry('2026-01-02T12:00:00.000Z', '2026-01-02T12:00:01.000Z')
+			]);
+		}
+		assert.equal(request.method, 'PATCH');
+		patchCount += 1;
+		assert.equal(url.searchParams.get('sync_updated_at'), 'eq.2026-01-02T10:00:01.000Z');
+		return Response.json([]);
+	});
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/journey/entries', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				id: '57b177d2-4a84-42df-873d-dbb8e45def49',
+				text: 'stale local version',
+				created_at: '2026-01-02T00:00:00.000Z',
+				updated_at: '2026-01-02T11:00:00.000Z',
+				sync_updated_at: '2026-01-02T10:00:01.000Z',
+				deleted_at: null
+			})
+		}),
+		env
+	);
+	const body = (await response.json()) as { text: string; updated_at: string };
+	assert.equal(response.status, 200);
+	assert.equal(body.text, 'remote version');
+	assert.equal(body.updated_at, '2026-01-02T12:00:00.000Z');
+	assert.equal(readCount, 2);
+	assert.equal(patchCount, 1);
+});
+
 test('unknown routes return a JSON 404', async () => {
 	const response = await handleRequest(
 		new Request('https://mini.api.ethanzhao.ca/v1/unknown'),

@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { expect } from 'storybook/test';
 	import Workspace from './Workspace.svelte';
 	const { Story } = defineMeta({ title: 'Components/Layouts/Workspace', component: Workspace });
 </script>
@@ -15,6 +16,19 @@
 				<p>Useful when app chrome already reserves space.</p></Workspace
 			>
 		</div>
+	{/snippet}
+</Story>
+
+<Story
+	name="Keeps the writing surface within its configured width"
+	play={async ({ canvas }) => {
+		const workspace = canvas.getByRole('main');
+		await expect(workspace).toHaveTextContent('Constrained workspace');
+		await expect(workspace.getBoundingClientRect().width).toBeLessThanOrEqual(240);
+	}}
+>
+	{#snippet template()}
+		<Workspace maxWidth="240px"><h2>Constrained workspace</h2></Workspace>
 	{/snippet}
 </Story>
 

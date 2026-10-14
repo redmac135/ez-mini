@@ -17,12 +17,31 @@
 	];
 </script>
 
-<Story name="Multiple accounts" args={{ accounts }}>
-	{#snippet template(args)}<AccountModal
+<script lang="ts">
+	import { expect } from 'storybook/test';
+	let selectedSession = $state('None');
+	let loggedOutSession = $state('None');
+</script>
+
+<Story
+	name="Switches accounts and reports logout"
+	args={{ accounts }}
+	play={async ({ canvas, userEvent }) => {
+		await userEvent.click(canvas.getByRole('button', { name: /Alex/ }));
+		await expect(canvas.getByText('Selected session: b')).toBeInTheDocument();
+		await userEvent.click(canvas.getByRole('button', { name: 'Logout Taylor' }));
+		await expect(canvas.getByText('Logged out session: a')).toBeInTheDocument();
+	}}
+>
+	{#snippet template(args)}
+		<AccountModal
 			{...args}
 			onClose={() => {}}
-			onSelectAccount={() => {}}
-			onLogoutAccount={() => {}}
+			onSelectAccount={(sessionId) => (selectedSession = sessionId)}
+			onLogoutAccount={(sessionId) => (loggedOutSession = sessionId)}
 			onAddAccount={() => {}}
-		/>{/snippet}
+		/>
+		<p aria-live="polite">Selected session: {selectedSession}</p>
+		<p aria-live="polite">Logged out session: {loggedOutSession}</p>
+	{/snippet}
 </Story>

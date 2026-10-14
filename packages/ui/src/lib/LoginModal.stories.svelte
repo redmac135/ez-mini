@@ -7,14 +7,26 @@
 
 <script lang="ts">
 	let verifiedCode = $state('');
+	let submittedEmail = $state('');
 </script>
 
-<Story name="Email entry" args={{ step: 'email', email: 'reader@example.com' }}>
-	{#snippet template(args)}<LoginModal
+<Story
+	name="Submits the entered email"
+	args={{ step: 'email', email: '' }}
+	play={async ({ canvas, userEvent }) => {
+		await userEvent.type(canvas.getByLabelText('Email'), 'reader@example.com');
+		await userEvent.click(canvas.getByRole('button', { name: 'Send Email' }));
+		await expect(canvas.getByText('Submitted email: reader@example.com')).toBeInTheDocument();
+	}}
+>
+	{#snippet template(args)}
+		<LoginModal
 			{...args}
 			onClose={() => {}}
-			onSubmitEmail={() => {}}
-		/>{/snippet}
+			onSubmitEmail={(email) => (submittedEmail = email)}
+		/>
+		<p aria-live="polite">{submittedEmail ? `Submitted email: ${submittedEmail}` : 'No email submitted'}</p>
+	{/snippet}
 </Story>
 
 <Story

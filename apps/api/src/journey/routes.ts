@@ -1,6 +1,6 @@
 import { requireActiveSession } from '../auth/session-store.ts';
 import { ApiError } from '../http/errors.ts';
-import { firstRow, readJson } from '../http/json.ts';
+import { readJson } from '../http/json.ts';
 import { supabaseRest } from '../supabase/client.ts';
 import type { Env, RemoteJourneyEntry, RequestContext } from '../types.ts';
 
@@ -67,26 +67,77 @@ export async function handleJourney(
 	}
 
 	if (request.method === 'POST' && path === '/journey/entries') {
-		const payload = normalizeJourneyEntryPayload(
-			await readJson<unknown>(request),
-			active.userId
-		);
-		return firstRow(
-			await supabaseRest<RemoteJourneyEntry[]>(
+		const body = await readJson<unknown>(request);
+		const payload = normalizeJourneyEntryPayload(body, active.userId);
+		const expectedCursor = readExpectedSyncCursor(body);
+		return upsertJourneyEntry(env, active, payload, expectedCursor);
+	}
+
+	throw new ApiError(405, 'Method not allowed.');
+}
+
+async function upsertJourneyEntry(
+	env: Env,
+	active: Awaited<ReturnType<typeof requireActiveSession>>,
+	payload: Omit<RemoteJourneyEntry, 'sync_updated_at'>,
+	initialCursor: string | null
+): Promise<RemoteJourneyEntry> {
+	let cursor = initialCursor;
+	for (let attempt = 0; attempt < 5; attempt += 1) {
+		if (cursor === null) {
+			const inserted = await supabaseRest<RemoteJourneyEntry[]>(
 				env,
 				active,
 				`/entries?select=${ENTRY_COLUMNS}&on_conflict=id`,
 				{
 					method: 'POST',
 					schema: 'journey',
-					prefer: 'resolution=merge-duplicates,return=representation',
+					prefer: 'resolution=ignore-duplicates,return=representation',
 					body: payload
 				}
-			)
-		);
-	}
+			);
+			if (inserted.length) return inserted[0];
+		}
 
-	throw new ApiError(405, 'Method not allowed.');
+		const currentRows = await supabaseRest<RemoteJourneyEntry[]>(
+			env,
+			active,
+			`/entries?select=${ENTRY_COLUMNS}&id=eq.${encodeURIComponent(payload.id)}&limit=1`,
+			{ schema: 'journey' }
+		);
+		const current = currentRows[0];
+		if (!current) {
+			cursor = null;
+			continue;
+		}
+		if (Date.parse(payload.updated_at) <= Date.parse(current.updated_at)) return current;
+
+		cursor = current.sync_updated_at;
+		const updated = await supabaseRest<RemoteJourneyEntry[]>(
+			env,
+			active,
+			`/entries?select=${ENTRY_COLUMNS}&id=eq.${encodeURIComponent(payload.id)}&sync_updated_at=eq.${encodeURIComponent(cursor)}`,
+			{
+				method: 'PATCH',
+				schema: 'journey',
+				prefer: 'return=representation',
+				body: payload
+			}
+		);
+		if (updated.length) return updated[0];
+		cursor = null;
+	}
+	throw new ApiError(409, 'Journey entry changed repeatedly during sync. Please retry.');
+}
+
+function readExpectedSyncCursor(body: unknown): string | null {
+	if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
+	const cursor = (body as Record<string, unknown>).sync_updated_at;
+	if (cursor === undefined || cursor === null || cursor === '') return null;
+	if (typeof cursor !== 'string' || !Number.isFinite(Date.parse(cursor))) {
+		throw new ApiError(400, 'Invalid sync_updated_at cursor.');
+	}
+	return cursor;
 }
 
 export function normalizeJourneyEntryPayload(

@@ -3,7 +3,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"test": "node --test tests/*.test.mjs"
+		"test": "vitest --config ../../vitest.config.ts --project=storybook run --testNamePattern='Components/(Patterns/(Login Modal|Account Modal|Confirm Modal)|Layouts/Workspace)'"
 	},
 	"svelte": "./src/lib/index.ts",
 	"exports": {

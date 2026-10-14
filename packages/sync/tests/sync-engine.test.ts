@@ -132,6 +132,51 @@ test('passes getSince result to pull', async () => {
 	assert.deepEqual(pullCalls, ['2026-04-17T18:00:00.000Z']);
 });
 
+test('delta pulls preserve unchanged local items without repushing them', async () => {
+	const stable = local({
+		id: 'stable',
+		body: 'already synced',
+		updatedAt: '2026-04-17T18:00:00.000Z',
+		lastSyncedAt: '2026-04-17T18:00:00.000Z'
+	});
+	const edited = local({
+		id: 'edited',
+		body: 'offline edit',
+		updatedAt: '2026-04-17T18:02:00.000Z',
+		lastSyncedAt: '2026-04-17T18:00:00.000Z'
+	});
+	const acknowledgedDeletion = local({
+		id: 'acknowledged-deletion',
+		updatedAt: '2026-04-17T18:00:00.000Z',
+		deletedAt: '2026-04-17T18:01:00.000Z',
+		lastSyncedAt: '2026-04-17T18:01:00.000Z'
+	});
+	const config = createConfig({
+		localItems: [stable, edited, acknowledgedDeletion],
+		pullIsDelta: true
+	});
+	const result = await createSyncEngine(config).sync();
+
+	assert.deepEqual(config.pushed.map((item) => item.id), ['edited']);
+	assert.deepEqual(result.items.map((item) => item.id), ['stable', 'edited']);
+	assert.equal(result.items[0], stable);
+});
+
+test('uses the remote tombstone timestamp as the synced mutation baseline', async () => {
+	const config = createConfig({
+		shouldKeepRemote: () => true,
+		remoteItems: [
+			remote({
+				id: 'remote-deletion',
+				updated_at: '2026-04-17T18:00:00.000Z',
+				deleted_at: '2026-04-17T18:02:00.000Z'
+			})
+		]
+	});
+	const result = await createSyncEngine(config).sync();
+	assert.equal(result.items[0]?.lastSyncedAt, '2026-04-17T18:02:00.000Z');
+});
+
 test('pulls remote-only items and returns pulled ids', async () => {
 	const config = createConfig({
 		remoteItems: [remote({ id: 'remote-1', body: 'from server' })]
