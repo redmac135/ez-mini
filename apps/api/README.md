@@ -13,7 +13,7 @@ pnpm --filter @ez/apps-api dev
 ```
 
 The dev script starts Wrangler with the `development` environment from `wrangler.toml`,
-which sets localhost CORS for the blank app.
+which sets localhost CORS for the apps.
 
 The apps expect this local URL:
 

@@ -723,7 +723,7 @@ test('Journey upserts recheck the device-clock winner after a concurrent server 
 	let patchCount = 0;
 	mockFetch(async (request) => {
 		const url = new URL(request.url);
-		assert.equal(request.headers.get('content-profile'), 'journey');
+		assert.equal(request.headers.get('accept-profile'), 'journey');
 		if (request.method === 'GET') {
 			readCount += 1;
 			return Response.json([
@@ -732,6 +732,8 @@ test('Journey upserts recheck the device-clock winner after a concurrent server 
 					: currentEntry('2026-01-02T12:00:00.000Z', '2026-01-02T12:00:01.000Z')
 			]);
 		}
+		assert.equal(request.headers.get('content-profile'), 'journey');
+		if (request.method === 'POST') return Response.json([]);
 		assert.equal(request.method, 'PATCH');
 		patchCount += 1;
 		assert.equal(url.searchParams.get('sync_updated_at'), 'eq.2026-01-02T10:00:01.000Z');
@@ -756,7 +758,7 @@ test('Journey upserts recheck the device-clock winner after a concurrent server 
 		env
 	);
 	const body = (await response.json()) as { text: string; updated_at: string };
-	assert.equal(response.status, 200);
+	assert.equal(response.status, 200, JSON.stringify(body));
 	assert.equal(body.text, 'remote version');
 	assert.equal(body.updated_at, '2026-01-02T12:00:00.000Z');
 	assert.equal(readCount, 2);

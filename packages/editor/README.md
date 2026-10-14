@@ -1,6 +1,6 @@
 # @ez/editor
 
-Shared Markdown editing surface for ez-blank and future apps such as ez-journey.
+Shared Markdown editing surface for ez-blank and ez-journey.
 
 ```svelte
 <script lang="ts">
