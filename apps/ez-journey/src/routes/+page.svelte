@@ -320,11 +320,13 @@
 	}
 
 	async function executeSync() {
-		if (!journeyApi || !accountState.user) return;
+		const userId = accountState.user?.userId;
+		if (!journeyApi || !userId) return;
 		syncBusy = true;
 		syncStatus = navigator.onLine ? 'syncing' : 'offline';
 		try {
-			const result = await syncJourneyEntries(journeyApi, accountState.user.userId);
+			const result = await syncJourneyEntries(journeyApi, userId);
+			if (accountState.user?.userId !== userId) return;
 			const visibleCount = Math.max(30, submittedEntries.length);
 			const latest = [...result.items].sort(
 				(a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
@@ -338,6 +340,7 @@
 					: null;
 			syncStatus = navigator.onLine ? 'synced' : 'offline';
 		} catch (error) {
+			if (accountState.user?.userId !== userId) return;
 			if (await account.handleAuthFailure(error)) {
 				syncStatus = navigator.onLine ? 'synced' : 'offline';
 				return;

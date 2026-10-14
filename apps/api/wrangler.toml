@@ -7,7 +7,7 @@ preview_urls = false
 [vars]
 SUPABASE_URL = "https://nvotqrfyxscapwbqbblv.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RHdoQj-QOBHxKzucL97MMQ_fzxrTl1n"
-CORS_ORIGINS = "https://blank.ethanzhao.ca,https://repeat.ethanzhao.ca,https://journey.ethanzhao.ca"
+CORS_ORIGINS = "https://blank.ethanzhao.ca,https://action.ethanzhao.ca,https://repeat.ethanzhao.ca,https://journey.ethanzhao.ca"
 
 [env.development.vars]
 SUPABASE_URL = "https://nvotqrfyxscapwbqbblv.supabase.co"
