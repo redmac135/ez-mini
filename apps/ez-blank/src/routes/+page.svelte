@@ -1467,7 +1467,6 @@
 
 	{#if accountState.contextTransition}
 		<AccountLoading
-			accountName={accountState.contextTransition.targetUser?.email ?? 'local data'}
 			canceling={accountState.contextTransition.canceling}
 			errorMessage={accountState.contextTransition.errorMessage}
 			cancelable={accountState.contextTransition.cancelable}

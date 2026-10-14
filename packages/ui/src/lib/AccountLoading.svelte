@@ -1,11 +1,18 @@
 <script lang="ts">
-	import Button from './Button.svelte';
+	import { onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
 
-	export let accountName = 'your account';
 	export let canceling = false;
 	export let errorMessage = '';
 	export let cancelable = true;
 	export let onCancel: () => void = () => {};
+
+	let showLoadingControls = false;
+
+	onMount(() => {
+		const timeout = window.setTimeout(() => (showLoadingControls = true), 1000);
+		return () => window.clearTimeout(timeout);
+	});
 
 	function preventDismiss(event: Event) {
 		event.preventDefault();
@@ -23,26 +30,24 @@
 
 <dialog
 	use:showModal
+	transition:fade={{ duration: 180 }}
 	class="account-loading-scrim"
 	aria-modal="true"
-	aria-labelledby="account-loading-title"
-	aria-describedby="account-loading-description"
+	aria-label="Switching account"
 	aria-busy="true"
 	on:cancel={preventDismiss}
 >
 	<section class="account-loading-panel">
-		<div class="spinner" aria-hidden="true"></div>
-		<h2 id="account-loading-title">Switching account</h2>
-		<p id="account-loading-description">
-			{canceling ? 'Returning to your previous account…' : `Loading data for ${accountName}…`}
-		</p>
-		{#if errorMessage}
-			<p class="loading-error" role="alert">{errorMessage}</p>
-		{/if}
-		{#if cancelable}
-			<Button disabled={canceling} on:click={onCancel}>
-				{canceling ? 'Returning…' : errorMessage ? 'Try again' : 'Cancel and go back'}
-			</Button>
+		{#if showLoadingControls}
+			<div class="spinner" role="status" aria-label="Loading account data"></div>
+			{#if errorMessage}
+				<p role="alert">{errorMessage}</p>
+			{/if}
+			{#if cancelable}
+				<button class="cancel" type="button" disabled={canceling} on:click={onCancel}>
+					{canceling ? 'Canceling…' : 'Cancel'}
+				</button>
+			{/if}
 		{/if}
 	</section>
 </dialog>
@@ -67,41 +72,51 @@
 	}
 
 	.account-loading-panel {
-		width: min(22rem, 100%);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--space-3);
+		gap: var(--space-2);
 		text-align: center;
 	}
 
-	h2,
 	p {
+		max-width: 22rem;
 		margin: 0;
-	}
-
-	h2 {
-		font-size: var(--font-size-xl);
-		font-weight: var(--font-weight-normal);
-		color: var(--color-fg);
-	}
-
-	p {
-		font-size: var(--font-size-md);
+		font-size: var(--font-size-sm);
 		color: var(--color-muted);
 	}
 
-	.loading-error {
-		color: var(--color-danger, var(--color-fg));
-	}
-
 	.spinner {
-		width: 2.25rem;
-		height: 2.25rem;
-		border: 3px solid var(--color-border);
+		width: 1.5rem;
+		height: 1.5rem;
+		border: 2px solid var(--color-border);
 		border-top-color: var(--color-fg);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
+	}
+
+	.cancel {
+		border: 0;
+		padding: var(--space-1);
+		background: transparent;
+		color: var(--color-muted);
+		font: inherit;
+		font-size: var(--font-size-sm);
+		cursor: pointer;
+	}
+
+	.cancel:hover:not(:disabled) {
+		color: var(--color-fg);
+		text-decoration: underline;
+	}
+
+	.cancel:focus-visible {
+		outline: 2px solid var(--color-fg);
+		outline-offset: 2px;
+	}
+
+	.cancel:disabled {
+		cursor: wait;
 	}
 
 	@keyframes spin {
@@ -112,7 +127,7 @@
 
 	@media (prefers-reduced-motion: reduce) {
 		.spinner {
-			animation-duration: 2s;
+			animation: none;
 		}
 	}
 </style>
