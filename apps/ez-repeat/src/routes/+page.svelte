@@ -371,21 +371,21 @@
 	<Navbar visible={view?.loaded ?? false}>
 		{#if view?.loaded && !view.isToday && !drawerOpen}
 			<div class="nav-left">
-				<Button size="sm" on:click={repeat.selectToday}>today</Button>
+				<Button size="sm" onclick={repeat.selectToday}>today</Button>
 			</div>
 		{/if}
 		<div class="nav-actions">
-			<Button size="icon" ariaLabel="Edit habits" on:click={() => (editMode = !editMode)}>
+			<Button size="icon" ariaLabel="Edit habits" onclick={() => (editMode = !editMode)}>
 				<Icon name="pencil-square" />
 			</Button>
-			<Button size="icon" ariaLabel="Add habit" on:click={() => (addModalOpen = true)}>
+			<Button size="icon" ariaLabel="Add habit" onclick={() => (addModalOpen = true)}>
 				<Icon name="plus" />
 			</Button>
 			<div class="settings-control" bind:this={settingsControl}>
 				<Button
 					size="icon"
 					ariaLabel="Open settings"
-					on:click={() => (settingsMenuOpen = !settingsMenuOpen)}
+					onclick={() => (settingsMenuOpen = !settingsMenuOpen)}
 				>
 					<Icon name="ellipsis-horizontal" />
 				</Button>

@@ -1480,8 +1480,8 @@
 				Do you want the notes already stored on this device added to this account's local workspace?
 			</p>
 			<svelte:fragment slot="actions">
-				<Button disabled={authBusy} on:click={() => resolveAnonymousImport(false)}>No</Button>
-				<Button variant="primary" disabled={authBusy} on:click={() => resolveAnonymousImport(true)}>
+				<Button disabled={authBusy} onclick={() => resolveAnonymousImport(false)}>No</Button>
+				<Button variant="primary" disabled={authBusy} onclick={() => resolveAnonymousImport(true)}>
 					Yes
 				</Button>
 			</svelte:fragment>

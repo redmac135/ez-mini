@@ -66,10 +66,10 @@
 	{/if}
 	<svelte:fragment slot="actions">
 		<div class="account-actions">
-			<Button size="sm" disabled={busy || syncBusy || localActive} on:click={onUseLocalAccount}>
+			<Button size="sm" disabled={busy || syncBusy || localActive} onclick={onUseLocalAccount}>
 				{localActive ? 'Using local account' : 'Use local account'}
 			</Button>
-			<Button size="sm" disabled={busy || syncBusy} on:click={onAddAccount}>
+			<Button size="sm" disabled={busy || syncBusy} onclick={onAddAccount}>
 				Sign into another account
 			</Button>
 		</div>
