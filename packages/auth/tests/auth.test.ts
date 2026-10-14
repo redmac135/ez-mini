@@ -41,6 +41,26 @@ test('auth client surfaces API error messages', async () => {
 	);
 });
 
+test('auth client surfaces plain-text upstream failures without a JSON parse error', async () => {
+	const client = createAuthClient({
+		apiUrl: 'https://api.example.test',
+		fetch: async () =>
+			new Response('Supabase request failed with Cloudflare error 1016 (HTTP 530).', {
+				status: 502,
+				headers: { 'content-type': 'text/plain' }
+			})
+	});
+
+	await assert.rejects(
+		() => client.login('a@example.com'),
+		(error) =>
+			error instanceof AuthApiError &&
+			error.status === 502 &&
+			error.message.includes('Cloudflare error 1016') &&
+			!error.message.includes('JSON')
+	);
+});
+
 test('auth client exposes broadcast relay URL', () => {
 	const client = createAuthClient({
 		apiUrl: 'https://api.example.test/v1/',

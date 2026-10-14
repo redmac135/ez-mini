@@ -56,9 +56,21 @@ export async function supabaseRest<T>(
 
 async function readSupabaseResponse<T>(response: Response): Promise<T> {
 	const text = await response.text();
-	const body = text ? (JSON.parse(text) as unknown) : null;
+	let body: unknown = null;
+	if (text) {
+		try {
+			body = JSON.parse(text) as unknown;
+		} catch {
+			if (response.ok) {
+				throw new ApiError(502, `Supabase returned an invalid response (HTTP ${response.status}).`);
+			}
+		}
+	}
+
 	if (!response.ok) {
-		throw new ApiError(response.status, readSupabaseError(body) ?? 'Supabase request failed.');
+		const message = readSupabaseError(body) ?? readSupabaseTextError(text, response);
+		const status = response.status >= 500 ? 502 : response.status;
+		throw new ApiError(status, message);
 	}
 
 	return body as T;
@@ -81,4 +93,23 @@ function readSupabaseError(body: unknown) {
 	}
 
 	return null;
+}
+
+function readSupabaseTextError(text: string, response: Response) {
+	const cloudflareCode = response.headers.get('cf-error-type')?.match(/\b\d{4}\b/)?.[0];
+	if (cloudflareCode) {
+		return `Supabase request failed with Cloudflare error ${cloudflareCode} (HTTP ${response.status}).`;
+	}
+
+	const plainText = text
+		.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+		.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+		.replace(/<[^>]+>/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+	if (!plainText) {
+		return `Supabase request failed (HTTP ${response.status}).`;
+	}
+
+	return `Supabase request failed (HTTP ${response.status}): ${plainText.slice(0, 200)}`;
 }
