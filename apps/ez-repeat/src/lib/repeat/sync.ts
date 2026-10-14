@@ -25,10 +25,22 @@ export interface RemoteRepeatCompletionRow {
 }
 
 export interface RepeatApi {
-	listHabits(options?: { since?: string | null }): Promise<RemoteRepeatHabitRow[]>;
-	upsertHabit(habit: RemoteRepeatHabitRow): Promise<RemoteRepeatHabitRow>;
-	listCompletions(options?: { since?: string | null }): Promise<RemoteRepeatCompletionRow[]>;
-	upsertCompletion(completion: RemoteRepeatCompletionRow): Promise<RemoteRepeatCompletionRow>;
+	listHabits(options?: {
+		since?: string | null;
+		signal?: AbortSignal;
+	}): Promise<RemoteRepeatHabitRow[]>;
+	upsertHabit(
+		habit: RemoteRepeatHabitRow,
+		options?: { signal?: AbortSignal }
+	): Promise<RemoteRepeatHabitRow>;
+	listCompletions(options?: {
+		since?: string | null;
+		signal?: AbortSignal;
+	}): Promise<RemoteRepeatCompletionRow[]>;
+	upsertCompletion(
+		completion: RemoteRepeatCompletionRow,
+		options?: { signal?: AbortSignal }
+	): Promise<RemoteRepeatCompletionRow>;
 }
 
 export interface RepeatSyncResult {
@@ -57,10 +69,14 @@ export function getRepeatSyncNotice(
 	return totalChanges === 0 ? 'Sync complete (no changes)' : 'Sync complete';
 }
 
-export async function syncRepeatData(api: RepeatApi, userId: string): Promise<RepeatSyncResult> {
+export async function syncRepeatData(
+	api: RepeatApi,
+	userId: string,
+	signal?: AbortSignal
+): Promise<RepeatSyncResult> {
 	const [habitResult, completionResult] = await Promise.all([
-		syncHabits(api, userId),
-		syncCompletions(api, userId)
+		syncHabits(api, userId, signal),
+		syncCompletions(api, userId, signal)
 	]);
 
 	return {
@@ -71,10 +87,10 @@ export async function syncRepeatData(api: RepeatApi, userId: string): Promise<Re
 	};
 }
 
-function syncHabits(api: RepeatApi, userId: string) {
+function syncHabits(api: RepeatApi, userId: string, signal?: AbortSignal) {
 	return createSyncEngine<Habit, RemoteRepeatHabitRow>({
-		pull: (since) => api.listHabits({ since }),
-		push: (habit) => api.upsertHabit(habit),
+		pull: (since) => api.listHabits({ since, signal }),
+		push: (habit) => api.upsertHabit(habit, { signal }),
 		getLocal: async () => (await RepeatStorage.loadSnapshot(userId)).habits,
 		saveLocal: (habits) => RepeatStorage.saveHabits(habits),
 		toRemote: (habit) => ({
@@ -131,10 +147,10 @@ function syncHabits(api: RepeatApi, userId: string) {
 	}).sync();
 }
 
-function syncCompletions(api: RepeatApi, userId: string) {
+function syncCompletions(api: RepeatApi, userId: string, signal?: AbortSignal) {
 	return createSyncEngine<Completion, RemoteRepeatCompletionRow>({
-		pull: (since) => api.listCompletions({ since }),
-		push: (completion) => api.upsertCompletion(completion),
+		pull: (since) => api.listCompletions({ since, signal }),
+		push: (completion) => api.upsertCompletion(completion, { signal }),
 		getLocal: async () => (await RepeatStorage.loadSnapshot(userId)).completions,
 		saveLocal: (completions) => RepeatStorage.saveCompletions(completions),
 		toRemote: (completion) => ({

@@ -5,6 +5,7 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import {
 		AccountModal,
+		AccountLoading,
 		AppShell,
 		Button,
 		ConfirmModal,
@@ -35,17 +36,30 @@
 		adapter: {
 			async loadAnonymous() {
 				await repeat.setUserId(null);
-				return null;
-			},
-			async loadAccount(user) {
-				await repeat.setUserId(user.userId);
-				return null;
-			},
-			onLoaded({ user }) {
 				appSyncStatus = getSettledAppSyncStatus();
-				if (user) {
-					requestImmediateSync();
+				return null;
+			},
+			async loadAccount(user, options = {}) {
+				await repeat.setUserId(user.userId);
+				if (repeatApi && isBrowserOnline()) {
+					appSyncStatus = 'syncing';
+					try {
+						await syncRepeatData(repeatApi, user.userId, options.signal);
+						if (options.signal?.aborted) return null;
+						await repeat.refresh();
+						appSyncStatus = getSettledAppSyncStatus();
+					} catch (error) {
+						if (options.signal?.aborted) throw error;
+						appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
+					}
+				} else {
+					appSyncStatus = getSettledAppSyncStatus();
 				}
+				return null;
+			},
+			async restoreLocalContext(user) {
+				await repeat.setUserId(user?.userId ?? null);
+				appSyncStatus = getSettledAppSyncStatus();
 			}
 		},
 		getErrorMessage,
@@ -475,10 +489,22 @@
 			busy={accountState.authBusy}
 			{syncBusy}
 			busySessionId={accountState.accountBusySessionId}
+			localActive={!accountState.user}
 			onClose={account.closeAccountModal}
 			onSelectAccount={(sessionId) => void account.selectAccountSession(sessionId)}
 			onLogoutAccount={(sessionId, userId) => void account.logoutAccountSession(sessionId, userId)}
 			onAddAccount={account.openLoginFlow}
+			onUseLocalAccount={() => void account.useAnonymousAccount()}
+		/>
+	{/if}
+
+	{#if accountState.contextTransition}
+		<AccountLoading
+			accountName={accountState.contextTransition.targetUser?.email ?? 'local data'}
+			canceling={accountState.contextTransition.canceling}
+			errorMessage={accountState.contextTransition.errorMessage}
+			cancelable={accountState.contextTransition.cancelable}
+			onCancel={() => void account.cancelContextTransition()}
 		/>
 	{/if}
 

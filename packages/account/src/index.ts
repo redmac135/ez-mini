@@ -8,10 +8,18 @@ import {
 export type LoginStep = 'email' | 'otp';
 export type AccountPhase = 'idle' | 'loading-session' | 'loading-data' | 'ready' | 'error';
 
+export interface AccountContextTransition {
+	targetUser: AuthSessionSummary | null;
+	canceling: boolean;
+	errorMessage: string;
+	cancelable: boolean;
+}
+
 export interface AccountDataAdapter<TData> {
-	loadAnonymous(): Promise<TData>;
-	loadAccount(user: AuthSessionSummary): Promise<TData>;
+	loadAnonymous(options?: { signal?: AbortSignal }): Promise<TData>;
+	loadAccount(user: AuthSessionSummary, options?: { signal?: AbortSignal }): Promise<TData>;
 	deleteAccountData?(userId: string): Promise<void>;
+	restoreLocalContext?(user: AuthSessionSummary | null): Promise<void>;
 	subscribeToDataChanges?(
 		scope: { userId: string | null },
 		refresh: () => void
@@ -28,6 +36,7 @@ export interface AccountControllerState<TData> {
 	sessions: AuthSessionSummary[];
 	data: TData | null;
 	phase: AccountPhase;
+	contextTransition: AccountContextTransition | null;
 	authBusy: boolean;
 	accountBusySessionId: string | null;
 	authMessage: string;
@@ -66,6 +75,8 @@ export interface AccountController<TData> {
 	resendOtpCode(): Promise<void>;
 	backToEmail(): void;
 	selectAccountSession(sessionId: string): Promise<void>;
+	useAnonymousAccount(): Promise<void>;
+	cancelContextTransition(): Promise<void>;
 	logoutAccountSession(sessionId: string, userId: string): Promise<void>;
 	logoutCurrentAccount(): Promise<void>;
 	refresh(): Promise<void>;
@@ -103,6 +114,7 @@ export function createAccountDataController<TData>(
 		sessions: [],
 		data: null,
 		phase: 'idle',
+		contextTransition: null,
 		authBusy: false,
 		accountBusySessionId: null,
 		authMessage: '',
@@ -126,6 +138,14 @@ export function createAccountDataController<TData>(
 	let relayReady = false;
 	const relayQueue: AccountBroadcastMessage[] = [];
 	let destroyed = false;
+	let pendingContextTransition: {
+		previousUser: AuthSessionSummary | null;
+		targetUser: AuthSessionSummary | null;
+		abortController: AbortController;
+		loadPromise: Promise<TData> | null;
+		cancelable: boolean;
+		canceling: boolean;
+	} | null = null;
 
 	function subscribe(run: (state: AccountControllerState<TData>) => void) {
 		subscribers.add(run);
@@ -175,6 +195,7 @@ export function createAccountDataController<TData>(
 	}
 
 	function openLoginFlow() {
+		if (state.authBusy || state.accountBusySessionId) return;
 		setState({
 			accountModalOpen: false,
 			loginModalOpen: true,
@@ -185,13 +206,13 @@ export function createAccountDataController<TData>(
 	}
 
 	async function openLoginOrAccountList() {
+		if (state.authBusy) return;
 		if (!options.authClient) {
 			setState({ authMessage: 'Sync is not configured.' });
 			return;
 		}
 
 		setState({ authBusy: true, authMessage: '' });
-		let openedModal = false;
 		try {
 			const response = await options.authClient.getSession();
 			if (response.sessions.length > 0) {
@@ -204,12 +225,10 @@ export function createAccountDataController<TData>(
 				setState({ sessions: response.sessions });
 				openLoginFlow();
 			}
-			openedModal = true;
 		} catch (error) {
 			setState({ authMessage: getErrorMessage(error, 'Unable to load accounts.') });
 		} finally {
 			setState({ authBusy: false });
-			void openedModal;
 		}
 	}
 
@@ -242,6 +261,7 @@ export function createAccountDataController<TData>(
 			return;
 		}
 
+		if (state.loginSubmitting) return;
 		setState({ loginSubmitting: true, authMessage: '' });
 		try {
 			await options.authClient.login(trimmedEmail);
@@ -275,7 +295,7 @@ export function createAccountDataController<TData>(
 				loginStep: 'email',
 				otpDraft: ''
 			});
-			await applyAuthResponse(response, { requestId: nextRequestId });
+			await applyAuthResponse(response, { requestId: nextRequestId, transition: true });
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
 			setState({
@@ -326,8 +346,10 @@ export function createAccountDataController<TData>(
 		try {
 			const response = await options.authClient.switchSession(sessionId);
 			if (!isLatest(nextRequestId)) return;
-			await applyAuthResponse(response, { requestId: nextRequestId });
-			setState({ accountModalOpen: false });
+			await applyAuthResponse(response, { requestId: nextRequestId, transition: true });
+			if (isLatest(nextRequestId)) {
+				setState({ accountModalOpen: false });
+			}
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
 			setState({ authMessage: getErrorMessage(error, 'Unable to switch accounts.') });
@@ -335,6 +357,84 @@ export function createAccountDataController<TData>(
 			if (isLatest(nextRequestId)) {
 				setState({ authBusy: false, accountBusySessionId: null });
 			}
+		}
+	}
+
+	async function useAnonymousAccount() {
+		if (!options.authClient || state.authBusy || state.accountBusySessionId) return;
+		if (!state.user) {
+			setState({ accountModalOpen: false, authMessage: '' });
+			return;
+		}
+
+		const nextRequestId = beginRequest();
+		setState({ authBusy: true, authMessage: '' });
+		try {
+			const response = await options.authClient.useAnonymous();
+			if (!isLatest(nextRequestId)) return;
+			await applyAuthResponse(response, { requestId: nextRequestId, transition: true });
+			if (isLatest(nextRequestId)) {
+				setState({ accountModalOpen: false });
+			}
+		} catch (error) {
+			if (!isLatest(nextRequestId)) return;
+			setState({ authMessage: getErrorMessage(error, 'Unable to switch to local data.') });
+		} finally {
+			if (isLatest(nextRequestId) && !pendingContextTransition) {
+				setState({ authBusy: false });
+			}
+		}
+	}
+
+	async function cancelContextTransition() {
+		const pending = pendingContextTransition;
+		if (!pending || !pending.cancelable || pending.canceling || !options.authClient) return;
+
+		pending.canceling = true;
+		pending.abortController.abort();
+		const cancelRequestId = beginRequest();
+		setState({
+			authBusy: true,
+			contextTransition: {
+				targetUser: pending.targetUser,
+				canceling: true,
+				errorMessage: '',
+				cancelable: true
+			}
+		});
+		await pending.loadPromise?.catch(() => undefined);
+		if (!isLatest(cancelRequestId) || pendingContextTransition !== pending) return;
+		try {
+			const response = await restoreAuthContext(pending.previousUser);
+			if (!isLatest(cancelRequestId) || pendingContextTransition !== pending) return;
+			const restoredUser = response.activeSession ?? pending.previousUser;
+			await options.adapter.restoreLocalContext?.(restoredUser);
+			if (!isLatest(cancelRequestId) || pendingContextTransition !== pending) return;
+			pendingContextTransition = null;
+			setState({
+				user: restoredUser,
+				sessions: response.sessions,
+				phase: 'ready',
+				authBusy: false,
+				accountBusySessionId: null,
+				contextTransition: null,
+				authMessage: ''
+			});
+			options.onAuthChanged?.(restoredUser);
+			broadcastAuthSessionChanged(restoredUser);
+			resubscribeToDataChanges(restoredUser);
+		} catch (error) {
+			if (!isLatest(cancelRequestId) || pendingContextTransition !== pending) return;
+			pending.canceling = false;
+			setState({
+				authBusy: true,
+				contextTransition: {
+					targetUser: pending.targetUser,
+					canceling: false,
+					errorMessage: getErrorMessage(error, 'Unable to return to the previous account.'),
+					cancelable: true
+				}
+			});
 		}
 	}
 
@@ -380,10 +480,12 @@ export function createAccountDataController<TData>(
 	}
 
 	async function refresh() {
+		if (pendingContextTransition) return;
 		await loadDataForUser(state.user, { setBusy: false });
 	}
 
 	async function handleAuthFailure(error: unknown) {
+		if (pendingContextTransition) return true;
 		if (!isUnauthorizedError(error) || !options.authClient) {
 			return false;
 		}
@@ -395,8 +497,13 @@ export function createAccountDataController<TData>(
 
 	async function applyAuthResponse(
 		response: AuthSessionResponse,
-		applyOptions: { broadcast?: boolean; requestId?: number } = {}
+		applyOptions: { broadcast?: boolean; requestId?: number; transition?: boolean } = {}
 	) {
+		if (applyOptions.transition) {
+			await transitionAuthContext(response, applyOptions);
+			return;
+		}
+
 		const nextUser = response.activeSession ?? null;
 		setState({ sessions: response.sessions, user: nextUser, authMessage: '' });
 		options.onAuthChanged?.(nextUser);
@@ -407,6 +514,120 @@ export function createAccountDataController<TData>(
 			requestId: applyOptions.requestId,
 			setBusy: !!nextUser
 		});
+	}
+
+	async function transitionAuthContext(
+		response: AuthSessionResponse,
+		applyOptions: { broadcast?: boolean; requestId?: number }
+	) {
+		const nextUser = response.activeSession ?? null;
+		const previousUser = state.user;
+		const nextRequestId = applyOptions.requestId ?? beginRequest();
+		if ((previousUser?.userId ?? null) === (nextUser?.userId ?? null)) {
+			setState({
+				user: nextUser,
+				sessions: response.sessions,
+				phase: 'ready',
+				authBusy: false,
+				contextTransition: null,
+				authMessage: ''
+			});
+			options.onAuthChanged?.(nextUser);
+			if (applyOptions.broadcast !== false) broadcastAuthSessionChanged(nextUser);
+			return;
+		}
+
+		const pending: NonNullable<typeof pendingContextTransition> = {
+			previousUser,
+			targetUser: nextUser,
+			abortController: new AbortController(),
+			loadPromise: null,
+			cancelable: true,
+			canceling: false
+		};
+		pendingContextTransition = pending;
+		unsubscribeDataChanges?.();
+		unsubscribeDataChanges = null;
+		setState({
+			sessions: response.sessions,
+			phase: 'loading-data',
+			authBusy: true,
+			authMessage: '',
+			contextTransition: {
+				targetUser: nextUser,
+				canceling: false,
+				errorMessage: '',
+				cancelable: true
+			}
+		});
+
+		try {
+			const loadPromise = nextUser
+				? options.adapter.loadAccount(nextUser, { signal: pending.abortController.signal })
+				: options.adapter.loadAnonymous({ signal: pending.abortController.signal });
+			pending.loadPromise = loadPromise;
+			const data = await loadPromise;
+			if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+			pendingContextTransition = null;
+			setState({
+				user: nextUser,
+				data,
+				phase: 'ready',
+				authBusy: false,
+				authMessage: '',
+				contextTransition: null
+			});
+			options.onAuthChanged?.(nextUser);
+			if (applyOptions.broadcast !== false) broadcastAuthSessionChanged(nextUser);
+			resubscribeToDataChanges(nextUser);
+			options.adapter.onLoaded?.({
+				user: nextUser,
+				data,
+				pulledRemoteChanges: hasPulledRemoteChanges(data)
+			});
+		} catch (error) {
+			if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+			try {
+				const restored = await restoreAuthContext(previousUser);
+				if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+				const restoredUser = restored.activeSession ?? previousUser;
+				await options.adapter.restoreLocalContext?.(restoredUser);
+				if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+				pendingContextTransition = null;
+				setState({
+					user: restoredUser,
+					sessions: restored.sessions,
+					phase: 'ready',
+					authBusy: false,
+					accountBusySessionId: null,
+					contextTransition: null,
+					authMessage: getErrorMessage(error, 'Unable to load account data.')
+				});
+				options.onAuthChanged?.(restoredUser);
+				broadcastAuthSessionChanged(restoredUser);
+				resubscribeToDataChanges(restoredUser);
+			} catch (restoreError) {
+				if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+				setState({
+					authMessage: `${getErrorMessage(error, 'Unable to load account data.')} ${getErrorMessage(restoreError, 'Unable to restore the previous account.')}`,
+					contextTransition: {
+						targetUser: nextUser,
+						canceling: false,
+						errorMessage: getErrorMessage(restoreError, 'Unable to restore the previous account.'),
+						cancelable: true
+					}
+				});
+			}
+		}
+	}
+
+	function restoreAuthContext(user: AuthSessionSummary | null) {
+		if (!options.authClient) {
+			return Promise.reject(new Error('Sync is not configured.'));
+		}
+		return user
+			? options.authClient.switchSession(user.sessionId)
+			: options.authClient.useAnonymous();
 	}
 
 	async function loadDataForUser(
@@ -639,6 +860,8 @@ export function createAccountDataController<TData>(
 
 	function destroy() {
 		destroyed = true;
+		pendingContextTransition?.abortController.abort();
+		pendingContextTransition = null;
 		stopResendCooldown();
 		unsubscribeDataChanges?.();
 		unsubscribeDataChanges = null;
@@ -668,6 +891,8 @@ export function createAccountDataController<TData>(
 		resendOtpCode,
 		backToEmail,
 		selectAccountSession,
+		useAnonymousAccount,
+		cancelContextTransition,
 		logoutAccountSession,
 		logoutCurrentAccount,
 		refresh,

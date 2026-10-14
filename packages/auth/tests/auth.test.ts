@@ -95,6 +95,23 @@ test('auth client appends logout query params and optional session body', async 
 	assert.deepEqual(await requests[0]?.json(), { sessionId: 'session-a' });
 });
 
+test('auth client can return to anonymous mode without removing saved sessions', async () => {
+	let request: Request | null = null;
+	const client = createAuthClient({
+		apiUrl: 'https://api.example.test/v1',
+		fetch: async (input, init) => {
+			request = new Request(input, init);
+			return Response.json({ activeSession: null, sessions: [] });
+		}
+	});
+
+	await client.useAnonymous();
+
+	assert.equal(request?.url, 'https://api.example.test/v1/auth/anonymous');
+	assert.equal(request?.method, 'POST');
+	assert.equal(request?.credentials, 'include');
+});
+
 test('configured default client is used by package-level helpers', async () => {
 	const requests: Request[] = [];
 	configureAuth({

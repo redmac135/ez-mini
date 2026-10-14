@@ -67,6 +67,135 @@ test('verifies otp, closes login modal, and loads account data', async () => {
 	account.destroy();
 });
 
+test('keeps the prior context visible while account data loads and cancels back to local data', async () => {
+	const activeUser = { ...userA, active: true };
+	const auth = createAuthClient({
+		activeSession: null,
+		sessions: [],
+		verifyResponse: { activeSession: activeUser, sessions: [activeUser] },
+		useAnonymousResponse: {
+			activeSession: null,
+			sessions: [{ ...activeUser, active: false }]
+		}
+	});
+	let loadSignal: AbortSignal | undefined;
+	let adapterRestores = 0;
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		loadAccount(_user, options) {
+			loadSignal = options?.signal;
+			return new Promise((_resolve, reject) => {
+				loadSignal?.addEventListener('abort', () =>
+					reject(new DOMException('Aborted', 'AbortError'))
+				);
+			});
+		},
+		async restoreLocalContext(user) {
+			assert.equal(user, null);
+			adapterRestores += 1;
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	await account.initialize();
+	account.openLoginFlow();
+	await account.submitLogin('user-a@example.com');
+	const verifyPromise = account.verifyOtpCode('12345678');
+	await waitFor(() => account.getState().contextTransition !== null);
+
+	assert.equal(account.getState().user, null);
+	assert.equal(account.getState().data, 'anonymous');
+	assert.equal(account.getState().phase, 'loading-data');
+	assert.equal(loadSignal?.aborted, false);
+
+	await account.cancelContextTransition();
+	await verifyPromise;
+
+	assert.equal(loadSignal?.aborted, true);
+	assert.equal(adapterRestores, 1);
+	assert.equal(account.getState().contextTransition, null);
+	assert.equal(account.getState().user, null);
+	assert.equal(account.getState().data, 'anonymous');
+	assert.equal(account.getState().sessions[0]?.active, false);
+	account.destroy();
+});
+
+test('cancels account switching by restoring the previously active session', async () => {
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({
+		activeSession: userA,
+		sessions: [userA, userB]
+	});
+	const switchCalls: string[] = [];
+	auth.switchSession = async (sessionId) => {
+		switchCalls.push(sessionId);
+		return sessionId === activeB.sessionId
+			? { activeSession: activeB, sessions: [{ ...userA, active: false }, activeB] }
+			: { activeSession: userA, sessions: [userA, { ...userB, active: false }] };
+	};
+	let targetLoadSignal: AbortSignal | undefined;
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		loadAccount(user, options) {
+			if (user.userId === 'user-b') {
+				targetLoadSignal = options?.signal;
+				return new Promise((_resolve, reject) => {
+					targetLoadSignal?.addEventListener('abort', () =>
+						reject(new DOMException('Aborted', 'AbortError'))
+					);
+				});
+			}
+			return Promise.resolve(`account:${user.userId}`);
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	await account.initialize();
+	await account.openLoginOrAccountList();
+	const switchPromise = account.selectAccountSession(activeB.sessionId);
+	await waitFor(() => account.getState().contextTransition !== null);
+
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	await account.cancelContextTransition();
+	await switchPromise;
+
+	assert.deepEqual(switchCalls, ['session-b', 'session-a']);
+	assert.equal(targetLoadSignal?.aborted, true);
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	assert.equal(account.getState().contextTransition, null);
+	assert.equal(account.getState().accountBusySessionId, null);
+	assert.equal(account.getState().accountModalOpen, true);
+	account.destroy();
+});
+
+test('ignores repeated email submissions while the first request is pending', async () => {
+	let resolveLogin: (() => void) | null = null;
+	let loginCalls = 0;
+	const auth = createAuthClient({
+		activeSession: null,
+		sessions: [],
+		loginPromise: new Promise<void>((resolve) => {
+			resolveLogin = resolve;
+		})
+	});
+	const originalLogin = auth.login;
+	auth.login = async (email) => {
+		loginCalls += 1;
+		return originalLogin(email);
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	account.openLoginFlow();
+	const firstSubmission = account.submitLogin('user@example.com');
+	await account.submitLogin('user@example.com');
+	assert.equal(loginCalls, 1);
+	resolveLogin?.();
+	await firstSubmission;
+	account.destroy();
+});
+
 test('initial cached user is exposed without starting a duplicate data load', async () => {
 	const adapter = createDataAdapter();
 	const activeB = { ...userB, active: true };
@@ -201,9 +330,14 @@ function createAuthClient(options: {
 	switchResponse?: AuthSessionResponse;
 	logoutResponse?: AuthSessionResponse;
 	verifyPromise?: Promise<AuthSessionResponse>;
+	loginPromise?: Promise<void>;
+	useAnonymousResponse?: AuthSessionResponse;
 }): AuthClient {
 	return {
 		async login() {
+			if (options.loginPromise) {
+				await options.loginPromise;
+			}
 			if (options.loginError) {
 				throw options.loginError;
 			}
@@ -231,6 +365,14 @@ function createAuthClient(options: {
 				options.switchResponse ?? {
 					activeSession: options.activeSession,
 					sessions: options.sessions
+				}
+			);
+		},
+		async useAnonymous() {
+			return (
+				options.useAnonymousResponse ?? {
+					activeSession: null,
+					sessions: options.sessions.map((session) => ({ ...session, active: false }))
 				}
 			);
 		},

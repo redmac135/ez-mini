@@ -82,6 +82,12 @@ export async function switchSession(
 	return getSessionResponse(env, context);
 }
 
+export async function useAnonymous(env: Env, context: RequestContext, headers: Headers) {
+	context.activeSessionId = null;
+	clearActiveSession(headers, env);
+	return getSessionResponse(env, context);
+}
+
 export async function logout(
 	request: Request,
 	env: Env,

@@ -25,7 +25,18 @@ test('AccountModal exposes account switching and logout controls', async () => {
 	assert.match(source, /export let busySessionId: string \| null = null/);
 	assert.match(source, /onSelectAccount\(account\.sessionId\)/);
 	assert.match(source, /onLogoutAccount\(account\.sessionId, account\.userId\)/);
+	assert.match(source, /Use local account/);
 	assert.match(source, /Sign into another account/);
+});
+
+test('AccountLoading blocks the workspace and exposes an accessible cancel action', async () => {
+	const source = await readComponent('AccountLoading.svelte');
+
+	assert.match(source, /<dialog/);
+	assert.match(source, /aria-modal="true"/);
+	assert.match(source, /aria-busy="true"/);
+	assert.match(source, /Cancel and go back/);
+	assert.match(source, /animation: spin/);
 });
 
 test('ConfirmModal keeps destructive actions presentational', async () => {

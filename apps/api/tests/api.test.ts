@@ -270,6 +270,33 @@ test('switch validates ownership, refreshes session, and updates active-session 
 	assert.equal(stored.supabaseRefreshToken, 'new-refresh');
 });
 
+test('anonymous mode clears only the active session and preserves saved accounts', async () => {
+	const deviceId = 'device-local';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a', lastUsedAt: 1 });
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/anonymous', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+			}
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: null;
+		sessions: Array<{ sessionId: string; active: boolean }>;
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession, null);
+	assert.deepEqual(
+		body.sessions.map(({ sessionId, active }) => ({ sessionId, active })),
+		[{ sessionId: 'session-a', active: false }]
+	);
+	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_active_session_id=;/);
+	assert.notEqual(await env.SESSIONS.get(sessionKey(deviceId, 'session-a')), null);
+});
+
 test('logout all deletes every device session and clears the active cookie', async () => {
 	const deviceId = 'device-a';
 	await putStoredSession({ deviceId, sessionId: 'session-a', lastUsedAt: 2 });

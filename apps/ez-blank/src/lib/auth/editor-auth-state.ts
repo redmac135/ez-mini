@@ -31,6 +31,7 @@ export async function loadEditorAuthState(options: {
 	loader: EditorAuthStateLoader;
 	pagesApi: PagesApi;
 	isOnline: boolean;
+	signal?: AbortSignal;
 	onLocalStateLoaded?: (state: {
 		session: EditorSession;
 		preferences: EditorPreferences;
@@ -78,8 +79,14 @@ export async function loadEditorAuthState(options: {
 		appSyncStatus: getSettledAppSyncStatus(baseSession, options.isOnline)
 	});
 
-	const syncResult = await syncUserPages(options.pagesApi, options.user.userId, baseSession);
-	const remoteActivePageId = await fetchRemoteActivePageId(options.pagesApi);
+	const syncResult = await syncUserPages(
+		options.pagesApi,
+		options.user.userId,
+		baseSession,
+		new Date(),
+		options.signal
+	);
+	const remoteActivePageId = await fetchRemoteActivePageId(options.pagesApi, options.signal);
 	const shouldPreserveLocalEphemeralPage = hasVisibleEphemeralActivePage(syncResult.session);
 	const session =
 		!shouldPreserveLocalEphemeralPage &&

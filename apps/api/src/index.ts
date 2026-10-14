@@ -1,6 +1,6 @@
 import { getSessionResponse, getRequestContext } from './auth/session-store.ts';
 import { authBroadcastFrame } from './auth/broadcast-frame.ts';
-import { login, logout, switchSession, verifyOtp } from './auth/routes.ts';
+import { login, logout, switchSession, useAnonymous, verifyOtp } from './auth/routes.ts';
 import { getCorsHeaders, stripApiPrefix } from './http/cors.ts';
 import { ApiError } from './http/errors.ts';
 import { json } from './http/json.ts';
@@ -46,6 +46,11 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 		}
 		if (request.method === 'POST' && path === '/auth/switch') {
 			return json(await switchSession(request, env, context, responseHeaders), {
+				headers: responseHeaders
+			});
+		}
+		if (request.method === 'POST' && path === '/auth/anonymous') {
+			return json(await useAnonymous(env, context, responseHeaders), {
 				headers: responseHeaders
 			});
 		}
