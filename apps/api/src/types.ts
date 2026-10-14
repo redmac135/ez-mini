@@ -82,5 +82,6 @@ export interface RemoteJourneyEntry {
 	text: string;
 	created_at: string;
 	updated_at: string;
+	sync_updated_at: string;
 	deleted_at: string | null;
 }

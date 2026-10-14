@@ -8,31 +8,37 @@ create table if not exists journey.entries (
 	text text not null default '',
 	created_at timestamptz not null,
 	updated_at timestamptz not null,
+	sync_updated_at timestamptz not null default clock_timestamp(),
 	deleted_at timestamptz,
 	constraint journey_entries_text_length check (char_length(text) <= 100000)
 );
 
-create or replace function journey.set_entry_updated_at()
+alter table journey.entries
+	add column if not exists sync_updated_at timestamptz not null default clock_timestamp();
+
+create or replace function journey.set_entry_sync_updated_at()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
-	new.updated_at = clock_timestamp();
+	new.sync_updated_at = clock_timestamp();
 	return new;
 end;
 $$;
 
 drop trigger if exists set_journey_entry_updated_at on journey.entries;
-create trigger set_journey_entry_updated_at
+drop function if exists journey.set_entry_updated_at();
+drop trigger if exists set_journey_entry_sync_updated_at on journey.entries;
+create trigger set_journey_entry_sync_updated_at
 	before insert or update on journey.entries
-	for each row execute function journey.set_entry_updated_at();
+	for each row execute function journey.set_entry_sync_updated_at();
 
 create index if not exists journey_entries_user_created_idx
 	on journey.entries (user_id, created_at, id);
 
-create index if not exists journey_entries_user_updated_idx
-	on journey.entries (user_id, updated_at);
+create index if not exists journey_entries_user_sync_updated_idx
+	on journey.entries (user_id, sync_updated_at);
 
 alter table journey.entries enable row level security;
 

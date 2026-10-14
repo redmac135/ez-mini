@@ -9,6 +9,7 @@ export type StoredJourneyEntry = JourneyEntry & {
 	updatedAt: string;
 	deletedAt: string | null;
 	lastSyncedAt: string | null;
+	lastRemoteChangeAt?: string | null;
 };
 
 export const ANONYMOUS_USER_ID = 'anonymous';

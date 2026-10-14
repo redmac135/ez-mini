@@ -18,7 +18,8 @@ export async function seedJourneyDemoData() {
 			createdAt: timestamp,
 			updatedAt: timestamp,
 			deletedAt: null,
-			lastSyncedAt: null
+			lastSyncedAt: null,
+			lastRemoteChangeAt: null
 		};
 	});
 	await JourneyStorage.saveEntries(entries);

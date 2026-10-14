@@ -13,19 +13,21 @@ const timestamp = (day: number) => `2026-01-${String(day).padStart(2, '0')}T00:0
 class FakeApi implements JourneyApi {
 	remote: RemoteJourneyEntry[];
 	lastSince: string | null | undefined;
-	serverUpdatedAt = timestamp(30);
+	serverSyncUpdatedAt = timestamp(30);
+	beforeListEntries?: () => Promise<void>;
 	constructor(entries: RemoteJourneyEntry[] = []) {
 		this.remote = entries;
 	}
 	async listEntries(options?: { since?: string | null }) {
+		await this.beforeListEntries?.();
 		const since = options?.since;
 		this.lastSince = since;
 		return this.remote.filter(
-			(entry) => !since || Date.parse(entry.updated_at) >= Date.parse(since)
+			(entry) => !since || Date.parse(entry.sync_updated_at) >= Date.parse(since)
 		);
 	}
 	async upsertEntry(entry: RemoteJourneyEntry) {
-		const storedEntry = { ...entry, updated_at: this.serverUpdatedAt };
+		const storedEntry = { ...entry, sync_updated_at: this.serverSyncUpdatedAt };
 		const index = this.remote.findIndex((candidate) => candidate.id === entry.id);
 		if (index < 0) this.remote.push(storedEntry);
 		else this.remote[index] = storedEntry;
@@ -37,7 +39,8 @@ function entry(
 	id: string,
 	text: string,
 	day: number,
-	lastSyncedAt: string | null = null
+	lastSyncedAt: string | null = null,
+	lastRemoteChangeAt: string | null = lastSyncedAt
 ): StoredJourneyEntry {
 	return {
 		id,
@@ -46,7 +49,8 @@ function entry(
 		createdAt: timestamp(day),
 		updatedAt: timestamp(day),
 		deletedAt: null,
-		lastSyncedAt
+		lastSyncedAt,
+		lastRemoteChangeAt
 	};
 }
 
@@ -60,6 +64,7 @@ test('sync unions independent entries from local and remote devices', async () =
 		text: 'Written elsewhere',
 		created_at: timestamp(1),
 		updated_at: timestamp(1),
+		sync_updated_at: timestamp(1),
 		deleted_at: null
 	};
 	await JourneyStorage.saveEntries([local]);
@@ -78,6 +83,7 @@ test('sync pulls incrementally from the latest successfully synced remote timest
 		text: 'Remote entry',
 		created_at: timestamp(1),
 		updated_at: timestamp(3),
+		sync_updated_at: timestamp(3),
 		deleted_at: null
 	};
 	const api = new FakeApi([remote]);
@@ -96,6 +102,7 @@ test('server change timestamps make backdated offline uploads visible to other d
 			text: known.text,
 			created_at: known.createdAt,
 			updated_at: known.updatedAt,
+			sync_updated_at: timestamp(10),
 			deleted_at: null
 		}
 	]);
@@ -106,8 +113,11 @@ test('server change timestamps make backdated offline uploads visible to other d
 		text: 'Written offline',
 		created_at: timestamp(8),
 		updated_at: timestamp(8),
+		sync_updated_at: timestamp(8),
 		deleted_at: null
 	});
+	assert.equal(api.remote.at(-1)?.updated_at, timestamp(8));
+	assert.equal(api.remote.at(-1)?.sync_updated_at, timestamp(30));
 
 	await syncJourneyEntries(api, 'user-a');
 
@@ -130,6 +140,7 @@ test('same ID edits resolve to the most recently updated version', async () => {
 			text: 'older remote edit',
 			created_at: timestamp(1),
 			updated_at: timestamp(2),
+			sync_updated_at: timestamp(2),
 			deleted_at: null
 		}
 	]);
@@ -137,6 +148,40 @@ test('same ID edits resolve to the most recently updated version', async () => {
 	assert.equal(result.conflicts, 1);
 	assert.equal(api.remote[0].text, 'new local edit');
 	assert.equal((await JourneyStorage.loadEntries('user-a'))[0].text, 'new local edit');
+});
+
+test('sync preserves an edit made while the remote pull is pending', async () => {
+	const local = entry('concurrent-entry', 'Before sync', 1, timestamp(1));
+	await JourneyStorage.saveEntries([local]);
+	let signalListStarted!: () => void;
+	let releaseList!: () => void;
+	const listStarted = new Promise<void>((resolve) => (signalListStarted = resolve));
+	const listGate = new Promise<void>((resolve) => (releaseList = resolve));
+	const api = new FakeApi([
+		{
+			id: local.id,
+			user_id: 'user-a',
+			text: 'Remote edit',
+			created_at: local.createdAt,
+			updated_at: timestamp(2),
+			sync_updated_at: timestamp(2),
+			deleted_at: null
+		}
+	]);
+	api.beforeListEntries = async () => {
+		signalListStarted();
+		await listGate;
+	};
+	const syncing = syncJourneyEntries(api, 'user-a');
+	await listStarted;
+	await JourneyStorage.saveEntries([
+		{ ...local, text: 'Concurrent local edit', updatedAt: timestamp(3) }
+	]);
+	releaseList();
+	const result = await syncing;
+
+	assert.equal((await JourneyStorage.loadEntries('user-a'))[0].text, 'Concurrent local edit');
+	assert.equal(result.items[0].text, 'Concurrent local edit');
 });
 
 test('anonymous entries stay local until explicitly claimed for the account', async () => {

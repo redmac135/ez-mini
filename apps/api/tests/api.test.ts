@@ -640,6 +640,11 @@ test('Journey entry list uses the journey schema and returns a stable page curso
 		const url = new URL(request.url);
 		assert.equal(url.pathname, '/rest/v1/entries');
 		assert.equal(url.searchParams.get('limit'), '1');
+		assert.equal(
+			url.searchParams.get('sync_updated_at'),
+			'gte.2026-01-01T23:59:55.000Z'
+		);
+		assert.equal(url.searchParams.get('updated_at'), null);
 		assert.equal(request.headers.get('accept-profile'), 'journey');
 		return Response.json([
 			{
@@ -648,14 +653,18 @@ test('Journey entry list uses the journey schema and returns a stable page curso
 				text: 'A thought',
 				created_at: '2026-01-02T00:00:00.000Z',
 				updated_at: '2026-01-02T00:00:00.000Z',
+				sync_updated_at: '2026-01-02T00:00:00.000Z',
 				deleted_at: null
 			}
 		]);
 	});
 	const response = await handleRequest(
-		new Request('https://mini.api.ethanzhao.ca/v1/journey/entries?limit=1', {
-			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
-		}),
+		new Request(
+			'https://mini.api.ethanzhao.ca/v1/journey/entries?limit=1&since=2026-01-02T00%3A00%3A00.000Z',
+			{
+				headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
+			}
+		),
 		env
 	);
 	const body = (await response.json()) as {

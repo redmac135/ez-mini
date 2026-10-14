@@ -5,7 +5,7 @@ import { supabaseRest } from '../supabase/client.ts';
 import type { Env, RemoteJourneyEntry, RequestContext } from '../types.ts';
 
 const SINCE_BUFFER_MS = 5000;
-const ENTRY_COLUMNS = 'id,user_id,text,created_at,updated_at,deleted_at';
+const ENTRY_COLUMNS = 'id,user_id,text,created_at,updated_at,sync_updated_at,deleted_at';
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 200;
 
@@ -51,7 +51,7 @@ export async function handleJourney(
 			const sinceDate = new Date(since);
 			if (Number.isNaN(sinceDate.getTime())) throw new ApiError(400, 'Invalid since timestamp.');
 			params.set(
-				'updated_at',
+				'sync_updated_at',
 				`gte.${new Date(sinceDate.getTime() - SINCE_BUFFER_MS).toISOString()}`
 			);
 		}
@@ -68,7 +68,7 @@ export async function handleJourney(
 
 	if (request.method === 'POST' && path === '/journey/entries') {
 		const payload = normalizeJourneyEntryPayload(
-			await readJson<Partial<RemoteJourneyEntry>>(request),
+			await readJson<unknown>(request),
 			active.userId
 		);
 		return firstRow(
@@ -90,15 +90,22 @@ export async function handleJourney(
 }
 
 export function normalizeJourneyEntryPayload(
-	body: Partial<RemoteJourneyEntry>,
+	body: unknown,
 	userId: string
-): RemoteJourneyEntry {
-	const id = typeof body.id === 'string' ? body.id : '';
-	const text = typeof body.text === 'string' ? body.text : '';
-	const createdAt = typeof body.created_at === 'string' ? body.created_at : '';
-	const updatedAt = typeof body.updated_at === 'string' ? body.updated_at : '';
+): Omit<RemoteJourneyEntry, 'sync_updated_at'> {
+	if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+		throw new ApiError(400, 'Journey entry payload must be an object.');
+	}
+	const payload = body as Record<string, unknown>;
+	const id = typeof payload.id === 'string' ? payload.id : '';
+	if (typeof payload.text !== 'string') throw new ApiError(400, 'Entry text must be a string.');
+	const text = payload.text;
+	const createdAt = typeof payload.created_at === 'string' ? payload.created_at : '';
+	const updatedAt = typeof payload.updated_at === 'string' ? payload.updated_at : '';
 	const deletedAt =
-		typeof body.deleted_at === 'string' || body.deleted_at === null ? body.deleted_at : null;
+		typeof payload.deleted_at === 'string' || payload.deleted_at === null
+			? payload.deleted_at
+			: null;
 	if (
 		!isUuid(id) ||
 		!createdAt ||

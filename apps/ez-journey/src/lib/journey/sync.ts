@@ -8,6 +8,7 @@ export type RemoteJourneyEntry = {
 	text: string;
 	created_at: string;
 	updated_at: string;
+	sync_updated_at: string;
 	deleted_at: string | null;
 };
 
@@ -17,17 +18,22 @@ export interface JourneyApi {
 }
 
 export async function syncJourneyEntries(api: JourneyApi, userId: string) {
-	return createSyncEngine<StoredJourneyEntry, RemoteJourneyEntry>({
+	let originalEntries: StoredJourneyEntry[] = [];
+	const result = await createSyncEngine<StoredJourneyEntry, RemoteJourneyEntry>({
 		pull: (since) => api.listEntries({ since }),
 		push: (entry) => api.upsertEntry(entry),
-		getLocal: () => JourneyStorage.loadEntries(userId),
-		saveLocal: (entries) => JourneyStorage.saveEntries(entries),
+		getLocal: async () => {
+			originalEntries = await JourneyStorage.loadEntries(userId);
+			return originalEntries;
+		},
+		saveLocal: (entries) => JourneyStorage.saveSyncResults(userId, originalEntries, entries),
 		toRemote: (entry) => ({
 			id: entry.id,
 			user_id: userId,
 			text: entry.text,
 			created_at: entry.createdAt,
 			updated_at: entry.updatedAt,
+			sync_updated_at: entry.lastRemoteChangeAt ?? '',
 			deleted_at: entry.deletedAt
 		}),
 		toLocal: (remote) => ({
@@ -37,12 +43,13 @@ export async function syncJourneyEntries(api: JourneyApi, userId: string) {
 			createdAt: remote.created_at,
 			updatedAt: remote.updated_at,
 			deletedAt: remote.deleted_at,
-			lastSyncedAt: null
+			lastSyncedAt: null,
+			lastRemoteChangeAt: remote.sync_updated_at
 		}),
 		getId: (entry) => entry.id,
 		getSince: (entries) => {
 			const syncedAt = entries
-				.map((entry) => entry.lastSyncedAt)
+				.map((entry) => entry.lastRemoteChangeAt ?? null)
 				.filter((value): value is string => value !== null);
 			return syncedAt.length
 				? syncedAt.reduce((latest, value) => (value > latest ? value : latest))
@@ -66,9 +73,11 @@ export async function syncJourneyEntries(api: JourneyApi, userId: string) {
 					createdAt: remote.created_at,
 					updatedAt: remote.updated_at,
 					deletedAt: remote.deleted_at,
-					lastSyncedAt: remote.updated_at
+					lastSyncedAt: remote.updated_at,
+					lastRemoteChangeAt: remote.sync_updated_at
 				}
 			];
 		}
 	}).sync();
+	return { ...result, items: await JourneyStorage.loadEntries(userId) };
 }

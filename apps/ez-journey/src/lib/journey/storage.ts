@@ -14,6 +14,11 @@ type StorageBackend = {
 	loadEntries(userId: string): Promise<StoredJourneyEntry[]>;
 	loadPage(userId: string, before: EntryCursor | null, limit: number): Promise<EntryPage>;
 	saveEntries(entries: StoredJourneyEntry[]): Promise<void>;
+	saveSyncResults(
+		userId: string,
+		originalEntries: StoredJourneyEntry[],
+		syncedEntries: StoredJourneyEntry[]
+	): Promise<void>;
 	claimAnonymousEntries(userId: string): Promise<void>;
 	hasPromptedForAnonymousImport(userId: string): Promise<boolean>;
 	markPromptedForAnonymousImport(userId: string): Promise<void>;
@@ -33,6 +38,14 @@ export class JourneyStorage {
 
 	static async saveEntries(entries: StoredJourneyEntry[]) {
 		return (await this.backend()).saveEntries(entries);
+	}
+
+	static async saveSyncResults(
+		userId: string,
+		originalEntries: StoredJourneyEntry[],
+		syncedEntries: StoredJourneyEntry[]
+	) {
+		return (await this.backend()).saveSyncResults(userId, originalEntries, syncedEntries);
 	}
 
 	static async claimAnonymousEntries(userId: string) {
@@ -79,6 +92,27 @@ function createMemoryBackend(): StorageBackend {
 		},
 		async saveEntries(nextEntries) {
 			for (const entry of nextEntries) entries.set(entry.id, entry);
+		},
+		async saveSyncResults(userId, originalEntries, syncedEntries) {
+			const originalById = new Map(originalEntries.map((entry) => [entry.id, entry]));
+			const syncedById = new Map(syncedEntries.map((entry) => [entry.id, entry]));
+			for (const [id, current] of entries) {
+				if (current.userId !== userId) continue;
+				const original = originalById.get(id);
+				if (!original || !sameStoredEntry(current, original)) continue;
+				const synced = syncedById.get(id);
+				if (synced) entries.set(id, synced);
+				else entries.delete(id);
+			}
+			for (const synced of syncedEntries) {
+				if (
+					synced.userId === userId &&
+					!originalById.has(synced.id) &&
+					!entries.has(synced.id)
+				) {
+					entries.set(synced.id, synced);
+				}
+			}
 		},
 		async claimAnonymousEntries(userId) {
 			for (const [id, entry] of entries) {
@@ -132,6 +166,33 @@ function openIndexedDb(): Promise<StorageBackend> {
 				saveEntries(entries) {
 					return runTransaction(db, 'readwrite', (store) => {
 						for (const entry of entries) store.put(entry);
+					});
+				},
+				saveSyncResults(userId, originalEntries, syncedEntries) {
+					return runTransaction(db, 'readwrite', (store) => {
+						const read = store.index(USER_ID_INDEX).getAll(userId);
+						read.onsuccess = () => {
+							const currentEntries = read.result as StoredJourneyEntry[];
+							const currentById = new Map(currentEntries.map((entry) => [entry.id, entry]));
+							const originalById = new Map(originalEntries.map((entry) => [entry.id, entry]));
+							const syncedById = new Map(syncedEntries.map((entry) => [entry.id, entry]));
+							for (const original of originalEntries) {
+								const current = currentById.get(original.id);
+								if (!current || !sameStoredEntry(current, original)) continue;
+								const synced = syncedById.get(original.id);
+								if (synced) store.put(synced);
+								else store.delete(original.id);
+							}
+							for (const synced of syncedEntries) {
+								if (
+									synced.userId === userId &&
+									!originalById.has(synced.id) &&
+									!currentById.has(synced.id)
+								) {
+									store.put(synced);
+								}
+							}
+						};
 					});
 				},
 				claimAnonymousEntries(userId) {
@@ -243,4 +304,17 @@ function compareNewestFirst(a: StoredJourneyEntry, b: StoredJourneyEntry) {
 
 function compareCursor(entry: StoredJourneyEntry, cursor: EntryCursor) {
 	return entry.createdAt.localeCompare(cursor.createdAt) || entry.id.localeCompare(cursor.id);
+}
+
+function sameStoredEntry(left: StoredJourneyEntry, right: StoredJourneyEntry) {
+	return (
+		left.id === right.id &&
+		left.userId === right.userId &&
+		left.text === right.text &&
+		left.createdAt === right.createdAt &&
+		left.updatedAt === right.updatedAt &&
+		left.deletedAt === right.deletedAt &&
+		(left.lastSyncedAt ?? null) === (right.lastSyncedAt ?? null) &&
+		(left.lastRemoteChangeAt ?? null) === (right.lastRemoteChangeAt ?? null)
+	);
 }

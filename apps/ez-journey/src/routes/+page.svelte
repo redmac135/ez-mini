@@ -227,7 +227,8 @@
 			createdAt: timestamp,
 			updatedAt: timestamp,
 			deletedAt: null,
-			lastSyncedAt: null
+			lastSyncedAt: null,
+			lastRemoteChangeAt: null
 		};
 		try {
 			await JourneyStorage.saveEntries([entry]);
@@ -276,7 +277,8 @@
 					...existing,
 					text,
 					updatedAt: new Date().toISOString(),
-					lastSyncedAt: existing.lastSyncedAt
+					lastSyncedAt: existing.lastSyncedAt,
+					lastRemoteChangeAt: existing.lastRemoteChangeAt
 				};
 				try {
 					await JourneyStorage.saveEntries([updated]);

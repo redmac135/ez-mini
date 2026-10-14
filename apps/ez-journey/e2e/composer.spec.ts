@@ -51,7 +51,8 @@ async function startWithAnonymousEntry(page: import('playwright/test').Page) {
 			createdAt: '2026-10-14T12:00:00.000Z',
 			updatedAt: '2026-10-14T12:00:00.000Z',
 			deletedAt: null,
-			lastSyncedAt: null
+			lastSyncedAt: null,
+			lastRemoteChangeAt: null
 		});
 		await new Promise<void>((resolve, reject) => {
 			tx.oncomplete = () => resolve();
