@@ -12,10 +12,12 @@ const timestamp = (day: number) => `2026-01-${String(day).padStart(2, '0')}T00:0
 
 class FakeApi implements JourneyApi {
 	remote: RemoteJourneyEntry[];
+	lastSince: string | null | undefined;
 	constructor(entries: RemoteJourneyEntry[] = []) {
 		this.remote = entries;
 	}
-	async listEntries() {
+	async listEntries(options?: { since?: string | null }) {
+		this.lastSince = options?.since;
 		return [...this.remote];
 	}
 	async upsertEntry(entry: RemoteJourneyEntry) {
@@ -62,6 +64,21 @@ test('sync unions independent entries from local and remote devices', async () =
 	assert.equal(result.pushed, 1);
 	assert.equal(result.pulled, 1);
 	assert.deepEqual(entries.map(({ id }) => id).sort(), ['local-entry', 'remote-entry']);
+});
+
+test('sync pulls incrementally from the latest successfully synced remote timestamp', async () => {
+	const remote: RemoteJourneyEntry = {
+		id: 'remote-entry',
+		user_id: 'user-a',
+		text: 'Remote entry',
+		created_at: timestamp(1),
+		updated_at: timestamp(3),
+		deleted_at: null
+	};
+	const api = new FakeApi([remote]);
+	await syncJourneyEntries(api, 'user-a');
+	await syncJourneyEntries(api, 'user-a');
+	assert.equal(api.lastSince, timestamp(3));
 });
 
 test('same ID edits resolve to the most recently updated version', async () => {

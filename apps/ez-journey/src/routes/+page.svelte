@@ -84,6 +84,7 @@
 	let anonymousImportOpen = $state(false);
 	let anonymousImportBusy = $state(false);
 	let anonymousImportError = $state('');
+	let entrySaveError = $state('');
 	let syncStatus = $state<AppSyncStatus>('synced');
 	let syncStatusLabel = $derived(getSyncStatusLabel(syncStatus));
 
@@ -214,7 +215,7 @@
 		});
 	}
 
-	function submitEntry() {
+	async function submitEntry() {
 		const text = editorState.text.trim();
 		if (!text) return;
 
@@ -228,10 +229,15 @@
 			deletedAt: null,
 			lastSyncedAt: null
 		};
-		void JourneyStorage.saveEntries([entry]).then(async () => {
+		try {
+			await JourneyStorage.saveEntries([entry]);
 			submittedEntries = [entry, ...submittedEntries];
 			scheduleSync();
-		});
+			entrySaveError = '';
+		} catch (error) {
+			entrySaveError = error instanceof Error ? error.message : 'Could not save this entry.';
+			return;
+		}
 		editorState = EMPTY_STATE;
 		overExpandThreshold = false;
 		setExpanded(false);
@@ -272,10 +278,16 @@
 					updatedAt: new Date().toISOString(),
 					lastSyncedAt: existing.lastSyncedAt
 				};
-				await JourneyStorage.saveEntries([updated]);
+				try {
+					await JourneyStorage.saveEntries([updated]);
+				} catch (error) {
+					entrySaveError = error instanceof Error ? error.message : 'Could not save this entry.';
+					return;
+				}
 				submittedEntries = submittedEntries.map((entry) =>
 					entry.id === updated.id ? updated : entry
 				);
+				entrySaveError = '';
 				scheduleSync();
 			}
 			closeEntry();
@@ -504,6 +516,7 @@
 						</div>
 					</div>
 				{/if}
+				{#if entrySaveError}<p class="save-error" role="alert">{entrySaveError}</p>{/if}
 			</section>
 		</div>
 
@@ -632,6 +645,15 @@
 		padding: var(--space-3) 0;
 		color: var(--color-muted);
 		text-align: center;
+	}
+
+	.save-error {
+		position: absolute;
+		bottom: calc(100% + var(--space-2));
+		left: var(--space-5);
+		margin: 0;
+		color: var(--color-danger);
+		font-size: var(--font-size-xs);
 	}
 
 	:global(body[data-theme='dark']) .composer-slot::after {

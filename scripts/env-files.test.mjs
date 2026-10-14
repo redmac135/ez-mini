@@ -40,8 +40,8 @@ test('ez-blank build modes include public API URLs from dotenv', async () => {
 		'utf8'
 	);
 
-	assert.match(developmentEnv, /PUBLIC_EZ_API_URL=http:\/\/localhost:1350\/v1/);
-	assert.match(productionEnv, /PUBLIC_EZ_API_URL=https:\/\/mini\.api\.ethanzhao\.ca\/v1/);
+	assert.equal(parseEnv(developmentEnv).PUBLIC_EZ_API_URL, 'http://localhost:1350/v1');
+	assert.equal(parseEnv(productionEnv).PUBLIC_EZ_API_URL, 'https://mini.api.ethanzhao.ca/v1');
 	assert.equal(wrangler.includes('PUBLIC_EZ_API_URL'), false);
 	assert.equal(wrangler.includes('[vars]'), false);
 	assert.equal(wrangler.includes('preview_urls'), false);
@@ -61,7 +61,23 @@ test('ez-journey build modes include the shared API URL', async () => {
 		'utf8'
 	);
 
-	assert.match(developmentEnv, /PUBLIC_EZ_API_URL=http:\/\/localhost:1350\/v1/);
-	assert.match(productionEnv, /PUBLIC_EZ_API_URL=https:\/\/mini\.api\.ethanzhao\.ca\/v1/);
-	assert.match(exampleEnv, /PUBLIC_EZ_API_URL=http:\/\/localhost:1350\/v1/);
+	assert.equal(parseEnv(developmentEnv).PUBLIC_EZ_API_URL, 'http://localhost:1350/v1');
+	assert.equal(parseEnv(productionEnv).PUBLIC_EZ_API_URL, 'https://mini.api.ethanzhao.ca/v1');
+	assert.equal(parseEnv(exampleEnv).PUBLIC_EZ_API_URL, 'http://localhost:1350/v1');
 });
+
+function parseEnv(source) {
+	const values = {};
+	for (const line of source.split(/\r?\n/)) {
+		const assignment = line.trim().match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+		if (!assignment) continue;
+		const [, key, rawValue] = assignment;
+		const value = rawValue.trim();
+		values[key] =
+			(value.startsWith('"') && value.endsWith('"')) ||
+			(value.startsWith("'") && value.endsWith("'"))
+				? value.slice(1, -1)
+				: value.replace(/\s+#.*$/, '').trim();
+	}
+	return values;
+}

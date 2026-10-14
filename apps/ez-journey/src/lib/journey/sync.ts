@@ -40,7 +40,14 @@ export async function syncJourneyEntries(api: JourneyApi, userId: string) {
 			lastSyncedAt: null
 		}),
 		getId: (entry) => entry.id,
-		getSince: () => null,
+		getSince: (entries) => {
+			const syncedAt = entries
+				.map((entry) => entry.lastSyncedAt)
+				.filter((value): value is string => value !== null);
+			return syncedAt.length
+				? syncedAt.reduce((latest, value) => (value > latest ? value : latest))
+				: null;
+		},
 		getLocalUpdatedAt: (entry) => entry.updatedAt,
 		getRemoteUpdatedAt: (entry) => entry.updated_at,
 		getLocalDeletedAt: (entry) => entry.deletedAt,
