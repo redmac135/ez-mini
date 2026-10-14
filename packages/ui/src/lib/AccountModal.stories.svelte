@@ -27,7 +27,7 @@
 	name="Switches accounts and reports logout"
 	args={{ accounts }}
 	play={async ({ canvas, userEvent }) => {
-		await userEvent.click(canvas.getByRole('button', { name: /Alex/ }));
+		await userEvent.click(canvas.getByRole('button', { name: 'Alex alex@example.com' }));
 		await expect(canvas.getByText('Selected session: b')).toBeInTheDocument();
 		await userEvent.click(canvas.getByRole('button', { name: 'Logout Taylor' }));
 		await expect(canvas.getByText('Logged out session: a')).toBeInTheDocument();
