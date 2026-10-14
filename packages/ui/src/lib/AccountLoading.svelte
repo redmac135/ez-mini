@@ -7,6 +7,10 @@
 	export let cancelable = true;
 	export let onCancel: () => void = () => {};
 
+	function preventDismiss(event: Event) {
+		event.preventDefault();
+	}
+
 	function showModal(node: HTMLDialogElement) {
 		node.showModal();
 		return {
@@ -24,6 +28,7 @@
 	aria-labelledby="account-loading-title"
 	aria-describedby="account-loading-description"
 	aria-busy="true"
+	on:cancel={preventDismiss}
 >
 	<section class="account-loading-panel">
 		<div class="spinner" aria-hidden="true"></div>

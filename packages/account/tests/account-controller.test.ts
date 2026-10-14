@@ -183,6 +183,68 @@ test('cancels account switching by restoring the previously active session', asy
 	account.destroy();
 });
 
+test('cross-tab auth updates supersede and abort a pending account transition', async () => {
+	const activeB = { ...userB, active: true };
+	const userC = createSession('session-c', 'user-c', true);
+	let sessionResponse: AuthSessionResponse = { activeSession: userA, sessions: [userA, userB] };
+	const channelName = `account-test-${Math.random()}`;
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA, userB] });
+	auth.getSession = async () => sessionResponse;
+	auth.switchSession = async () => ({
+		activeSession: activeB,
+		sessions: [{ ...userA, active: false }, activeB]
+	});
+	let targetLoadSignal: AbortSignal | undefined;
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		loadAccount(user, options) {
+			if (user.userId === 'user-b') {
+				targetLoadSignal = options?.signal;
+				return new Promise((_resolve, reject) => {
+					targetLoadSignal?.addEventListener('abort', () =>
+						reject(new DOMException('Aborted', 'AbortError'))
+					);
+				});
+			}
+			return Promise.resolve(`account:${user.userId}`);
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter, channelName });
+	const externalChannel = new BroadcastChannel(channelName);
+
+	try {
+		await account.initialize();
+		const switchPromise = account.selectAccountSession(activeB.sessionId);
+		await waitFor(() => account.getState().contextTransition !== null);
+		sessionResponse = {
+			activeSession: userC,
+			sessions: [
+				{ ...userA, active: false },
+				{ ...activeB, active: false },
+				userC
+			]
+		};
+		externalChannel.postMessage({
+			type: 'auth-session-updated',
+			sourceTabId: 'another-tab',
+			userId: userC.userId,
+			sessionId: userC.sessionId
+		});
+		await waitFor(() => account.getState().data === 'account:user-c');
+		await account.cancelContextTransition();
+		await switchPromise;
+
+		assert.equal(targetLoadSignal?.aborted, true);
+		assert.equal(account.getState().contextTransition, null);
+		assert.equal(account.getState().accountBusySessionId, null);
+		assert.equal(account.getState().user?.userId, userC.userId);
+		assert.equal(account.getState().data, 'account:user-c');
+	} finally {
+		externalChannel.close();
+		account.destroy();
+	}
+});
+
 test('commits the target context only after its data finishes loading', async () => {
 	const activeB = { ...userB, active: true };
 	const auth = createAuthClient({ activeSession: userA, sessions: [userA, userB] });

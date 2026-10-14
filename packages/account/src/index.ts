@@ -802,6 +802,12 @@ export function createAccountDataController<TData>(
 		optionsOverride: { broadcast: boolean } = { broadcast: false }
 	) {
 		if (!options.authClient) return;
+		const supersededTransition = pendingContextTransition;
+		if (supersededTransition) {
+			pendingContextTransition.abortController.abort();
+			pendingContextTransition = null;
+			setState({ contextTransition: null, accountBusySessionId: null });
+		}
 		const nextRequestId = beginRequest();
 		try {
 			await applyAuthResponse(await options.authClient.getSession(), {
@@ -809,7 +815,14 @@ export function createAccountDataController<TData>(
 				requestId: nextRequestId
 			});
 		} catch (error) {
-			void error;
+			if (supersededTransition && isLatest(nextRequestId)) {
+				setState({
+					phase: state.data === null ? 'error' : 'ready',
+					authBusy: false,
+					accountBusySessionId: null,
+					authMessage: getErrorMessage(error, 'Unable to refresh account session.')
+				});
+			}
 		}
 	}
 
