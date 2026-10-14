@@ -25,8 +25,7 @@ export async function handleJourney(
 	const url = new URL(request.url);
 	if (request.method === 'GET' && path === '/journey/entries') {
 		const params = new URLSearchParams({ select: ENTRY_COLUMNS });
-		params.append('order', 'created_at.desc');
-		params.append('order', 'id.desc');
+		params.set('order', 'created_at.desc,id.desc');
 		const limitValue = url.searchParams.get('limit');
 		const limit = limitValue === null ? DEFAULT_PAGE_SIZE : Number(limitValue);
 		if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE_SIZE) {
