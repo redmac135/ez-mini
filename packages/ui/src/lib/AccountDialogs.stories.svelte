@@ -50,6 +50,7 @@
 			resendOtpCode: async () => {},
 			backToEmail() {},
 			selectAccountSession: async () => {},
+			useAnonymousAccount: async () => {},
 			logoutAccountSession: async () => {}
 		};
 	}

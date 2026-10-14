@@ -5,6 +5,7 @@
 	import { Editor, type EditorState } from '@ez/editor';
 	import {
 		AccountDialogs,
+		AccountLoading,
 		AppShell,
 		Button,
 		FloatingMenu,
@@ -546,6 +547,14 @@
 	{/if}
 
 	<AccountDialogs controller={account} {syncBusy} />
+	{#if accountState.contextTransition}
+		<AccountLoading
+			canceling={accountState.contextTransition.canceling}
+			errorMessage={accountState.contextTransition.errorMessage}
+			cancelable={accountState.contextTransition.cancelable}
+			onCancel={() => void account.cancelContextTransition()}
+		/>
+	{/if}
 	{#if anonymousImportOpen}
 		<Modal title="Add local entries to this account?" dismissible={false}>
 			<p>There are entries saved on this device. Would you like to add them to this account?</p>

@@ -37,6 +37,7 @@
 		resendOtpCode(): Promise<void>;
 		backToEmail(): void;
 		selectAccountSession(sessionId: string): Promise<void>;
+		useAnonymousAccount(): Promise<void>;
 		logoutAccountSession(sessionId: string, userId: string): Promise<void>;
 	}
 
@@ -80,8 +81,10 @@
 		busy={state.authBusy}
 		{syncBusy}
 		busySessionId={state.accountBusySessionId}
+		localActive={!state.sessions.some((session) => session.active)}
 		onClose={controller.closeAccountModal}
 		onSelectAccount={(sessionId) => void controller.selectAccountSession(sessionId)}
+		onUseLocalAccount={() => void controller.useAnonymousAccount()}
 		onLogoutAccount={(sessionId, userId) => {
 			if (onLogoutAccount) onLogoutAccount(sessionId, userId);
 			else void controller.logoutAccountSession(sessionId, userId);
