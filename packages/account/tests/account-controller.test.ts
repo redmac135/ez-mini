@@ -80,61 +80,58 @@ test('verifies otp, closes login modal, and loads account data', async () => {
 	account.destroy();
 });
 
-test(
-	'keeps the prior context visible while account data loads and cancels back to local data',
-	async () => {
-		const activeUser = { ...userA, active: true };
-		const auth = createAuthClient({
+test('keeps the prior context visible while account data loads and cancels back to local data', async () => {
+	const activeUser = { ...userA, active: true };
+	const auth = createAuthClient({
+		activeSession: null,
+		sessions: [],
+		verifyResponse: { activeSession: activeUser, sessions: [activeUser] },
+		useAnonymousResponse: {
 			activeSession: null,
-			sessions: [],
-			verifyResponse: { activeSession: activeUser, sessions: [activeUser] },
-			useAnonymousResponse: {
-				activeSession: null,
-				sessions: [{ ...activeUser, active: false }]
-			}
-		});
-		let loadSignal: AbortSignal | undefined;
-		let adapterRestores = 0;
-		const adapter: AccountDataAdapter<string> = {
-			...createDataAdapter(),
-			loadAccount(_user, options) {
-				loadSignal = options?.signal;
-				return new Promise((_resolve, reject) => {
-					loadSignal?.addEventListener('abort', () =>
-						reject(new DOMException('Aborted', 'AbortError'))
-					);
-				});
-			},
-			async restoreLocalContext(user) {
-				assert.equal(user, null);
-				adapterRestores += 1;
-			}
-		};
-		const account = createAccountDataController({ authClient: auth, adapter });
+			sessions: [{ ...activeUser, active: false }]
+		}
+	});
+	let loadSignal: AbortSignal | undefined;
+	let adapterRestores = 0;
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		loadAccount(_user, options) {
+			loadSignal = options?.signal;
+			return new Promise((_resolve, reject) => {
+				loadSignal?.addEventListener('abort', () =>
+					reject(new DOMException('Aborted', 'AbortError'))
+				);
+			});
+		},
+		async restoreLocalContext(user) {
+			assert.equal(user, null);
+			adapterRestores += 1;
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
 
-		await account.initialize();
-		account.openLoginFlow();
-		await account.submitLogin('user-a@example.com');
-		const verifyPromise = account.verifyOtpCode('12345678');
-		await waitFor(() => account.getState().contextTransition !== null);
+	await account.initialize();
+	account.openLoginFlow();
+	await account.submitLogin('user-a@example.com');
+	const verifyPromise = account.verifyOtpCode('12345678');
+	await waitFor(() => account.getState().contextTransition !== null);
 
-		assert.equal(account.getState().user, null);
-		assert.equal(account.getState().data, 'anonymous');
-		assert.equal(account.getState().phase, 'loading-data');
-		assert.equal(loadSignal?.aborted, false);
+	assert.equal(account.getState().user, null);
+	assert.equal(account.getState().data, 'anonymous');
+	assert.equal(account.getState().phase, 'loading-data');
+	assert.equal(loadSignal?.aborted, false);
 
-		await account.cancelContextTransition();
-		await verifyPromise;
+	await account.cancelContextTransition();
+	await verifyPromise;
 
-		assert.equal(loadSignal?.aborted, true);
-		assert.equal(adapterRestores, 1);
-		assert.equal(account.getState().contextTransition, null);
-		assert.equal(account.getState().user, null);
-		assert.equal(account.getState().data, 'anonymous');
-		assert.equal(account.getState().sessions[0]?.active, false);
-		account.destroy();
-	}
-);
+	assert.equal(loadSignal?.aborted, true);
+	assert.equal(adapterRestores, 1);
+	assert.equal(account.getState().contextTransition, null);
+	assert.equal(account.getState().user, null);
+	assert.equal(account.getState().data, 'anonymous');
+	assert.equal(account.getState().sessions[0]?.active, false);
+	account.destroy();
+});
 
 test('cancels account switching by restoring the previously active session', async () => {
 	const activeB = { ...userB, active: true };
@@ -221,11 +218,7 @@ test('cross-tab auth updates supersede and abort a pending account transition', 
 		await waitFor(() => account.getState().contextTransition !== null);
 		sessionResponse = {
 			activeSession: userC,
-			sessions: [
-				{ ...userA, active: false },
-				{ ...activeB, active: false },
-				userC
-			]
+			sessions: [{ ...userA, active: false }, { ...activeB, active: false }, userC]
 		};
 		externalChannel.postMessage({
 			type: 'auth-session-updated',
