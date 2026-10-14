@@ -5,6 +5,8 @@
 	"type": "module",
 	"packageManager": "pnpm@10.33.2",
 	"scripts": {
+		"storybook": "storybook dev -p 6006",
+		"build-storybook": "storybook build",
 		"dev": "turbo run dev --filter='./apps/*'",
 		"dev:api": "pnpm --filter @ez/apps-api dev",
 		"build": "turbo run build --filter='./apps/*'",
@@ -22,6 +24,9 @@
 		}
 	},
 	"devDependencies": {
+		"@storybook/addon-svelte-csf": "catalog:",
+		"@storybook/svelte-vite": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@eslint/compat": "catalog:",
 		"@eslint/js": "catalog:",
 		"@sveltejs/adapter-static": "catalog:",
@@ -36,6 +41,7 @@
 		"prettier-plugin-svelte": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
+		"storybook": "catalog:",
 		"turbo": "catalog:",
 		"typescript": "catalog:",
 		"typescript-eslint": "catalog:",

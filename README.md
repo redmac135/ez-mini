@@ -12,6 +12,7 @@ Minimal app monorepo for small, focused tools.
 ## Workspaces
 
 - `apps/ez-blank` - SvelteKit writing app.
+- `apps/ez-repeat` - SvelteKit habit tracker.
 - `apps/api` - Cloudflare Worker API for auth/session/page sync.
 - `packages/design` - shared CSS tokens only.
 - `packages/ui` - small Svelte primitives.
@@ -46,6 +47,15 @@ pnpm test
 pnpm lint
 ```
 
+Run the component library and app UI stories:
+
+```sh
+pnpm storybook
+pnpm build-storybook
+```
+
+Storybook groups the system by layer: `Foundations` shows the shared design tokens, `Components` covers `@ez/ui`, and `Apps` documents app-owned components from `ez-blank` and `ez-repeat`.
+
 ## Design Tokens
 
 The design package stays intentionally small and transferable. Tokens describe broad primitives, not component measurements:
@@ -55,3 +65,5 @@ The design package stays intentionally small and transferable. Tokens describe b
 - color: app-neutral primitives like `--color-bg`, `--color-fg`, `--color-panel`, and `--color-border`
 
 Component-specific sizes, offsets, shadows, and widths belong in the component CSS that uses them.
+
+The current structure is a standard, minimal setup for these apps: `@ez/design` owns global tokens, `@ez/ui` owns reusable Svelte components, and each app keeps its domain-specific components alongside its feature code. `ez-repeat`'s calendar and habit components and `ez-blank`'s editor are app-specific, so they should stay in their apps. The toast stack was duplicated byte-for-byte across both app routes, so it now lives in `@ez/ui` and has one shared story. The remaining app components are distinct feature compositions; extracting them would add coupling without removing repeated UI.

@@ -1,5 +1,6 @@
 node_modules
 .turbo
+/storybook-static
 apps/*/.turbo
 packages/*/.turbo
 
