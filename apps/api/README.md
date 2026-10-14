@@ -51,7 +51,7 @@ The pages API only exposes collection list/upsert routes because `ez-blank` is t
 
 Journey stores entries in the `journey.entries` table. Apply `supabase/migrations/20261014000000_journey_entries.sql` to the Supabase project, then add `journey` to the project's **Exposed schemas** setting (alongside `blank` and `repeat`) so PostgREST can serve the Worker requests. The table is protected by row level security and each request is scoped to the authenticated user's ID.
 
-Journey entry listing returns `{ entries, nextCursor }`. Pass `limit` (up to 200), plus both `before_created_at` and `before_id` from `nextCursor`, to fetch older rows. The app's sync client follows these cursors until it has reconciled all pages.
+Journey entry listing returns `{ entries, nextCursor }`. Pass `limit` (up to 200), plus both `before_created_at` and `before_id` from `nextCursor`, to fetch older rows. The cursor orders entries by `(created_at, id)` so equally dated entries are not skipped. Sync requests can also pass `since` to fetch changed rows; the client follows pagination cursors until it has reconciled all pages. Writes include the last observed server change cursor, which the API checks before accepting updates. If both devices changed an entry, sync keeps the entry with the later `updated_at` timestamp.
 
 ## Scripts
 
