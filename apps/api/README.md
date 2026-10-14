@@ -38,6 +38,7 @@ The Worker also needs a `SESSIONS` KV namespace, configured in `wrangler.toml`.
 - `POST /v1/auth/verify`
 - `GET /v1/auth/session`
 - `POST /v1/auth/switch`
+- `POST /v1/auth/anonymous`
 - `POST /v1/auth/logout`
 - `GET /v1/pages`
 - `POST /v1/pages`

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { after, test } from 'node:test';
-import { render } from 'svelte/server';
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
@@ -23,6 +22,10 @@ async function readComponent(name) {
 	return readFile(resolve(new URL('..', import.meta.url).pathname, 'src/lib', name), 'utf8');
 }
 
+function cleanSvelteMarkers(html) {
+	return html.replace(/<!--[\s\S]*?-->/g, '');
+}
+
 test('LoginModal exposes the shared auth flow states', async () => {
 	const source = await readComponent('LoginModal.svelte');
 
@@ -37,19 +40,23 @@ test('LoginModal exposes the shared auth flow states', async () => {
 
 test('AccountModal exposes account switching and logout controls', async () => {
 	const { default: AccountModal } = await vite.ssrLoadModule('/src/lib/AccountModal.svelte');
+	const { render } = await vite.ssrLoadModule('svelte/server');
 	const { body } = render(AccountModal, { props: { localActive: false } });
+	const renderedHtml = cleanSvelteMarkers(body);
 
-	assert.match(body, /<button[^>]*>Use local account<\/button>/);
-	assert.match(body, /<button[^>]*>Sign into another account<\/button>/);
+	assert.match(renderedHtml, /<button[^>]*>Use local account<\/button>/);
+	assert.match(renderedHtml, /<button[^>]*>Sign into another account<\/button>/);
 });
 
 test('AccountLoading blocks the workspace and exposes an accessible cancel action', async () => {
 	const { default: AccountLoading } = await vite.ssrLoadModule('/src/lib/AccountLoading.svelte');
+	const { render } = await vite.ssrLoadModule('svelte/server');
 	const { body } = render(AccountLoading, { props: { accountName: 'user-b' } });
+	const renderedHtml = cleanSvelteMarkers(body);
 
-	assert.match(body, /<dialog[^>]*aria-modal="true"[^>]*aria-busy="true"/);
-	assert.match(body, /Loading data for user-b/);
-	assert.match(body, /<button[^>]*>Cancel and go back<\/button>/);
+	assert.match(renderedHtml, /<dialog[^>]*aria-modal="true"[^>]*aria-busy="true"/);
+	assert.match(renderedHtml, /Loading data for user-b/);
+	assert.match(renderedHtml, /<button[^>]*>Cancel and go back<\/button>/);
 });
 
 test('ConfirmModal keeps destructive actions presentational', async () => {
