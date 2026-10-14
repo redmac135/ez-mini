@@ -804,7 +804,7 @@ export function createAccountDataController<TData>(
 		if (!options.authClient) return;
 		const supersededTransition = pendingContextTransition;
 		if (supersededTransition) {
-			pendingContextTransition.abortController.abort();
+			supersededTransition.abortController.abort();
 			pendingContextTransition = null;
 			setState({ contextTransition: null, accountBusySessionId: null });
 		}
