@@ -67,6 +67,19 @@ test('ez-journey build modes include the shared API URL', async () => {
 	assert.equal(parseEnv(exampleEnv).PUBLIC_EZ_API_URL, 'http://localhost:1350/v1');
 });
 
+test('TOML array tables retain their nested semantic structure', () => {
+	assert.deepEqual(
+		parseToml('[[env.development.kv_namespaces]]\nbinding = "CACHE"\nid = "namespace-id"'),
+		{
+			env: {
+				development: {
+					kv_namespaces: [{ binding: 'CACHE', id: 'namespace-id' }]
+				}
+			}
+		}
+	);
+});
+
 function parseEnv(source) {
 	const values = {};
 	for (const line of source.split(/\r?\n/)) {
@@ -89,12 +102,31 @@ function parseToml(source) {
 	for (const sourceLine of source.split(/\r?\n/)) {
 		const line = stripTomlComment(sourceLine).trim();
 		if (!line) continue;
+		const arrayTable = line.match(/^\[\[([A-Za-z0-9_.-]+)\]\]$/);
+		if (arrayTable) {
+			const segments = arrayTable[1].split('.');
+			current = root;
+			for (const segment of segments.slice(0, -1)) {
+				current[segment] ??= {};
+				current = Array.isArray(current[segment])
+					? current[segment].at(-1)
+					: current[segment];
+			}
+			const name = segments.at(-1);
+			current[name] ??= [];
+			if (!Array.isArray(current[name])) throw new Error(`Invalid TOML array table: ${line}`);
+			current[name].push({});
+			current = current[name].at(-1);
+			continue;
+		}
 		const table = line.match(/^\[([A-Za-z0-9_.-]+)\]$/);
 		if (table) {
 			current = root;
 			for (const segment of table[1].split('.')) {
 				current[segment] ??= {};
-				current = current[segment];
+				current = Array.isArray(current[segment])
+					? current[segment].at(-1)
+					: current[segment];
 			}
 			continue;
 		}
