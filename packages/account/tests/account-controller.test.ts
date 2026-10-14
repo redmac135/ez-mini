@@ -48,6 +48,19 @@ test('opens login flow and surfaces login request failures', async () => {
 	account.destroy();
 });
 
+test('opens login flow after an empty saved-session lookup', async () => {
+	const account = createAccountDataController({
+		authClient: createAuthClient({ activeSession: null, sessions: [] }),
+		adapter: createDataAdapter()
+	});
+
+	await account.openLoginOrAccountList();
+
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(account.getState().authBusy, false);
+	account.destroy();
+});
+
 test('verifies otp, closes login modal, and loads account data', async () => {
 	const activeUser = { ...userA, active: true };
 	const auth = createAuthClient({
@@ -64,6 +77,263 @@ test('verifies otp, closes login modal, and loads account data', async () => {
 	assert.equal(account.getState().loginModalOpen, false);
 	assert.equal(account.getState().user?.userId, 'user-a');
 	assert.equal(account.getState().data, 'account:user-a');
+	account.destroy();
+});
+
+test('keeps the prior context visible while account data loads and cancels back to local data', async () => {
+	const activeUser = { ...userA, active: true };
+	const auth = createAuthClient({
+		activeSession: null,
+		sessions: [],
+		verifyResponse: { activeSession: activeUser, sessions: [activeUser] },
+		useAnonymousResponse: {
+			activeSession: null,
+			sessions: [{ ...activeUser, active: false }]
+		}
+	});
+	let loadSignal: AbortSignal | undefined;
+	let adapterRestores = 0;
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		loadAccount(_user, options) {
+			loadSignal = options?.signal;
+			return new Promise((_resolve, reject) => {
+				loadSignal?.addEventListener('abort', () =>
+					reject(new DOMException('Aborted', 'AbortError'))
+				);
+			});
+		},
+		async restoreLocalContext(user) {
+			assert.equal(user, null);
+			adapterRestores += 1;
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	await account.initialize();
+	account.openLoginFlow();
+	await account.submitLogin('user-a@example.com');
+	const verifyPromise = account.verifyOtpCode('12345678');
+	await waitFor(() => account.getState().contextTransition !== null);
+
+	assert.equal(account.getState().user, null);
+	assert.equal(account.getState().data, 'anonymous');
+	assert.equal(account.getState().phase, 'loading-data');
+	assert.equal(loadSignal?.aborted, false);
+
+	await account.cancelContextTransition();
+	await verifyPromise;
+
+	assert.equal(loadSignal?.aborted, true);
+	assert.equal(adapterRestores, 1);
+	assert.equal(account.getState().contextTransition, null);
+	assert.equal(account.getState().user, null);
+	assert.equal(account.getState().data, 'anonymous');
+	assert.equal(account.getState().sessions[0]?.active, false);
+	account.destroy();
+});
+
+test('cancels account switching by restoring the previously active session', async () => {
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({
+		activeSession: userA,
+		sessions: [userA, userB]
+	});
+	const switchCalls: string[] = [];
+	auth.switchSession = async (sessionId) => {
+		switchCalls.push(sessionId);
+		return sessionId === activeB.sessionId
+			? { activeSession: activeB, sessions: [{ ...userA, active: false }, activeB] }
+			: { activeSession: userA, sessions: [userA, { ...userB, active: false }] };
+	};
+	let targetLoadSignal: AbortSignal | undefined;
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		loadAccount(user, options) {
+			if (user.userId === 'user-b') {
+				targetLoadSignal = options?.signal;
+				return new Promise((_resolve, reject) => {
+					targetLoadSignal?.addEventListener('abort', () =>
+						reject(new DOMException('Aborted', 'AbortError'))
+					);
+				});
+			}
+			return Promise.resolve(`account:${user.userId}`);
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	await account.initialize();
+	await account.openLoginOrAccountList();
+	const switchPromise = account.selectAccountSession(activeB.sessionId);
+	await waitFor(() => account.getState().contextTransition !== null);
+
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	await account.cancelContextTransition();
+	await switchPromise;
+
+	assert.deepEqual(switchCalls, ['session-b', 'session-a']);
+	assert.equal(targetLoadSignal?.aborted, true);
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	assert.equal(account.getState().contextTransition, null);
+	assert.equal(account.getState().accountBusySessionId, null);
+	assert.equal(account.getState().accountModalOpen, true);
+	account.destroy();
+});
+
+test('cross-tab auth updates supersede and abort a pending account transition', async () => {
+	const activeB = { ...userB, active: true };
+	const userC = createSession('session-c', 'user-c', true);
+	let sessionResponse: AuthSessionResponse = { activeSession: userA, sessions: [userA, userB] };
+	const channelName = `account-test-${Math.random()}`;
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA, userB] });
+	auth.getSession = async () => sessionResponse;
+	auth.switchSession = async () => ({
+		activeSession: activeB,
+		sessions: [{ ...userA, active: false }, activeB]
+	});
+	let targetLoadSignal: AbortSignal | undefined;
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		loadAccount(user, options) {
+			if (user.userId === 'user-b') {
+				targetLoadSignal = options?.signal;
+				return new Promise((_resolve, reject) => {
+					targetLoadSignal?.addEventListener('abort', () =>
+						reject(new DOMException('Aborted', 'AbortError'))
+					);
+				});
+			}
+			return Promise.resolve(`account:${user.userId}`);
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter, channelName });
+	const externalChannel = new BroadcastChannel(channelName);
+
+	try {
+		await account.initialize();
+		const switchPromise = account.selectAccountSession(activeB.sessionId);
+		await waitFor(() => account.getState().contextTransition !== null);
+		sessionResponse = {
+			activeSession: userC,
+			sessions: [{ ...userA, active: false }, { ...activeB, active: false }, userC]
+		};
+		externalChannel.postMessage({
+			type: 'auth-session-updated',
+			sourceTabId: 'another-tab',
+			userId: userC.userId,
+			sessionId: userC.sessionId
+		});
+		await waitFor(() => account.getState().data === 'account:user-c');
+		await account.cancelContextTransition();
+		await switchPromise;
+
+		assert.equal(targetLoadSignal?.aborted, true);
+		assert.equal(account.getState().contextTransition, null);
+		assert.equal(account.getState().accountBusySessionId, null);
+		assert.equal(account.getState().user?.userId, userC.userId);
+		assert.equal(account.getState().data, 'account:user-c');
+	} finally {
+		externalChannel.close();
+		account.destroy();
+	}
+});
+
+test('commits the target context only after its data finishes loading', async () => {
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA, userB] });
+	auth.switchSession = async () => ({
+		activeSession: activeB,
+		sessions: [{ ...userA, active: false }, activeB]
+	});
+	let finishLoad: ((value: string) => void) | null = null;
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		loadAccount(user, options) {
+			if (user.userId === 'user-b') {
+				return new Promise((resolve, reject) => {
+					finishLoad = resolve;
+					options?.signal?.addEventListener('abort', () =>
+						reject(new DOMException('Aborted', 'AbortError'))
+					);
+				});
+			}
+			return Promise.resolve(`account:${user.userId}`);
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	await account.initialize();
+	const switchPromise = account.selectAccountSession(activeB.sessionId);
+	await waitFor(() => account.getState().contextTransition !== null);
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	finishLoad?.('account:user-b');
+	await switchPromise;
+
+	assert.equal(account.getState().user?.userId, 'user-b');
+	assert.equal(account.getState().data, 'account:user-b');
+	assert.equal(account.getState().phase, 'ready');
+	assert.equal(account.getState().contextTransition, null);
+	account.destroy();
+});
+
+test('restores the prior auth and data context when target loading fails', async () => {
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA, userB] });
+	const switchCalls: string[] = [];
+	auth.switchSession = async (sessionId) => {
+		switchCalls.push(sessionId);
+		return sessionId === activeB.sessionId
+			? { activeSession: activeB, sessions: [{ ...userA, active: false }, activeB] }
+			: { activeSession: userA, sessions: [userA, { ...userB, active: false }] };
+	};
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		async loadAccount(user) {
+			if (user.userId === 'user-b') throw new Error('Target data could not be loaded.');
+			return `account:${user.userId}`;
+		}
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	await account.initialize();
+	await account.selectAccountSession(activeB.sessionId);
+
+	assert.deepEqual(switchCalls, ['session-b', 'session-a']);
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	assert.equal(account.getState().phase, 'ready');
+	assert.equal(account.getState().contextTransition, null);
+	assert.match(account.getState().authMessage, /Target data could not be loaded/);
+	account.destroy();
+});
+
+test('ignores repeated email submissions while the first request is pending', async () => {
+	let resolveLogin: (() => void) | null = null;
+	let loginCalls = 0;
+	const auth = createAuthClient({
+		activeSession: null,
+		sessions: [],
+		loginPromise: new Promise<void>((resolve) => {
+			resolveLogin = resolve;
+		})
+	});
+	const originalLogin = auth.login;
+	auth.login = async (email) => {
+		loginCalls += 1;
+		return originalLogin(email);
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	account.openLoginFlow();
+	const firstSubmission = account.submitLogin('user@example.com');
+	await account.submitLogin('user@example.com');
+	assert.equal(loginCalls, 1);
+	resolveLogin?.();
+	await firstSubmission;
 	account.destroy();
 });
 
@@ -201,9 +471,14 @@ function createAuthClient(options: {
 	switchResponse?: AuthSessionResponse;
 	logoutResponse?: AuthSessionResponse;
 	verifyPromise?: Promise<AuthSessionResponse>;
+	loginPromise?: Promise<void>;
+	useAnonymousResponse?: AuthSessionResponse;
 }): AuthClient {
 	return {
 		async login() {
+			if (options.loginPromise) {
+				await options.loginPromise;
+			}
 			if (options.loginError) {
 				throw options.loginError;
 			}
@@ -231,6 +506,14 @@ function createAuthClient(options: {
 				options.switchResponse ?? {
 					activeSession: options.activeSession,
 					sessions: options.sessions
+				}
+			);
+		},
+		async useAnonymous() {
+			return (
+				options.useAnonymousResponse ?? {
+					activeSession: null,
+					sessions: options.sessions.map((session) => ({ ...session, active: false }))
 				}
 			);
 		},

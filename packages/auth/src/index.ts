@@ -35,6 +35,7 @@ export interface AuthClient {
 	verify(email: string, token: string): Promise<AuthSessionResponse>;
 	getSession(): Promise<AuthSessionResponse>;
 	switchSession(sessionId: string): Promise<AuthSessionResponse>;
+	useAnonymous(): Promise<AuthSessionResponse>;
 	logout(options?: { all?: boolean; sessionId?: string }): Promise<AuthSessionResponse>;
 	authFetch(input: string, init?: RequestInit): Promise<Response>;
 	getBroadcastRelayUrl(): string;
@@ -104,6 +105,9 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
 				method: 'POST',
 				body: JSON.stringify({ sessionId })
 			});
+		},
+		useAnonymous() {
+			return request('/auth/anonymous', { method: 'POST' });
 		},
 		logout(options = {}) {
 			const params = new URLSearchParams();

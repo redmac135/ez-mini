@@ -19,6 +19,7 @@
 	} from '$lib/auth/session-cache';
 	import {
 		AccountModal,
+		AccountLoading,
 		AppShell,
 		Button,
 		ConfirmModal,
@@ -178,7 +179,7 @@
 		authClient: auth,
 		adapter: {
 			loadAnonymous: () => loadBlankAccountData(null),
-			loadAccount: (user) => loadBlankAccountData(user),
+			loadAccount: (user, options) => loadBlankAccountData(user, options),
 			deleteAccountData: (userId) => deleteLocalUserData(userId),
 			onLoaded({ data }) {
 				applyLoadedBlankAccountData(data);
@@ -875,7 +876,10 @@
 		account.destroy();
 	});
 
-	async function loadBlankAccountData(user: AuthSessionSummary | null) {
+	async function loadBlankAccountData(
+		user: AuthSessionSummary | null,
+		options: { signal?: AbortSignal } = {}
+	) {
 		if (user) {
 			appSyncStatus = isBrowserOnline() ? 'syncing' : 'offline';
 		}
@@ -890,7 +894,8 @@
 				loadPreferences
 			},
 			pagesApi,
-			isOnline: isBrowserOnline()
+			isOnline: isBrowserOnline(),
+			signal: options.signal
 		});
 	}
 
@@ -1451,10 +1456,21 @@
 			busy={authBusy}
 			{syncBusy}
 			busySessionId={accountBusySessionId}
+			localActive={!authUser}
 			onClose={closeAccountModal}
 			onSelectAccount={(sessionId) => void selectAccountSession(sessionId)}
 			onLogoutAccount={(sessionId, userId) => void logoutAccountSession(sessionId, userId)}
 			onAddAccount={openLoginFlow}
+			onUseLocalAccount={() => void account.useAnonymousAccount()}
+		/>
+	{/if}
+
+	{#if accountState.contextTransition}
+		<AccountLoading
+			canceling={accountState.contextTransition.canceling}
+			errorMessage={accountState.contextTransition.errorMessage}
+			cancelable={accountState.contextTransition.cancelable}
+			onCancel={() => void account.cancelContextTransition()}
 		/>
 	{/if}
 

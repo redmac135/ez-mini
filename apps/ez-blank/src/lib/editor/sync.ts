@@ -25,10 +25,13 @@ interface RemoteUserSettingsRow {
 }
 
 export interface PagesApi {
-	listPages(options?: { since?: string | null }): Promise<RemotePageRow[]>;
-	upsertPage(page: RemotePageRow): Promise<RemotePageRow>;
-	getSettings(): Promise<RemoteUserSettingsRow | null>;
-	updateSettings(settings: { active_page_id: string | null }): Promise<RemoteUserSettingsRow>;
+	listPages(options?: { since?: string | null; signal?: AbortSignal }): Promise<RemotePageRow[]>;
+	upsertPage(page: RemotePageRow, options?: { signal?: AbortSignal }): Promise<RemotePageRow>;
+	getSettings(options?: { signal?: AbortSignal }): Promise<RemoteUserSettingsRow | null>;
+	updateSettings(
+		settings: { active_page_id: string | null },
+		options?: { signal?: AbortSignal }
+	): Promise<RemoteUserSettingsRow>;
 }
 
 export interface SyncRunResult {
@@ -104,7 +107,8 @@ export async function syncUserPages(
 	api: PagesApi,
 	userId: string,
 	localSession: EditorSession,
-	now = new Date()
+	now = new Date(),
+	signal?: AbortSignal
 ): Promise<SyncRunResult> {
 	if (syncInProgress) {
 		throw new Error('Sync already in progress.');
@@ -116,8 +120,8 @@ export async function syncUserPages(
 		let nextActivePageId = localSession.activePageId;
 		let savedPages: EditorPage[] = [];
 		const engine = createSyncEngine<EditorPage, RemotePageRow>({
-			pull: (since) => api.listPages({ since }),
-			push: (page) => api.upsertPage(page),
+			pull: (since) => api.listPages({ since, signal }),
+			push: (page) => api.upsertPage(page, { signal }),
 			getLocal: async () =>
 				sortPagesByRecency(localSession.pages.filter((page) => page.userId === userId)),
 			saveLocal: async (pages) => {
@@ -173,8 +177,11 @@ export async function syncUserPages(
 	}
 }
 
-export async function fetchRemoteActivePageId(api: PagesApi): Promise<string | null> {
-	return (await api.getSettings())?.active_page_id ?? null;
+export async function fetchRemoteActivePageId(
+	api: PagesApi,
+	signal?: AbortSignal
+): Promise<string | null> {
+	return (await api.getSettings({ signal }))?.active_page_id ?? null;
 }
 
 export function forkConflictPage(page: EditorPage, now = new Date()): EditorPage {

@@ -10,7 +10,7 @@ const config: StorybookConfig = {
 	stories: [
 		'../.storybook/**/*.stories.svelte',
 		'../packages/**/*.stories.svelte',
-		'../apps/**/*.stories.svelte'
+		'../apps/*/src/**/*.stories.svelte'
 	],
 	addons: ['@storybook/addon-svelte-csf', '@storybook/addon-vitest'],
 	framework: {

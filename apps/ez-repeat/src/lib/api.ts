@@ -12,26 +12,34 @@ export const auth: AuthClient | null = apiUrl
 export const repeatApi: RepeatApi | null = auth
 	? {
 			async listHabits(options = {}) {
-				return readJson(await auth.authFetch(`/repeat/habits${buildSinceQuery(options.since)}`));
+				return readJson(
+					await auth.authFetch(`/repeat/habits${buildSinceQuery(options.since)}`, {
+						signal: options.signal
+					})
+				);
 			},
-			async upsertHabit(habit) {
+			async upsertHabit(habit, options = {}) {
 				return readJson(
 					await auth.authFetch('/repeat/habits', {
 						method: 'POST',
-						body: JSON.stringify(habit)
+						body: JSON.stringify(habit),
+						signal: options.signal
 					})
 				);
 			},
 			async listCompletions(options = {}) {
 				return readJson(
-					await auth.authFetch(`/repeat/completions${buildSinceQuery(options.since)}`)
+					await auth.authFetch(`/repeat/completions${buildSinceQuery(options.since)}`, {
+						signal: options.signal
+					})
 				);
 			},
-			async upsertCompletion(completion) {
+			async upsertCompletion(completion, options = {}) {
 				return readJson(
 					await auth.authFetch('/repeat/completions', {
 						method: 'POST',
-						body: JSON.stringify(completion)
+						body: JSON.stringify(completion),
+						signal: options.signal
 					})
 				);
 			}

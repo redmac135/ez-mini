@@ -23,8 +23,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - name: Test auth flow regressions
-        run: pnpm test:auth
+      - name: Test account switching and auth regressions
+        run: pnpm test:account-flow
       - run: pnpm test
       - run: pnpm test-storybook
       - run: pnpm test:e2e

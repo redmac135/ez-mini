@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { createAccountDataController } from '@ez/account';
+	import { isUnauthorizedError } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import {
 		AccountModal,
+		AccountLoading,
 		AppShell,
 		Button,
 		ConfirmModal,
@@ -30,22 +32,52 @@
 	import type { HabitProgress, ParsedHabitInput } from '$lib/repeat/types';
 
 	const repeat = createRepeatController();
+	let skipNextLoadedSync = false;
 	const account = createAccountDataController<null>({
 		authClient: auth,
 		adapter: {
 			async loadAnonymous() {
 				await repeat.setUserId(null);
+				appSyncStatus = getSettledAppSyncStatus();
 				return null;
 			},
-			async loadAccount(user) {
+			async loadAccount(user, options = {}) {
 				await repeat.setUserId(user.userId);
+				// Initial session loading keeps the pre-transition behavior: load local data,
+				// then sync in the background from onLoaded. Explicit account transitions
+				// pass a signal and keep the blocking sync behind the loading screen.
+				if (!options.signal) {
+					appSyncStatus = getSettledAppSyncStatus();
+					return null;
+				}
+				if (repeatApi && isBrowserOnline()) {
+					appSyncStatus = 'syncing';
+					try {
+						await syncRepeatData(repeatApi, user.userId, options.signal);
+						if (options.signal?.aborted) return null;
+						await repeat.refresh();
+						appSyncStatus = getSettledAppSyncStatus();
+					} catch (error) {
+						if (options.signal.aborted || isUnauthorizedError(error)) throw error;
+						appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
+					}
+				} else {
+					appSyncStatus = getSettledAppSyncStatus();
+				}
+				skipNextLoadedSync = true;
 				return null;
 			},
 			onLoaded({ user }) {
-				appSyncStatus = getSettledAppSyncStatus();
-				if (user) {
-					requestImmediateSync();
+				if (skipNextLoadedSync) {
+					skipNextLoadedSync = false;
+					return;
 				}
+				appSyncStatus = getSettledAppSyncStatus();
+				if (user) requestImmediateSync();
+			},
+			async restoreLocalContext(user) {
+				await repeat.setUserId(user?.userId ?? null);
+				appSyncStatus = getSettledAppSyncStatus();
 			}
 		},
 		getErrorMessage,
@@ -475,10 +507,21 @@
 			busy={accountState.authBusy}
 			{syncBusy}
 			busySessionId={accountState.accountBusySessionId}
+			localActive={!accountState.user}
 			onClose={account.closeAccountModal}
 			onSelectAccount={(sessionId) => void account.selectAccountSession(sessionId)}
 			onLogoutAccount={(sessionId, userId) => void account.logoutAccountSession(sessionId, userId)}
 			onAddAccount={account.openLoginFlow}
+			onUseLocalAccount={() => void account.useAnonymousAccount()}
+		/>
+	{/if}
+
+	{#if accountState.contextTransition}
+		<AccountLoading
+			canceling={accountState.contextTransition.canceling}
+			errorMessage={accountState.contextTransition.errorMessage}
+			cancelable={accountState.contextTransition.cancelable}
+			onCancel={() => void account.cancelContextTransition()}
 		/>
 	{/if}
 

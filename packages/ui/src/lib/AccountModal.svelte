@@ -17,10 +17,12 @@
 	export let busy = false;
 	export let syncBusy = false;
 	export let busySessionId: string | null = null;
+	export let localActive = false;
 	export let onClose: () => void = () => {};
 	export let onSelectAccount: (sessionId: string) => void = () => {};
 	export let onLogoutAccount: (sessionId: string, userId: string) => void = () => {};
 	export let onAddAccount: () => void = () => {};
+	export let onUseLocalAccount: () => void = () => {};
 
 	function getAccountInitial(account: AccountEntry) {
 		return account.username.trim().slice(0, 1).toUpperCase() || '?';
@@ -64,7 +66,12 @@
 	{/if}
 	<svelte:fragment slot="actions">
 		<div class="account-actions">
-			<Button size="sm" on:click={onAddAccount}>Sign into another account</Button>
+			<Button size="sm" disabled={busy || syncBusy || localActive} on:click={onUseLocalAccount}>
+				{localActive ? 'Using local account' : 'Use local account'}
+			</Button>
+			<Button size="sm" disabled={busy || syncBusy} on:click={onAddAccount}>
+				Sign into another account
+			</Button>
 		</div>
 	</svelte:fragment>
 </Modal>
@@ -161,7 +168,9 @@
 	.account-actions {
 		width: 100%;
 		display: flex;
+		flex-wrap: wrap;
 		justify-content: center;
+		gap: var(--space-1);
 	}
 
 	.account-remove {

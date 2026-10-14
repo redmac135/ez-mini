@@ -39,6 +39,7 @@ const DEFAULT_STATE: RepeatState = {
 export function createRepeatController() {
 	const state = writable<RepeatState>(DEFAULT_STATE);
 	let activeUserId = ANONYMOUS_USER_ID;
+	let userLoadId = 0;
 	const view = derived(state, ($state): RepeatViewModel => {
 		const progress = buildHabitProgress(
 			$state.snapshot.habits,
@@ -54,13 +55,14 @@ export function createRepeatController() {
 		};
 	});
 
-	async function load(userId = activeUserId) {
+	async function load(userId = activeUserId, requestId = ++userLoadId) {
 		activeUserId = userId;
 		const todayDate = getTodayDateKey();
 		const [snapshot, savedThemeMode] = await Promise.all([
 			RepeatStorage.loadSnapshot(activeUserId),
 			RepeatStorage.getSetting<ThemeMode>('themeMode')
 		]);
+		if (requestId !== userLoadId) return;
 		state.set({
 			loaded: true,
 			selectedDate: todayDate,
@@ -71,13 +73,16 @@ export function createRepeatController() {
 	}
 
 	async function refresh() {
-		const snapshot = await RepeatStorage.loadSnapshot(activeUserId);
+		const userId = activeUserId;
+		const snapshot = await RepeatStorage.loadSnapshot(userId);
+		if (activeUserId !== userId) return;
 		state.update((current) => ({ ...current, snapshot }));
 	}
 
 	async function setUserId(userId: string | null) {
 		activeUserId = userId ?? ANONYMOUS_USER_ID;
-		await load(activeUserId);
+		const requestId = ++userLoadId;
+		await load(activeUserId, requestId);
 	}
 
 	function selectDate(dateKey: string) {

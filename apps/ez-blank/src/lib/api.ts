@@ -17,24 +17,30 @@ export const pagesApi: PagesApi = {
 		if (options.since) {
 			params.set('since', options.since);
 		}
-		return readJson(await auth.authFetch(`/pages${params.size > 0 ? `?${params}` : ''}`));
-	},
-	async upsertPage(page) {
 		return readJson(
-			await auth.authFetch('/pages', {
-				method: 'POST',
-				body: JSON.stringify(page)
+			await auth.authFetch(`/pages${params.size > 0 ? `?${params}` : ''}`, {
+				signal: options.signal
 			})
 		);
 	},
-	async getSettings() {
-		return readJson(await auth.authFetch('/settings'));
+	async upsertPage(page, options = {}) {
+		return readJson(
+			await auth.authFetch('/pages', {
+				method: 'POST',
+				body: JSON.stringify(page),
+				signal: options.signal
+			})
+		);
 	},
-	async updateSettings(settings) {
+	async getSettings(options = {}) {
+		return readJson(await auth.authFetch('/settings', { signal: options.signal }));
+	},
+	async updateSettings(settings, options = {}) {
 		return readJson(
 			await auth.authFetch('/settings', {
 				method: 'PATCH',
-				body: JSON.stringify(settings)
+				body: JSON.stringify(settings),
+				signal: options.signal
 			})
 		);
 	}
