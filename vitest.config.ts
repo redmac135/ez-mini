@@ -39,6 +39,7 @@ export default defineConfig({
 					name: 'storybook',
 					browser: {
 						enabled: true,
+						connectTimeout: 120_000,
 						provider: playwright({
 							launchOptions: chromiumPath ? { executablePath: chromiumPath } : {}
 						}),
