@@ -1,4 +1,4 @@
-import type { EditorState } from '../basic/history';
+import type { EditorState } from '@ez/editor';
 import type { EditorSession } from './session';
 import { updatePageState } from './session';
 

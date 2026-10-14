@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDocument } from '../src/lib/editor/basic/parser.ts';
-import { getEditorContainerOffset } from '../src/lib/editor/basic/selection.ts';
-import { applyDeleteBackward } from '../src/lib/editor/basic/commands.ts';
+import { buildDocument } from '../../../packages/editor/src/basic/parser.ts';
+import { getEditorContainerOffset } from '../../../packages/editor/src/basic/selection.ts';
+import { applyDeleteBackward } from '../../../packages/editor/src/basic/commands.ts';
 
 test('getEditorContainerOffset maps editor child boundaries to text offsets', () => {
 	const document = buildDocument('```js\nconst x = 1;\n```');

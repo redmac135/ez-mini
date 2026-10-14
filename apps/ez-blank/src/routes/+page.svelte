@@ -5,7 +5,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { SvelteMap } from 'svelte/reactivity';
-	import Editor from '$lib/Editor.svelte';
+	import { Editor, type EditorState } from '@ez/editor';
 	import {
 		APP_UPDATED_NOTICE,
 		APP_UPDATED_NOTICE_EVENT,
@@ -28,7 +28,8 @@
 		Modal,
 		Navbar,
 		Sidebar,
-		ToastStack
+		ToastStack,
+		Workspace
 	} from '@ez/ui';
 	import {
 		getSettledAppSyncStatus as deriveSettledAppSyncStatus,
@@ -343,6 +344,10 @@
 			}
 			void persistWorkspaceState(previousSession, transition.persistedSession);
 		}
+	}
+
+	function handleEditorChange(state: EditorState) {
+		updateActivePage({ pageId: activePage.id, state });
 	}
 
 	function handleEditorFocusChange(focused: boolean) {
@@ -1541,21 +1546,22 @@
 	</Sidebar>
 
 	<section class="workspace" bind:this={workspaceSection} tabindex="-1">
-		{#if loaded}
-			{#key activePage.id}
-				<Editor
-					pageId={activePage.id}
-					initialState={{
-						text: activePage.content,
-						selectionStart: activePage.selectionStart,
-						selectionEnd: activePage.selectionEnd
-					}}
-					spellcheckEnabled={preferences.spellcheckEnabled}
-					onFocusChange={handleEditorFocusChange}
-					onChange={updateActivePage}
-				/>
-			{/key}
-		{/if}
+		<Workspace maxWidth="calc(680px + var(--space-5) + var(--space-5))" topPadding="none">
+			{#if loaded}
+				{#key activePage.id}
+					<Editor
+						initialState={{
+							text: activePage.content,
+							selectionStart: activePage.selectionStart,
+							selectionEnd: activePage.selectionEnd
+						}}
+						spellcheckEnabled={preferences.spellcheckEnabled}
+						onFocusChange={handleEditorFocusChange}
+						onChange={handleEditorChange}
+					/>
+				{/key}
+			{/if}
+		</Workspace>
 	</section>
 
 	<ToastStack notices={toastNotices} onDismiss={dismissToast} />

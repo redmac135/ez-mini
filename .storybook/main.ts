@@ -12,7 +12,7 @@ const config: StorybookConfig = {
 		'../packages/**/*.stories.svelte',
 		'../apps/**/*.stories.svelte'
 	],
-	addons: ['@storybook/addon-svelte-csf'],
+	addons: ['@storybook/addon-svelte-csf', '@storybook/addon-vitest'],
 	framework: {
 		name: '@storybook/svelte-vite',
 		options: { docgen: false }

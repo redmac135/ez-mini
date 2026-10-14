@@ -52,9 +52,13 @@ Run the component library and app UI stories:
 ```sh
 pnpm storybook
 pnpm build-storybook
+pnpm test-storybook
+pnpm test:e2e
 ```
 
-Storybook groups the system by layer: `Foundations` shows the shared design tokens, `Components` covers `@ez/ui`, and `Apps` documents app-owned components from `ez-blank` and `ez-repeat`.
+Storybook groups the system by layer: `Foundations` shows the shared design tokens, `Components` covers `@ez/ui`, and `Apps` documents app-owned components from `ez-blank` and `ez-repeat`. `Apps/Layouts` composes those components as they appear in each app. The interaction stories run in Chromium through Vitest; they use an executable found on `PATH` when available, or Playwright's managed Chromium otherwise. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to select a specific browser executable.
+
+`pnpm test` runs the unit tests. `pnpm test-storybook` runs Storybook interaction tests, and `pnpm test:e2e` runs ez-blank browser regression tests. GitHub Actions runs all three for pull requests and pushes to `dev`, along with `pnpm check`, `pnpm lint`, `pnpm build`, and `pnpm build-storybook`.
 
 ## Design Tokens
 
@@ -66,4 +70,4 @@ The design package stays intentionally small and transferable. Tokens describe b
 
 Component-specific sizes, offsets, shadows, and widths belong in the component CSS that uses them.
 
-The current structure is a standard, minimal setup for these apps: `@ez/design` owns global tokens, `@ez/ui` owns reusable Svelte components, and each app keeps its domain-specific components alongside its feature code. `ez-repeat`'s calendar and habit components and `ez-blank`'s editor are app-specific, so they should stay in their apps. The toast stack was duplicated byte-for-byte across both app routes, so it now lives in `@ez/ui` and has one shared story. The remaining app components are distinct feature compositions; extracting them would add coupling without removing repeated UI.
+The current structure is a standard, minimal setup for these apps: `@ez/design` owns global tokens, `@ez/ui` owns reusable Svelte components, and each app keeps its domain-specific components alongside its feature code. `@ez/editor` owns the reusable Markdown editing surface and editing behavior. Apps own page or journal organization, persistence, and image storage; `Workspace` owns the shared content column and its outer spacing. The calendar and habit components are ez-repeat-specific and should stay in that app. The toast stack was duplicated byte-for-byte across both app routes, so it now lives in `@ez/ui` and has one shared story.

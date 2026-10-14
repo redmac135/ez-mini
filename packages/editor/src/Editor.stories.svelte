@@ -1,7 +1,7 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import Editor from './Editor.svelte';
-	const { Story } = defineMeta({ title: 'Apps/ez-blank/Components/Editor', component: Editor });
+	const { Story } = defineMeta({ title: 'Editor/Editor', component: Editor });
 	const initialState = {
 		text: '# A quiet writing space\n\nStart typing, make a list, or add `inline code`.',
 		selectionStart: 0,
@@ -9,7 +9,7 @@
 	};
 </script>
 
-<Story name="Editor with formatted content" args={{ initialState, pageId: 'storybook-demo' }}>
+<Story name="Editor with formatted content" args={{ initialState }}>
 	{#snippet template(args)}<div class="editor-frame"><Editor {...args} /></div>{/snippet}
 </Story>
 

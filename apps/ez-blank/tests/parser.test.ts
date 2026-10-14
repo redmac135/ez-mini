@@ -4,8 +4,8 @@ import {
 	buildDocument,
 	renderEditorLine,
 	renderSelectionHtml
-} from '../src/lib/editor/basic/parser.ts';
-import { normalizeOrderedListNumbers } from '../src/lib/editor/basic/lists.ts';
+} from '../../../packages/editor/src/basic/parser.ts';
+import { normalizeOrderedListNumbers } from '../../../packages/editor/src/basic/lists.ts';
 
 function getOnlyLine(source: string) {
 	const document = buildDocument(source);

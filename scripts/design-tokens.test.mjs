@@ -24,11 +24,13 @@ test('design package exports only generic tokens', async () => {
 });
 
 test('editor-specific tokens live with the editor component', async () => {
-	const editorCss = await read('apps/ez-blank/src/lib/Editor.svelte');
+	const editorCss = await read('packages/editor/src/Editor.svelte');
+	const blankRoute = await read('apps/ez-blank/src/routes/+page.svelte');
 
 	assert.equal(editorCss.includes('--editor-caret-color'), true);
 	assert.equal(editorCss.includes('--editor-selection-color'), true);
-	assert.equal(editorCss.includes('--editor-max-width'), true);
+	assert.equal(editorCss.includes('--editor-max-width'), false);
+	assert.equal(blankRoute.includes('<Workspace maxWidth='), true);
 });
 
 test('token entrypoints include animation tokens', async () => {
