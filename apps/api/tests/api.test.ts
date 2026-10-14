@@ -676,6 +676,37 @@ test('Journey entry list uses the journey schema and returns a stable page curso
 	assert.equal(body.nextCursor?.id, body.entries[0].id);
 });
 
+test('Journey upserts reject malformed deletion markers instead of clearing tombstones', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	let remoteWasCalled = false;
+	mockFetch(async () => {
+		remoteWasCalled = true;
+		return Response.json([]);
+	});
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/journey/entries', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				id: '57b177d2-4a84-42df-873d-dbb8e45def49',
+				text: 'edited entry',
+				created_at: '2026-01-02T00:00:00.000Z',
+				updated_at: '2026-01-02T11:00:00.000Z',
+				sync_updated_at: '2026-01-02T10:00:01.000Z',
+				deleted_at: { malformed: true }
+			})
+		}),
+		env
+	);
+
+	assert.equal(response.status, 400);
+	assert.equal(remoteWasCalled, false);
+});
+
 test('Journey upserts recheck the device-clock winner after a concurrent server update', async () => {
 	const deviceId = 'device-a';
 	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });

@@ -153,10 +153,7 @@ export function normalizeJourneyEntryPayload(
 	const text = payload.text;
 	const createdAt = typeof payload.created_at === 'string' ? payload.created_at : '';
 	const updatedAt = typeof payload.updated_at === 'string' ? payload.updated_at : '';
-	const deletedAt =
-		typeof payload.deleted_at === 'string' || payload.deleted_at === null
-			? payload.deleted_at
-			: null;
+	const deletedAt = payload.deleted_at;
 	if (
 		!isUuid(id) ||
 		!createdAt ||
@@ -171,7 +168,10 @@ export function normalizeJourneyEntryPayload(
 	}
 	if (text.length > 100_000)
 		throw new ApiError(413, 'Entry text exceeds the 100,000 character limit.');
-	if (deletedAt !== null && !Number.isFinite(Date.parse(deletedAt)))
+	if (
+		deletedAt !== null &&
+		(typeof deletedAt !== 'string' || !Number.isFinite(Date.parse(deletedAt)))
+	)
 		throw new ApiError(400, 'Invalid deleted_at timestamp.');
 	return {
 		id,
