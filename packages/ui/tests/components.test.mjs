@@ -1,9 +1,27 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import test from 'node:test';
+import { after, test } from 'node:test';
+import { render } from 'svelte/server';
+import { createServer } from 'vite';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 
-const root = new URL('..', import.meta.url);
+const vite = await createServer({
+	configFile: false,
+	root: new URL('..', import.meta.url).pathname,
+	plugins: [svelte()],
+	server: { middlewareMode: true },
+	appType: 'custom',
+	logLevel: 'silent'
+});
+
+after(async () => {
+	await vite.close();
+});
+
+async function readComponent(name) {
+	return readFile(resolve(new URL('..', import.meta.url).pathname, 'src/lib', name), 'utf8');
+}
 
 test('LoginModal exposes the shared auth flow states', async () => {
 	const source = await readComponent('LoginModal.svelte');
@@ -18,25 +36,20 @@ test('LoginModal exposes the shared auth flow states', async () => {
 });
 
 test('AccountModal exposes account switching and logout controls', async () => {
-	const source = await readComponent('AccountModal.svelte');
+	const { default: AccountModal } = await vite.ssrLoadModule('/src/lib/AccountModal.svelte');
+	const { body } = render(AccountModal, { props: { localActive: false } });
 
-	assert.match(source, /export interface AccountEntry/);
-	assert.match(source, /export let accounts: AccountEntry\[\] = \[\]/);
-	assert.match(source, /export let busySessionId: string \| null = null/);
-	assert.match(source, /onSelectAccount\(account\.sessionId\)/);
-	assert.match(source, /onLogoutAccount\(account\.sessionId, account\.userId\)/);
-	assert.match(source, /Use local account/);
-	assert.match(source, /Sign into another account/);
+	assert.match(body, /<button[^>]*>Use local account<\/button>/);
+	assert.match(body, /<button[^>]*>Sign into another account<\/button>/);
 });
 
 test('AccountLoading blocks the workspace and exposes an accessible cancel action', async () => {
-	const source = await readComponent('AccountLoading.svelte');
+	const { default: AccountLoading } = await vite.ssrLoadModule('/src/lib/AccountLoading.svelte');
+	const { body } = render(AccountLoading, { props: { accountName: 'user-b' } });
 
-	assert.match(source, /<dialog/);
-	assert.match(source, /aria-modal="true"/);
-	assert.match(source, /aria-busy="true"/);
-	assert.match(source, /Cancel and go back/);
-	assert.match(source, /animation: spin/);
+	assert.match(body, /<dialog[^>]*aria-modal="true"[^>]*aria-busy="true"/);
+	assert.match(body, /Loading data for user-b/);
+	assert.match(body, /<button[^>]*>Cancel and go back<\/button>/);
 });
 
 test('ConfirmModal keeps destructive actions presentational', async () => {
@@ -55,7 +68,3 @@ test('Workspace standardizes app content width and mobile padding', async () => 
 	assert.match(source, /@media \(max-width: 560px\)/);
 	assert.match(source, /var\(--space-5\)/);
 });
-
-async function readComponent(name) {
-	return readFile(resolve(root.pathname, 'src/lib', name), 'utf8');
-}

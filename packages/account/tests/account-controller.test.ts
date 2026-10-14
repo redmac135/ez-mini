@@ -48,6 +48,19 @@ test('opens login flow and surfaces login request failures', async () => {
 	account.destroy();
 });
 
+test('opens login flow after an empty saved-session lookup', async () => {
+	const account = createAccountDataController({
+		authClient: createAuthClient({ activeSession: null, sessions: [] }),
+		adapter: createDataAdapter()
+	});
+
+	await account.openLoginOrAccountList();
+
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(account.getState().authBusy, false);
+	account.destroy();
+});
+
 test('verifies otp, closes login modal, and loads account data', async () => {
 	const activeUser = { ...userA, active: true };
 	const auth = createAuthClient({

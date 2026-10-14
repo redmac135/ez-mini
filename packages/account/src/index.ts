@@ -213,6 +213,7 @@ export function createAccountDataController<TData>(
 		}
 
 		setState({ authBusy: true, authMessage: '' });
+		let shouldOpenLogin = false;
 		try {
 			const response = await options.authClient.getSession();
 			if (response.sessions.length > 0) {
@@ -223,12 +224,13 @@ export function createAccountDataController<TData>(
 				});
 			} else {
 				setState({ sessions: response.sessions });
-				openLoginFlow();
+				shouldOpenLogin = true;
 			}
 		} catch (error) {
 			setState({ authMessage: getErrorMessage(error, 'Unable to load accounts.') });
 		} finally {
 			setState({ authBusy: false });
+			if (shouldOpenLogin) openLoginFlow();
 		}
 	}
 
