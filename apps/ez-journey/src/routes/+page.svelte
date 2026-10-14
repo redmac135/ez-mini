@@ -361,13 +361,13 @@
 	}
 
 	async function loadMoreEntries() {
-		if (!nextEntryCursor || loadingOlderEntries) return;
+		const cursor = nextEntryCursor;
+		if (!cursor || loadingOlderEntries) return;
+		const userId = accountState.user?.userId ?? null;
 		loadingOlderEntries = true;
 		try {
-			const page = await JourneyStorage.loadPage(
-				accountState.user?.userId ?? null,
-				nextEntryCursor
-			);
+			const page = await JourneyStorage.loadPage(userId, cursor);
+			if ((accountState.user?.userId ?? null) !== userId || nextEntryCursor !== cursor) return;
 			submittedEntries = [...submittedEntries, ...page.entries.filter((entry) => !entry.deletedAt)];
 			nextEntryCursor = page.nextCursor;
 		} finally {
