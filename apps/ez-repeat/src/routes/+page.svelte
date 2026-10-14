@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createAccountDataController } from '@ez/account';
+	import { isUnauthorizedError } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -31,6 +32,7 @@
 	import type { HabitProgress, ParsedHabitInput } from '$lib/repeat/types';
 
 	const repeat = createRepeatController();
+	let skipNextLoadedSync = false;
 	const account = createAccountDataController<null>({
 		authClient: auth,
 		adapter: {
@@ -41,6 +43,13 @@
 			},
 			async loadAccount(user, options = {}) {
 				await repeat.setUserId(user.userId);
+				// Initial session loading keeps the pre-transition behavior: load local data,
+				// then sync in the background from onLoaded. Explicit account transitions
+				// pass a signal and keep the blocking sync behind the loading screen.
+				if (!options.signal) {
+					appSyncStatus = getSettledAppSyncStatus();
+					return null;
+				}
 				if (repeatApi && isBrowserOnline()) {
 					appSyncStatus = 'syncing';
 					try {
@@ -49,13 +58,22 @@
 						await repeat.refresh();
 						appSyncStatus = getSettledAppSyncStatus();
 					} catch (error) {
-						if (options.signal?.aborted) throw error;
+						if (options.signal.aborted || isUnauthorizedError(error)) throw error;
 						appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
 					}
 				} else {
 					appSyncStatus = getSettledAppSyncStatus();
 				}
+				skipNextLoadedSync = true;
 				return null;
+			},
+			onLoaded({ user }) {
+				if (skipNextLoadedSync) {
+					skipNextLoadedSync = false;
+					return;
+				}
+				appSyncStatus = getSettledAppSyncStatus();
+				if (user) requestImmediateSync();
 			},
 			async restoreLocalContext(user) {
 				await repeat.setUserId(user?.userId ?? null);

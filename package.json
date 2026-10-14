@@ -9,7 +9,7 @@
 		"build-storybook": "storybook build",
 		"test-storybook": "vitest --project=storybook run",
 		"test:e2e": "playwright test",
-		"test:auth": "pnpm --filter @ez/auth test && pnpm --filter @ez/apps-api test",
+		"test:account-flow": "pnpm --filter @ez/auth test && pnpm --filter @ez/account test && pnpm --filter @ez/ui test && pnpm --filter @ez/apps-repeat test && pnpm --filter @ez/apps-api test",
 		"dev": "turbo run dev --filter='./apps/*'",
 		"dev:api": "pnpm --filter @ez/apps-api dev",
 		"build": "turbo run build --filter='./apps/*'",
