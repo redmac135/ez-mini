@@ -20,12 +20,10 @@
 	}}
 >
 	{#snippet template(args)}
-		<LoginModal
-			{...args}
-			onClose={() => {}}
-			onSubmitEmail={(email) => (submittedEmail = email)}
-		/>
-		<p aria-live="polite">{submittedEmail ? `Submitted email: ${submittedEmail}` : 'No email submitted'}</p>
+		<LoginModal {...args} onClose={() => {}} onSubmitEmail={(email) => (submittedEmail = email)} />
+		<p aria-live="polite">
+			{submittedEmail ? `Submitted email: ${submittedEmail}` : 'No email submitted'}
+		</p>
 	{/snippet}
 </Story>
 
@@ -40,11 +38,7 @@
 	}}
 >
 	{#snippet template(args)}
-		<LoginModal
-			{...args}
-			onClose={() => {}}
-			onVerifyOtp={(code) => (verifiedCode = code)}
-		/>
+		<LoginModal {...args} onClose={() => {}} onVerifyOtp={(code) => (verifiedCode = code)} />
 		<p aria-live="polite">{verifiedCode ? `Verified code: ${verifiedCode}` : 'Waiting for code'}</p>
 	{/snippet}
 </Story>

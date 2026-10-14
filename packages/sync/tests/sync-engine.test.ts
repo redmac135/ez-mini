@@ -157,8 +157,14 @@ test('delta pulls preserve unchanged local items without repushing them', async 
 	});
 	const result = await createSyncEngine(config).sync();
 
-	assert.deepEqual(config.pushed.map((item) => item.id), ['edited']);
-	assert.deepEqual(result.items.map((item) => item.id), ['stable', 'edited']);
+	assert.deepEqual(
+		config.pushed.map((item) => item.id),
+		['edited']
+	);
+	assert.deepEqual(
+		result.items.map((item) => item.id),
+		['stable', 'edited']
+	);
 	assert.equal(result.items[0], stable);
 });
 

@@ -61,7 +61,10 @@ test('Journey payload normalization rejects invalid IDs, timestamps, and oversiz
 		created_at: '2026-01-01T00:00:00.000Z',
 		updated_at: '2026-01-02T00:00:00.000Z'
 	};
-	for (const payload of [{ ...valid, text: undefined }, { ...valid, text: 42 }]) {
+	for (const payload of [
+		{ ...valid, text: undefined },
+		{ ...valid, text: 42 }
+	]) {
 		assert.throws(
 			() => normalizeJourneyEntryPayload(payload, 'user-a'),
 			(error: unknown) => error instanceof ApiError && error.status === 400

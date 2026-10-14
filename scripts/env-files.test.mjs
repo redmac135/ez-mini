@@ -108,9 +108,7 @@ function parseToml(source) {
 			current = root;
 			for (const segment of segments.slice(0, -1)) {
 				current[segment] ??= {};
-				current = Array.isArray(current[segment])
-					? current[segment].at(-1)
-					: current[segment];
+				current = Array.isArray(current[segment]) ? current[segment].at(-1) : current[segment];
 			}
 			const name = segments.at(-1);
 			current[name] ??= [];
@@ -124,9 +122,7 @@ function parseToml(source) {
 			current = root;
 			for (const segment of table[1].split('.')) {
 				current[segment] ??= {};
-				current = Array.isArray(current[segment])
-					? current[segment].at(-1)
-					: current[segment];
+				current = Array.isArray(current[segment]) ? current[segment].at(-1) : current[segment];
 			}
 			continue;
 		}
@@ -153,7 +149,10 @@ function stripTomlComment(line) {
 }
 
 function parseTomlValue(value) {
-	if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+	if (
+		(value.startsWith('"') && value.endsWith('"')) ||
+		(value.startsWith("'") && value.endsWith("'"))
+	) {
 		return value.slice(1, -1);
 	}
 	if (value === 'true') return true;

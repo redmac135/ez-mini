@@ -640,10 +640,7 @@ test('Journey entry list uses the journey schema and returns a stable page curso
 		const url = new URL(request.url);
 		assert.equal(url.pathname, '/rest/v1/entries');
 		assert.equal(url.searchParams.get('limit'), '1');
-		assert.equal(
-			url.searchParams.get('sync_updated_at'),
-			'gte.2026-01-01T23:59:55.000Z'
-		);
+		assert.equal(url.searchParams.get('sync_updated_at'), 'gte.2026-01-01T23:59:55.000Z');
 		assert.equal(url.searchParams.get('updated_at'), null);
 		assert.equal(request.headers.get('accept-profile'), 'journey');
 		return Response.json([

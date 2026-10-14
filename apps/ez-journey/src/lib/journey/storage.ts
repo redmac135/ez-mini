@@ -105,11 +105,7 @@ function createMemoryBackend(): StorageBackend {
 				else entries.delete(id);
 			}
 			for (const synced of syncedEntries) {
-				if (
-					synced.userId === userId &&
-					!originalById.has(synced.id) &&
-					!entries.has(synced.id)
-				) {
+				if (synced.userId === userId && !originalById.has(synced.id) && !entries.has(synced.id)) {
 					entries.set(synced.id, synced);
 				}
 			}
