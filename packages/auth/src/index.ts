@@ -55,7 +55,18 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
 			}
 		});
 
-		const body = (await response.json().catch(() => null)) as unknown;
+		const text = await response.text();
+		let body: unknown = null;
+		if (text) {
+			try {
+				body = JSON.parse(text) as unknown;
+			} catch {
+				if (response.ok) {
+					throw new AuthApiError(502, 'The server returned an invalid response.', text);
+				}
+				body = text;
+			}
+		}
 		if (!response.ok) {
 			throw createApiError(response.status, body);
 		}
@@ -179,6 +190,11 @@ function normalizeApiUrl(apiUrl: string) {
 }
 
 function readErrorMessage(body: unknown) {
+	if (typeof body === 'string') {
+		const text = body.replace(/\s+/g, ' ').trim();
+		return text ? text.slice(0, 200) : null;
+	}
+
 	if (body && typeof body === 'object' && 'error' in body) {
 		const error = (body as { error?: unknown }).error;
 		return typeof error === 'string' ? error : null;

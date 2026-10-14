@@ -163,6 +163,30 @@ test('login normalizes email before asking Supabase to send an OTP', async () =>
 	assert.deepEqual(await response.json(), { sent: true });
 });
 
+test('login reports upstream Cloudflare DNS failures as a readable gateway error', async () => {
+	mockFetch(async (request) => {
+		assert.equal(request.url, 'https://supabase.example.test/auth/v1/otp');
+		return new Response('error code: 1016', {
+			status: 530,
+			headers: { 'content-type': 'text/plain', 'cf-error-type': '1016' }
+		});
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/login', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ email: 'a@example.com' })
+		}),
+		env
+	);
+
+	assert.equal(response.status, 502);
+	assert.deepEqual(await response.json(), {
+		error: 'Supabase request failed with Cloudflare error 1016 (HTTP 530).'
+	});
+});
+
 test('verify creates a backend session and sets device plus active-session cookies', async () => {
 	mockFetch(async (request) => {
 		assert.equal(request.url, 'https://supabase.example.test/auth/v1/verify');
