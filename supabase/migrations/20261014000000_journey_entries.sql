@@ -3,14 +3,30 @@ create schema if not exists journey;
 grant usage on schema journey to authenticated, service_role;
 
 create table if not exists journey.entries (
-	 id uuid primary key,
-	 user_id uuid not null references auth.users (id) on delete cascade,
-	 text text not null default '',
-	 created_at timestamptz not null,
-	 updated_at timestamptz not null,
-	 deleted_at timestamptz,
-	 constraint journey_entries_text_length check (char_length(text) <= 100000)
+	id uuid primary key,
+	user_id uuid not null references auth.users (id) on delete cascade,
+	text text not null default '',
+	created_at timestamptz not null,
+	updated_at timestamptz not null,
+	deleted_at timestamptz,
+	constraint journey_entries_text_length check (char_length(text) <= 100000)
 );
+
+create or replace function journey.set_entry_updated_at()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+	new.updated_at = clock_timestamp();
+	return new;
+end;
+$$;
+
+drop trigger if exists set_journey_entry_updated_at on journey.entries;
+create trigger set_journey_entry_updated_at
+	before insert or update on journey.entries
+	for each row execute function journey.set_entry_updated_at();
 
 create index if not exists journey_entries_user_created_idx
 	on journey.entries (user_id, created_at, id);

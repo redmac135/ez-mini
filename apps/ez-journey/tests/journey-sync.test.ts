@@ -13,18 +13,23 @@ const timestamp = (day: number) => `2026-01-${String(day).padStart(2, '0')}T00:0
 class FakeApi implements JourneyApi {
 	remote: RemoteJourneyEntry[];
 	lastSince: string | null | undefined;
+	serverUpdatedAt = timestamp(30);
 	constructor(entries: RemoteJourneyEntry[] = []) {
 		this.remote = entries;
 	}
 	async listEntries(options?: { since?: string | null }) {
-		this.lastSince = options?.since;
-		return [...this.remote];
+		const since = options?.since;
+		this.lastSince = since;
+		return this.remote.filter(
+			(entry) => !since || Date.parse(entry.updated_at) >= Date.parse(since)
+		);
 	}
 	async upsertEntry(entry: RemoteJourneyEntry) {
+		const storedEntry = { ...entry, updated_at: this.serverUpdatedAt };
 		const index = this.remote.findIndex((candidate) => candidate.id === entry.id);
-		if (index < 0) this.remote.push(entry);
-		else this.remote[index] = entry;
-		return entry;
+		if (index < 0) this.remote.push(storedEntry);
+		else this.remote[index] = storedEntry;
+		return storedEntry;
 	}
 }
 
@@ -79,6 +84,40 @@ test('sync pulls incrementally from the latest successfully synced remote timest
 	await syncJourneyEntries(api, 'user-a');
 	await syncJourneyEntries(api, 'user-a');
 	assert.equal(api.lastSince, timestamp(3));
+});
+
+test('server change timestamps make backdated offline uploads visible to other devices', async () => {
+	const known = entry('known-entry', 'Already synced', 10, timestamp(10));
+	await JourneyStorage.saveEntries([known]);
+	const api = new FakeApi([
+		{
+			id: known.id,
+			user_id: 'user-a',
+			text: known.text,
+			created_at: known.createdAt,
+			updated_at: known.updatedAt,
+			deleted_at: null
+		}
+	]);
+	await syncJourneyEntries(api, 'user-a');
+	await api.upsertEntry({
+		id: 'backdated-offline-entry',
+		user_id: 'user-a',
+		text: 'Written offline',
+		created_at: timestamp(8),
+		updated_at: timestamp(8),
+		deleted_at: null
+	});
+
+	await syncJourneyEntries(api, 'user-a');
+
+	assert.equal(api.lastSince, timestamp(10));
+	assert.equal(
+		(await JourneyStorage.loadEntries('user-a')).some(
+			(candidate) => candidate.id === 'backdated-offline-entry'
+		),
+		true
+	);
 });
 
 test('same ID edits resolve to the most recently updated version', async () => {
