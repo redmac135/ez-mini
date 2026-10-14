@@ -5,6 +5,10 @@
 	"type": "module",
 	"packageManager": "pnpm@10.33.2",
 	"scripts": {
+		"storybook": "storybook dev -p 6006",
+		"build-storybook": "storybook build",
+		"test-storybook": "vitest --project=storybook run",
+		"test:e2e": "playwright test",
 		"dev": "turbo run dev --filter='./apps/*'",
 		"dev:api": "pnpm --filter @ez/apps-api dev",
 		"build": "turbo run build --filter='./apps/*'",
@@ -24,21 +28,29 @@
 	"devDependencies": {
 		"@eslint/compat": "catalog:",
 		"@eslint/js": "catalog:",
+		"@storybook/addon-svelte-csf": "catalog:",
+		"@storybook/addon-vitest": "catalog:",
+		"@storybook/svelte-vite": "catalog:",
 		"@sveltejs/adapter-static": "catalog:",
 		"@sveltejs/kit": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@types/node": "catalog:",
+		"@vitest/browser-playwright": "catalog:",
 		"esbuild": "catalog:",
 		"eslint": "catalog:",
 		"eslint-config-prettier": "catalog:",
 		"eslint-plugin-svelte": "catalog:",
 		"globals": "catalog:",
+		"playwright": "catalog:",
 		"prettier": "catalog:",
 		"prettier-plugin-svelte": "catalog:",
+		"storybook": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"turbo": "catalog:",
 		"typescript": "catalog:",
 		"typescript-eslint": "catalog:",
-		"vite": "catalog:"
+		"vite": "catalog:",
+		"vitest": "catalog:"
 	}
 }

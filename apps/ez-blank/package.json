@@ -17,6 +17,7 @@
 		"@ez/account": "workspace:*",
 		"@ez/auth": "workspace:*",
 		"@ez/design": "workspace:*",
+		"@ez/editor": "workspace:*",
 		"@ez/sync": "workspace:*",
 		"@ez/ui": "workspace:*"
 	},

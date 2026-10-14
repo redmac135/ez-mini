@@ -1,4 +1,4 @@
-import type { EditorState } from '../basic/history';
+import type { EditorState } from '@ez/editor';
 import { ANONYMOUS_USERID, type PageRecord, type PageSyncStatus } from '../persistence/records';
 
 export interface EditorPage extends EditorState, PageRecord {}

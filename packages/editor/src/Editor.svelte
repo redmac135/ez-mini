@@ -1,25 +1,23 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { buildDocument, type EditorDocument } from './editor/basic/parser';
-	import { syncEditorDom } from './editor/basic/dom';
-	import { extractText, getTextOffset, restoreTextOffset } from './editor/basic/selection';
-	import { cutSelection, pasteText, writeSelectionToClipboard } from './editor/basic/clipboard';
+	import { buildDocument, type EditorDocument } from './basic/parser';
+	import { syncEditorDom } from './basic/dom';
+	import { extractText, getTextOffset, restoreTextOffset } from './basic/selection';
+	import { cutSelection, pasteText, writeSelectionToClipboard } from './basic/clipboard';
 	import {
 		applyDeleteBackward,
 		applyDeleteForward,
 		applyEnterKey,
 		applyTabKey
-	} from './editor/basic/commands';
-	import { EditorHistory, type EditorState } from './editor/basic/history';
-	import { replaceRange } from './editor/basic/text';
-	import { shouldApplyExternalState } from './editor/basic/state-sync';
+	} from './basic/commands';
+	import { EditorHistory, type EditorState } from './basic/history';
+	import { replaceRange } from './basic/text';
+	import { shouldApplyExternalState } from './basic/state-sync';
 
-	export let pageId = '';
 	export let initialState: EditorState = { text: '', selectionStart: 0, selectionEnd: 0 };
-	export let onChange: (update: { pageId: string; state: EditorState }) => void = () => {};
+	export let onChange: (state: EditorState) => void = () => {};
 	export let onFocusChange: (focused: boolean) => void = () => {};
 	export let spellcheckEnabled = true;
-	const instancePageId = pageId;
 
 	let text = initialState.text;
 	let selectionStart = initialState.selectionStart;
@@ -66,10 +64,7 @@
 	function emitState(nextSelectionStart: number, nextSelectionEnd: number) {
 		selectionStart = Math.max(0, Math.min(nextSelectionStart, text.length));
 		selectionEnd = Math.max(0, Math.min(nextSelectionEnd, text.length));
-		onChange({
-			pageId: instancePageId,
-			state: { text, selectionStart, selectionEnd }
-		});
+		onChange({ text, selectionStart, selectionEnd });
 	}
 
 	function reportSelection() {
@@ -250,7 +245,7 @@
 	}
 </script>
 
-<main class="editor">
+<div class="editor">
 	<div
 		class="editable"
 		class:empty={text.length === 0}
@@ -271,7 +266,7 @@
 		role="textbox"
 		tabindex="0"
 	></div>
-</main>
+</div>
 
 <style>
 	.editor {
@@ -280,14 +275,11 @@
 		--editor-placeholder-color: var(--color-subtle);
 		--editor-code-background: var(--color-code);
 		--editor-muted-color: var(--color-subtle);
-		--editor-max-width: 680px;
 		--editor-font-size: 18px;
 		--editor-line-height: 1.7;
 
 		position: relative;
 		width: 100%;
-		max-width: var(--editor-max-width);
-		margin: 0 auto;
 		font-family: var(--font-family-mono);
 		font-size: var(--editor-font-size);
 		line-height: var(--editor-line-height);
