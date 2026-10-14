@@ -75,3 +75,12 @@ export interface RemoteRepeatCompletionRow {
 	created_at: string;
 	updated_at: string;
 }
+
+export interface RemoteJourneyEntry {
+	id: string;
+	user_id: string;
+	text: string;
+	created_at: string;
+	updated_at: string;
+	deleted_at: string | null;
+}

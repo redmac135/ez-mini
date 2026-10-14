@@ -14,7 +14,7 @@
 	type="button"
 	style={`--shade: ${shade}`}
 	aria-label={day.dateKey}
-	on:click={() => onSelect(day.dateKey)}
+	onclick={() => onSelect(day.dateKey)}
 >
 	<span class="cell-fill"></span>
 </button>

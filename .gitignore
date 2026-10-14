@@ -9,6 +9,7 @@ packages/*/.turbo
 .vercel
 .netlify
 .wrangler
+supabase/.temp
 /.svelte-kit
 /build
 /playwright-report

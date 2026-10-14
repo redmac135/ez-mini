@@ -32,7 +32,7 @@ const env = {
 	SESSIONS: new MemoryKv(),
 	SUPABASE_URL: 'https://supabase.example.test',
 	SUPABASE_PUBLISHABLE_KEY: 'publishable',
-	CORS_ORIGINS: 'https://blank.ethanzhao.ca,http://localhost:5173',
+	CORS_ORIGINS: 'https://blank.ethanzhao.ca,http://localhost:1351',
 	COOKIE_DOMAIN: '.ethanzhao.ca'
 } as unknown as Env;
 
@@ -44,13 +44,13 @@ test('OPTIONS returns CORS preflight headers without creating cookies', async ()
 	const response = await handleRequest(
 		new Request('https://mini.api.ethanzhao.ca/v1/pages', {
 			method: 'OPTIONS',
-			headers: { origin: 'http://localhost:5173' }
+			headers: { origin: 'http://localhost:1351' }
 		}),
 		env
 	);
 
 	assert.equal(response.status, 204);
-	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:1351');
 	assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
 	assert.equal(response.headers.get('set-cookie'), null);
 });
@@ -71,13 +71,13 @@ test('session creates a device cookie and returns an empty session list', async 
 test('session includes CORS headers for allowed app origins', async () => {
 	const response = await handleRequest(
 		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
-			headers: { origin: 'http://localhost:5173' }
+			headers: { origin: 'http://localhost:1351' }
 		}),
 		env
 	);
 
 	assert.equal(response.status, 200);
-	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:1351');
 	assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
 });
 
@@ -631,6 +631,40 @@ test('repeat completion upsert uses composite conflict identity', async () => {
 
 	assert.equal(response.status, 200);
 	assert.equal(((await response.json()) as { user_id: string; count: number }).user_id, 'user-a');
+});
+
+test('Journey entry list uses the journey schema and returns a stable page cursor', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		assert.equal(url.pathname, '/rest/v1/entries');
+		assert.equal(url.searchParams.get('limit'), '1');
+		assert.equal(request.headers.get('accept-profile'), 'journey');
+		return Response.json([
+			{
+				id: '57b177d2-4a84-42df-873d-dbb8e45def49',
+				user_id: 'user-a',
+				text: 'A thought',
+				created_at: '2026-01-02T00:00:00.000Z',
+				updated_at: '2026-01-02T00:00:00.000Z',
+				deleted_at: null
+			}
+		]);
+	});
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/journey/entries?limit=1', {
+			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		entries: Array<{ id: string }>;
+		nextCursor: { id: string } | null;
+	};
+	assert.equal(response.status, 200);
+	assert.equal(body.entries.length, 1);
+	assert.equal(body.nextCursor?.id, body.entries[0].id);
 });
 
 test('unknown routes return a JSON 404', async () => {

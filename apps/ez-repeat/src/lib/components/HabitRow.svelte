@@ -57,10 +57,10 @@
 		type="button"
 		style={`--progress: ${Math.round(progress.ratio * 100)}%`}
 		aria-label={`${progress.habit.title}, ${progress.count} of ${progress.target}`}
-		on:click={() => onComplete(progress)}
-		on:contextmenu={handleContextMenu}
-		on:touchstart={handleTouchStart}
-		on:touchend={handleTouchEnd}
+		onclick={() => onComplete(progress)}
+		oncontextmenu={handleContextMenu}
+		ontouchstart={handleTouchStart}
+		ontouchend={handleTouchEnd}
 	>
 		<span class="fill"></span>
 		<span class="title">{progress.habit.title}</span>
@@ -78,21 +78,21 @@
 			<Button
 				size="icon"
 				ariaLabel={`Edit ${progress.habit.title}`}
-				on:click={() => onEdit(progress)}
+				onclick={() => onEdit(progress)}
 			>
 				<Icon name="pencil-square" />
 			</Button>
 			<Button
 				size="icon"
 				ariaLabel={`Archive ${progress.habit.title}`}
-				on:click={() => onArchive(progress)}
+				onclick={() => onArchive(progress)}
 			>
 				<Icon name="archive-box" />
 			</Button>
 			<Button
 				size="icon"
 				ariaLabel={`Delete ${progress.habit.title}`}
-				on:click={() => onDelete(progress)}
+				onclick={() => onDelete(progress)}
 			>
 				<Icon name="trash" />
 			</Button>

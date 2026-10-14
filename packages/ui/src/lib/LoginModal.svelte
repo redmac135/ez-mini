@@ -28,7 +28,7 @@
 				type="email"
 				placeholder="you@example.com"
 				autocomplete="email"
-				on:keydown={(event) => {
+				onkeydown={(event) => {
 					if (event.key === 'Enter') {
 						event.preventDefault();
 						onSubmitEmail(email);
@@ -43,8 +43,8 @@
 				value={otp}
 				disabled={otpVerifying}
 				shake={otpShake}
-				on:change={(event) => (otp = event.detail.value)}
-				on:complete={(event) => onVerifyOtp(event.detail.value)}
+				onChange={(nextValue) => (otp = nextValue)}
+				onComplete={onVerifyOtp}
 			/>
 		</div>
 	{/if}
@@ -55,7 +55,7 @@
 		{#if step === 'otp'}
 			<Button
 				disabled={resendCooldownRemaining > 0 || loginSubmitting || otpVerifying}
-				on:click={onResendOtp}
+				onclick={onResendOtp}
 			>
 				{#if resendCooldownRemaining > 0}
 					Resend code ({resendCooldownRemaining}s)
@@ -63,13 +63,13 @@
 					Resend code
 				{/if}
 			</Button>
-			<Button disabled={otpVerifying} on:click={onBackToEmail}>Back</Button>
+			<Button disabled={otpVerifying} onclick={onBackToEmail}>Back</Button>
 			<div class="auth-status" aria-live="polite">
 				{otpVerifying ? 'Verifying…' : ''}
 			</div>
 		{:else}
-			<Button on:click={onClose}>Cancel</Button>
-			<Button variant="primary" disabled={loginSubmitting} on:click={() => onSubmitEmail(email)}>
+			<Button onclick={onClose}>Cancel</Button>
+			<Button variant="primary" disabled={loginSubmitting} onclick={() => onSubmitEmail(email)}>
 				{loginSubmitting ? 'Sending…' : 'Send Email'}
 			</Button>
 		{/if}

@@ -3,6 +3,7 @@
 
 	export let label = 'Menu';
 	export let verticalOffset = '0.25rem';
+	export let onDismiss: () => void = () => {};
 
 	let menu: HTMLDivElement | null = null;
 	let alignLeft = false;
@@ -28,8 +29,24 @@
 		void updateAlignment();
 		window.addEventListener('resize', updateAlignment);
 
+		function handlePointerDown(event: PointerEvent) {
+			const target = event.target;
+			const anchor = menu?.parentElement;
+			if (target instanceof Node && anchor?.contains(target)) return;
+			onDismiss();
+		}
+
+		function handleKeyDown(event: KeyboardEvent) {
+			if (event.key === 'Escape') onDismiss();
+		}
+
+		document.addEventListener('pointerdown', handlePointerDown);
+		document.addEventListener('keydown', handleKeyDown);
+
 		return () => {
 			window.removeEventListener('resize', updateAlignment);
+			document.removeEventListener('pointerdown', handlePointerDown);
+			document.removeEventListener('keydown', handleKeyDown);
 		};
 	});
 </script>
@@ -87,6 +104,12 @@
 	}
 
 	.floating-menu :global(button:hover) {
-		background: var(--color-hover);
+		background-color: var(--color-hover);
+	}
+
+	.floating-menu :global(button:focus-visible) {
+		background-color: var(--color-hover);
+		outline: 2px solid var(--color-border);
+		outline-offset: -2px;
 	}
 </style>

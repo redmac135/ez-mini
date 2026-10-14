@@ -1,9 +1,19 @@
 <script lang="ts">
-	export let value = '';
-	export let type = 'text';
-	export let placeholder = '';
-	export let autocomplete: 'email' | 'off' | 'on' | '' = '';
-	export let ariaLabel = '';
+	let {
+		value = $bindable(''),
+		type = 'text',
+		placeholder = '',
+		autocomplete = '',
+		ariaLabel = '',
+		onkeydown
+	}: {
+		value?: string;
+		type?: string;
+		placeholder?: string;
+		autocomplete?: 'email' | 'off' | 'on' | '';
+		ariaLabel?: string;
+		onkeydown?: (event: KeyboardEvent) => void;
+	} = $props();
 </script>
 
 <input
@@ -12,7 +22,7 @@
 	{placeholder}
 	{autocomplete}
 	aria-label={ariaLabel || undefined}
-	on:keydown
+	{onkeydown}
 />
 
 <style>

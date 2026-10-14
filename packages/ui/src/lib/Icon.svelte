@@ -82,6 +82,7 @@
 	<svg viewBox="0 0 20 20" aria-hidden="true">
 		<path
 			d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z"
+			fill="currentColor"
 		></path>
 	</svg>
 {:else if name === 'pencil-square'}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { buildDocument, type EditorDocument } from './basic/parser';
 	import { syncEditorDom } from './basic/dom';
 	import { extractText, getTextOffset, restoreTextOffset } from './basic/selection';
@@ -14,18 +14,29 @@
 	import { replaceRange } from './basic/text';
 	import { shouldApplyExternalState } from './basic/state-sync';
 
-	export let initialState: EditorState = { text: '', selectionStart: 0, selectionEnd: 0 };
-	export let onChange: (state: EditorState) => void = () => {};
-	export let onFocusChange: (focused: boolean) => void = () => {};
-	export let spellcheckEnabled = true;
+	type Props = {
+		initialState?: EditorState;
+		placeholder?: string;
+		onChange?: (state: EditorState) => void;
+		onFocusChange?: (focused: boolean) => void;
+		spellcheckEnabled?: boolean;
+	};
 
-	let text = initialState.text;
-	let selectionStart = initialState.selectionStart;
-	let selectionEnd = initialState.selectionEnd;
+	let {
+		initialState = { text: '', selectionStart: 0, selectionEnd: 0 },
+		placeholder = 'Start typing...',
+		onChange = () => {},
+		onFocusChange = () => {},
+		spellcheckEnabled = true
+	}: Props = $props();
+
+	let text = $state('');
+	let selectionStart = $state(0);
+	let selectionEnd = $state(0);
 	let documentModel: EditorDocument = buildDocument('');
 	let editor: HTMLDivElement;
 	let editorHistory: EditorHistory;
-	let mounted = false;
+	let mounted = $state(false);
 
 	type EditType = 'typing' | 'deleting' | 'command';
 	let lastEditType: EditType | null = null;
@@ -64,7 +75,8 @@
 	function emitState(nextSelectionStart: number, nextSelectionEnd: number) {
 		selectionStart = Math.max(0, Math.min(nextSelectionStart, text.length));
 		selectionEnd = Math.max(0, Math.min(nextSelectionEnd, text.length));
-		onChange({ text, selectionStart, selectionEnd });
+		const state = { text, selectionStart, selectionEnd };
+		onChange(state);
 	}
 
 	function reportSelection() {
@@ -237,32 +249,36 @@
 		editor.focus();
 	});
 
-	$: if (
-		mounted &&
-		shouldApplyExternalState(initialState, { text, selectionStart, selectionEnd })
-	) {
-		applyState(initialState);
-	}
+	$effect(() => {
+		const nextState = initialState;
+		untrack(() => {
+			if (mounted && shouldApplyExternalState(nextState, { text, selectionStart, selectionEnd })) {
+				applyState(nextState);
+			}
+		});
+	});
 </script>
 
 <div class="editor">
 	<div
 		class="editable"
 		class:empty={text.length === 0}
+		data-placeholder={placeholder}
 		contenteditable="true"
 		spellcheck={spellcheckEnabled}
 		bind:this={editor}
-		on:beforeinput={onBeforeInput}
-		on:input={onInput}
-		on:keydown={onKeydown}
-		on:copy={onCopy}
-		on:cut={onCut}
-		on:paste={onPaste}
-		on:mouseup={reportSelection}
-		on:keyup={reportSelection}
-		on:focusin={onFocusIn}
-		on:focusout={onFocusOut}
+		onbeforeinput={onBeforeInput}
+		oninput={onInput}
+		onkeydown={onKeydown}
+		oncopy={onCopy}
+		oncut={onCut}
+		onpaste={onPaste}
+		onmouseup={reportSelection}
+		onkeyup={reportSelection}
+		onfocusin={onFocusIn}
+		onfocusout={onFocusOut}
 		aria-label="Markdown editor"
+		aria-placeholder={placeholder}
 		role="textbox"
 		tabindex="0"
 	></div>
@@ -301,7 +317,7 @@
 	}
 
 	.editable.empty::before {
-		content: 'Start typing...';
+		content: attr(data-placeholder);
 		color: var(--editor-placeholder-color);
 		pointer-events: none;
 		position: absolute;

@@ -1,19 +1,24 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
-
 	const OTP_LENGTH = 8;
-	const dispatch = createEventDispatcher<{
-		change: { value: string };
-		complete: { value: string };
-	}>();
+	let {
+		value = $bindable(''),
+		disabled = false,
+		shake = false,
+		onChange,
+		onComplete
+	}: {
+		value?: string;
+		disabled?: boolean;
+		shake?: boolean;
+		onChange?: (value: string) => void;
+		onComplete?: (value: string) => void;
+	} = $props();
 
-	export let value = '';
-	export let disabled = false;
-	export let shake = false;
+	let inputs = $state<Array<HTMLInputElement | null>>(
+		Array.from({ length: OTP_LENGTH }, () => null)
+	);
 
-	let inputs: Array<HTMLInputElement | null> = Array.from({ length: OTP_LENGTH }, () => null);
-
-	$: digits = Array.from({ length: OTP_LENGTH }, (_, index) => value[index] ?? '');
+	let digits = $derived(Array.from({ length: OTP_LENGTH }, (_, index) => value[index] ?? ''));
 
 	function handleInput(index: number, event: Event) {
 		const target = event.currentTarget as HTMLInputElement;
@@ -67,15 +72,15 @@
 
 	function updateValue(nextValue: string) {
 		value = nextValue;
-		dispatch('change', { value: nextValue });
+		onChange?.(nextValue);
 
 		if (nextValue.length === OTP_LENGTH) {
-			dispatch('complete', { value: nextValue });
+			onComplete?.(nextValue);
 		}
 	}
 </script>
 
-<div class:shake class="otp-input" on:paste={handlePaste}>
+<div class:shake class="otp-input" onpaste={handlePaste}>
 	{#each digits as digit, index (index)}
 		<input
 			bind:this={inputs[index]}
@@ -90,8 +95,8 @@
 			value={digit}
 			{disabled}
 			aria-label={`Digit ${index + 1}`}
-			on:input={(event) => handleInput(index, event)}
-			on:keydown={(event) => handleKeydown(index, event)}
+			oninput={(event) => handleInput(index, event)}
+			onkeydown={(event) => handleKeydown(index, event)}
 		/>
 	{/each}
 </div>

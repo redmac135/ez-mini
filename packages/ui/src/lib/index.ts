@@ -1,5 +1,6 @@
 export { default as AppShell } from './AppShell.svelte';
 export { default as AccountModal } from './AccountModal.svelte';
+export { default as AccountDialogs } from './AccountDialogs.svelte';
 export { default as AccountLoading } from './AccountLoading.svelte';
 export { default as Button } from './Button.svelte';
 export { default as Chip } from './Chip.svelte';

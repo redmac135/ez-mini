@@ -2,11 +2,12 @@ import { defineConfig, devices } from 'playwright/test';
 import { accessSync, constants } from 'node:fs';
 import path from 'node:path';
 
-const baseURL = 'http://127.0.0.1:5173';
+const baseURL = 'http://127.0.0.1:1351';
 const chromiumPath = findChromiumExecutable();
 
 export default defineConfig({
-	testDir: './apps/ez-blank/e2e',
+	testDir: './apps',
+	testMatch: '**/e2e/**/*.spec.ts',
 	fullyParallel: true,
 	forbidOnly: Boolean(process.env.CI),
 	retries: process.env.CI ? 1 : 0,
@@ -18,13 +19,22 @@ export default defineConfig({
 		...(chromiumPath ? { launchOptions: { executablePath: chromiumPath } } : {}),
 		trace: 'retain-on-failure'
 	},
-	webServer: {
-		command: '../../node_modules/.bin/vite dev --host 127.0.0.1',
-		cwd: 'apps/ez-blank',
-		url: baseURL,
-		reuseExistingServer: !process.env.CI,
-		timeout: 120_000
-	}
+	webServer: [
+		{
+			command: '../../node_modules/.bin/vite dev --host 127.0.0.1 --port 1351 --strictPort',
+			cwd: 'apps/ez-blank',
+			url: baseURL,
+			reuseExistingServer: !process.env.CI,
+			timeout: 120_000
+		},
+		{
+			command: '../../node_modules/.bin/vite dev --host 127.0.0.1 --port 1353 --strictPort',
+			cwd: 'apps/ez-journey',
+			url: 'http://127.0.0.1:1353',
+			reuseExistingServer: !process.env.CI,
+			timeout: 120_000
+		}
+	]
 });
 
 function findChromiumExecutable() {

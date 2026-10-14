@@ -62,7 +62,13 @@
 </script>
 
 <Modal {title} onClose={onCancel}>
-	<form class="create-form" on:submit|preventDefault={submit}>
+	<form
+		class="create-form"
+		onsubmit={(event) => {
+			event.preventDefault();
+			submit();
+		}}
+	>
 		{#if disclaimer}
 			<p class="disclaimer">{disclaimer}</p>
 		{/if}
@@ -72,77 +78,68 @@
 			<div class="chip-control">
 				<Chip
 					selected={openMenu === 'frequency'}
-					on:click={() => (openMenu = openMenu === 'frequency' ? null : 'frequency')}
+					onclick={() => (openMenu = openMenu === 'frequency' ? null : 'frequency')}
 				>
 					{formatFrequency(parsed.targetCount)}
 				</Chip>
 				{#if openMenu === 'frequency'}
-					<FloatingMenu label="Habit frequency">
+					<FloatingMenu label="Habit frequency" onDismiss={() => (openMenu = null)}>
 						{#each [1, 2, 3, 4, 5, 6, 7, 8, 9] as count (count)}
-							<button type="button" on:click={() => setTargetCount(count)}>{count}x</button>
+							<button type="button" onclick={() => setTargetCount(count)}>{count}x</button>
 						{/each}
 					</FloatingMenu>
 				{/if}
 			</div>
 
 			<div class="chip-control">
-				<Chip selected={openMenu === 'recurrence'} on:click={toggleRecurrenceMenu}>
+				<Chip selected={openMenu === 'recurrence'} onclick={toggleRecurrenceMenu}>
 					{formatRecurrence(parsed.recurrence)}
 				</Chip>
 				{#if openMenu === 'recurrence'}
-					<FloatingMenu label="Habit recurrence">
+					<FloatingMenu label="Habit recurrence" onDismiss={() => (openMenu = null)}>
 						<div class="recurrence-menu">
 							<div class="segmented">
 								<button
 									class:active={recurrenceMode === 'days'}
 									type="button"
-									on:click={() => (recurrenceMode = 'days')}
+									onclick={() => (recurrenceMode = 'days')}
 								>
 									Days
 								</button>
 								<button
 									class:active={recurrenceMode === 'weeks'}
 									type="button"
-									on:click={() => (recurrenceMode = 'weeks')}
+									onclick={() => (recurrenceMode = 'weeks')}
 								>
 									Weeks
 								</button>
 								<button
 									class:active={recurrenceMode === 'daysOfWeek'}
 									type="button"
-									on:click={() => (recurrenceMode = 'daysOfWeek')}
+									onclick={() => (recurrenceMode = 'daysOfWeek')}
 								>
 									Days
 								</button>
 							</div>
 
 							{#if recurrenceMode === 'days'}
-								<button type="button" on:click={() => setRecurrence({ type: 'days', interval: 1 })}>
+								<button type="button" onclick={() => setRecurrence({ type: 'days', interval: 1 })}>
 									Daily
 								</button>
-								<button type="button" on:click={() => setRecurrence({ type: 'days', interval: 2 })}>
+								<button type="button" onclick={() => setRecurrence({ type: 'days', interval: 2 })}>
 									2 days
 								</button>
-								<button type="button" on:click={() => setRecurrence({ type: 'days', interval: 3 })}>
+								<button type="button" onclick={() => setRecurrence({ type: 'days', interval: 3 })}>
 									3 days
 								</button>
 							{:else if recurrenceMode === 'weeks'}
-								<button
-									type="button"
-									on:click={() => setRecurrence({ type: 'weeks', interval: 1 })}
-								>
+								<button type="button" onclick={() => setRecurrence({ type: 'weeks', interval: 1 })}>
 									Weekly
 								</button>
-								<button
-									type="button"
-									on:click={() => setRecurrence({ type: 'weeks', interval: 2 })}
-								>
+								<button type="button" onclick={() => setRecurrence({ type: 'weeks', interval: 2 })}>
 									2 weeks
 								</button>
-								<button
-									type="button"
-									on:click={() => setRecurrence({ type: 'weeks', interval: 3 })}
-								>
+								<button type="button" onclick={() => setRecurrence({ type: 'weeks', interval: 3 })}>
 									3 weeks
 								</button>
 							{:else}
@@ -151,7 +148,7 @@
 										<button
 											class:active={selectedDays.includes(day.value as Weekday)}
 											type="button"
-											on:click={() => toggleDay(day.value as Weekday)}
+											onclick={() => toggleDay(day.value as Weekday)}
 										>
 											{day.label}
 										</button>
@@ -159,14 +156,14 @@
 								</div>
 								<button
 									type="button"
-									on:click={() =>
+									onclick={() =>
 										setRecurrence({ type: 'daysOfWeek', days: selectedDays, interval: 1 })}
 								>
 									Every week
 								</button>
 								<button
 									type="button"
-									on:click={() =>
+									onclick={() =>
 										setRecurrence({ type: 'daysOfWeek', days: selectedDays, interval: 2 })}
 								>
 									Every other week
@@ -180,8 +177,8 @@
 	</form>
 
 	<svelte:fragment slot="actions">
-		<Button on:click={onCancel}>Cancel</Button>
-		<Button variant="primary" on:click={submit}>{submitLabel}</Button>
+		<Button onclick={onCancel}>Cancel</Button>
+		<Button variant="primary" onclick={submit}>{submitLabel}</Button>
 	</svelte:fragment>
 </Modal>
 

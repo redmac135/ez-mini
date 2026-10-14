@@ -11,11 +11,11 @@
 
 <div class="date-bar">
 	<div class="date-control">
-		<button type="button" aria-label="Previous day" on:click={() => onMove(-1)}>
+		<button type="button" aria-label="Previous day" onclick={() => onMove(-1)}>
 			<Icon name="chevron-left" />
 		</button>
 		<h1>{heading}</h1>
-		<button type="button" aria-label="Next day" on:click={() => onMove(1)}>
+		<button type="button" aria-label="Next day" onclick={() => onMove(1)}>
 			<Icon name="chevron-right" />
 		</button>
 	</div>

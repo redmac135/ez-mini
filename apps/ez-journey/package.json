@@ -1,0 +1,26 @@
+{
+	"name": "@ez/apps-journey",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "wrangler pages deploy build --project-name ez-journey",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"test": "node scripts/run-tests.mjs",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+	},
+	"dependencies": {
+		"@ez/account": "workspace:*",
+		"@ez/auth": "workspace:*",
+		"@ez/design": "workspace:*",
+		"@ez/editor": "workspace:*",
+		"@ez/sync": "workspace:*",
+		"@ez/ui": "workspace:*"
+	},
+	"devDependencies": {
+		"wrangler": "catalog:"
+	}
+}
