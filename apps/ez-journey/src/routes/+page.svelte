@@ -667,8 +667,8 @@
 
 	.timeline-scroll {
 		position: relative;
-		height: calc(100dvh - 20rem);
-		min-height: 12rem;
+		flex: 1;
+		min-height: 0;
 		overflow-x: hidden;
 		overflow-y: auto;
 		overscroll-behavior: contain;

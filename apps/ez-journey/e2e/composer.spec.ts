@@ -74,6 +74,12 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByText('Your saved entries will appear here.')).toHaveCount(0);
 });
 
+async function expectNoPageOverflow(page: import('playwright/test').Page) {
+	await expect
+		.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight))
+		.toBeLessThanOrEqual(1);
+}
+
 test('expands only when the cursor reaches a fourth visual line', async ({ page }) => {
 	await page.setViewportSize({ width: 520, height: 900 });
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
@@ -250,6 +256,28 @@ test('saved entries appear in the timeline and open as editable full-screen entr
 	await page.getByRole('button', { name: 'Save journal entry' }).click();
 	await expect(page.locator('.entry-editor')).toHaveCount(0);
 	await expect(entryCard).toContainText('A moment worth keeping and more');
+});
+
+test('the app keeps page margins inside the viewport in every editor state', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await expectNoPageOverflow(page);
+
+	const composerEditor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await composerEditor.pressSequentially('A moment to save');
+	await composerEditor.press('Enter');
+	await composerEditor.press('Enter');
+	await composerEditor.press('Enter');
+	await expect(page.locator('.composer')).toHaveClass(/expanded/);
+	await expectNoPageOverflow(page);
+
+	await page.getByRole('button', { name: 'Save and submit entry' }).click();
+	const entryCard = page.getByRole('button', { name: /open journal entry/i });
+	await expect(entryCard).toContainText('A moment to save');
+	await expectNoPageOverflow(page);
+
+	await entryCard.click();
+	await expect(page.locator('.entry-editor.fullscreen')).toBeVisible();
+	await expectNoPageOverflow(page);
 });
 
 test('backing out of a changed journal entry asks before discarding edits', async ({ page }) => {
