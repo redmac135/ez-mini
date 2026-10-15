@@ -149,7 +149,7 @@ export async function completeOAuth(
 				supabaseAccessToken: authSession.access_token,
 				supabaseRefreshToken: authSession.refresh_token,
 				expiresAt: authSession.expires_at ?? null,
-				displayName: getAuthUserDisplayName(authSession.user),
+				displayName: prior.displayName,
 				lastUsedAt: now
 			});
 		} else {

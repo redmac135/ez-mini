@@ -54,22 +54,37 @@ test.beforeEach(async () => {
 	);
 });
 
-test('profile defaults to connected provider username and then email', async () => {
+test('profile persists its initial provider name after that identity is removed', async () => {
+	let userMetadata: Record<string, unknown> = {};
+	let identities = [
+		{ identity_id: 'g', provider: 'github', identity_data: { user_name: 'person-dev' } }
+	];
 	mockFetch(async (request) => {
 		assert.equal(new URL(request.url).pathname, '/auth/v1/user');
 		assert.equal(request.headers.get('authorization'), 'Bearer access-profile');
+		if (request.method === 'PUT') {
+			const body = (await request.json()) as { data: Record<string, unknown> };
+			userMetadata = { ...userMetadata, ...body.data };
+		}
 		return Response.json({
 			id: 'user-profile',
 			email: 'person@example.com',
-			user_metadata: {},
-			identities: [
-				{ identity_id: 'g', provider: 'github', identity_data: { user_name: 'person-dev' } }
-			]
+			user_metadata: userMetadata,
+			identities
 		});
 	});
 	const response = await requestProfile('GET');
 	assert.equal(response.status, 200);
-	assert.deepEqual(await response.json(), { displayName: 'person-dev', customDisplayName: null });
+	assert.deepEqual(await response.json(), {
+		displayName: 'person-dev',
+		customDisplayName: 'person-dev'
+	});
+	identities = [];
+	const afterUnlink = await requestProfile('GET');
+	assert.deepEqual(await afterUnlink.json(), {
+		displayName: 'person-dev',
+		customDisplayName: 'person-dev'
+	});
 });
 
 test('profile updates Supabase user metadata and limits display name length', async () => {

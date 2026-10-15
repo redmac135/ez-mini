@@ -11,8 +11,17 @@ export async function getProfile(env: Env, context: RequestContext) {
 		method: 'GET',
 		accessToken: session.supabaseAccessToken
 	});
-	const customDisplayName = readCustomDisplayName(user.user_metadata);
-	const displayName = customDisplayName ?? getDefaultDisplayName(user);
+	let customDisplayName = readCustomDisplayName(user.user_metadata);
+	let displayName = customDisplayName ?? getDefaultDisplayName(user);
+	if (!customDisplayName) {
+		const initializedUser = await supabaseAuth<SupabaseUserProfile>(env, '/user', {
+			method: 'PUT',
+			accessToken: session.supabaseAccessToken,
+			body: { data: { display_name: displayName } }
+		});
+		customDisplayName = readCustomDisplayName(initializedUser.user_metadata) ?? displayName;
+		displayName = customDisplayName;
+	}
 	await cacheDisplayName(env, context.deviceId, user.id, displayName);
 	return {
 		displayName,
