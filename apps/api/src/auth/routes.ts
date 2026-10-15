@@ -61,7 +61,7 @@ export async function verifyOtp(request: Request, env: Env, context: RequestCont
 			(session) =>
 				session.userId === authSession.user.id && session.sessionId === context.activeSessionId
 		) ?? existingSessions.find((session) => session.userId === authSession.user.id);
-	const alreadySignedIn = existingSession?.sessionId === context.activeSessionId;
+	const alreadySignedIn = existingSession !== undefined;
 	const storedSession: StoredSession = {
 		sessionId:
 			existingSession?.sessionId ??

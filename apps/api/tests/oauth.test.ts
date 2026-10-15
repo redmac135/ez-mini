@@ -433,7 +433,7 @@ test('OAuth sign-in confirms when switching to an existing inactive device sessi
 	assert.match(callback.headers.get('set-cookie') ?? '', new RegExp(existingSessionId));
 });
 
-test('email verification reuses the active session and reports an already signed-in account', async () => {
+test('email verification confirms when reusing an inactive device session', async () => {
 	const deviceId = 'device-a';
 	const sessionId = 'session-a';
 	await env.SESSIONS.put(
@@ -445,6 +445,20 @@ test('email verification reuses the active session and reports an already signed
 			email: 'a@example.com',
 			supabaseAccessToken: 'old-access',
 			supabaseRefreshToken: 'old-refresh',
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+			createdAt: 123,
+			lastUsedAt: 456
+		})
+	);
+	await env.SESSIONS.put(
+		sessionKey(deviceId, 'session-b'),
+		JSON.stringify({
+			sessionId: 'session-b',
+			deviceId,
+			userId: 'user-b',
+			email: 'b@example.com',
+			supabaseAccessToken: 'old-access-b',
+			supabaseRefreshToken: 'old-refresh-b',
 			expiresAt: Math.floor(Date.now() / 1000) + 3600,
 			createdAt: 123,
 			lastUsedAt: 456
@@ -468,7 +482,7 @@ test('email verification reuses the active session and reports an already signed
 		new Request('https://mini.api.ethanzhao.ca/v1/auth/verify', {
 			method: 'POST',
 			headers: {
-				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`,
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-b`,
 				'content-type': 'application/json'
 			},
 			body: JSON.stringify({ email: 'a@example.com', token: '12345678' })
@@ -490,7 +504,7 @@ test('email verification reuses the active session and reports an already signed
 	assert.equal(body.activeSession.sessionId, sessionId);
 	assert.deepEqual(
 		body.sessions.map(({ sessionId }) => sessionId),
-		[sessionId]
+		[sessionId, 'session-b']
 	);
 	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_active_session_id=session-a/);
 	assert.equal(stored.supabaseAccessToken, 'new-access');
