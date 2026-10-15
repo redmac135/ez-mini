@@ -2,7 +2,9 @@ import {
 	isUnauthorizedError,
 	type AuthClient,
 	type AuthSessionResponse,
-	type AuthSessionSummary
+	type AuthSessionSummary,
+	type AuthIdentity,
+	type OAuthProvider
 } from '@ez/auth';
 
 export type LoginStep = 'email' | 'otp';
@@ -51,6 +53,14 @@ export interface AccountControllerState<TData> {
 	otpVerifying: boolean;
 	otpShake: boolean;
 	resendCooldownRemaining: number;
+	oauthBusyProvider: OAuthProvider | null;
+	connectedAccountsOpen: boolean;
+	identities: AuthIdentity[];
+	identitiesLoading: boolean;
+	identityBusyId: string | null;
+	displayName: string;
+	displayNameDraft: string;
+	displayNameSaving: boolean;
 }
 
 export interface AccountControllerOptions<TData> {
@@ -60,6 +70,7 @@ export interface AccountControllerOptions<TData> {
 	tabId?: string;
 	resendCooldownSeconds?: number;
 	getErrorMessage?: (error: unknown, fallback: string) => string;
+	replaceOAuthUrl?: (url: string) => void;
 	onAuthChanged?: (user: AuthSessionSummary | null) => void;
 	onNotice?: (message: string) => void;
 }
@@ -76,6 +87,14 @@ export interface AccountController<TData> {
 	verifyOtpCode(code: string): Promise<void>;
 	resendOtpCode(): Promise<void>;
 	backToEmail(): void;
+	startOAuthSignIn(provider: OAuthProvider): void;
+	openConnectedAccounts(): Promise<void>;
+	closeConnectedAccounts(): void;
+	connectOAuthProvider(provider: OAuthProvider): void;
+	unlinkOAuthIdentity(identityId: string): Promise<void>;
+	saveDisplayName(): Promise<void>;
+	setDisplayNameDraft(value: string): void;
+	cancelDisplayNameEdit(): void;
 	selectAccountSession(sessionId: string): Promise<void>;
 	useAnonymousAccount(): Promise<void>;
 	cancelContextTransition(): Promise<void>;
@@ -105,6 +124,13 @@ type AccountBroadcastMessage =
 			sessionId: string;
 	  };
 
+interface OAuthCallbackResult {
+	message: string;
+	broadcast: boolean;
+	alreadySignedIn: boolean;
+	linked: boolean;
+}
+
 export function createAccountDataController<TData>(
 	options: AccountControllerOptions<TData>
 ): AccountController<TData> {
@@ -129,7 +155,15 @@ export function createAccountDataController<TData>(
 		loginSubmitting: false,
 		otpVerifying: false,
 		otpShake: false,
-		resendCooldownRemaining: 0
+		resendCooldownRemaining: 0,
+		oauthBusyProvider: null,
+		connectedAccountsOpen: false,
+		identities: [],
+		identitiesLoading: false,
+		identityBusyId: null,
+		displayName: '',
+		displayNameDraft: '',
+		displayNameSaving: false
 	};
 	const subscribers = new Set<(state: AccountControllerState<TData>) => void>();
 	let requestId = 0;
@@ -172,6 +206,7 @@ export function createAccountDataController<TData>(
 
 	async function initialize(initOptions: { initialUser?: AuthSessionSummary | null } = {}) {
 		openAuthChannel();
+		const oauthResult = consumeOAuthResult();
 		if (initOptions.initialUser !== undefined) {
 			setState({ user: initOptions.initialUser });
 			options.onAuthChanged?.(initOptions.initialUser);
@@ -187,7 +222,18 @@ export function createAccountDataController<TData>(
 		try {
 			const response = await options.authClient.getSession();
 			if (!isLatest(nextRequestId)) return;
-			await applyAuthResponse(response, { broadcast: false, requestId: nextRequestId });
+			await applyAuthResponse(response, {
+				broadcast: oauthResult?.broadcast ?? false,
+				requestId: nextRequestId
+			});
+			if (oauthResult) {
+				setState({
+					accountModalOpen: oauthResult.alreadySignedIn,
+					connectedAccountsOpen: oauthResult.linked,
+					authMessage: oauthResult.message
+				});
+			}
+			if (state.connectedAccountsOpen) await openConnectedAccounts();
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
 			setState({
@@ -327,6 +373,9 @@ export function createAccountDataController<TData>(
 				otpDraft: ''
 			});
 			await applyAuthResponse(response, { requestId: nextRequestId, transition: true });
+			if (response.alreadySignedIn) {
+				setState({ accountModalOpen: true, authMessage: 'Already signed into this account.' });
+			}
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
 			setState({
@@ -363,6 +412,171 @@ export function createAccountDataController<TData>(
 
 	function backToEmail() {
 		setState({ loginStep: 'email', otpDraft: '', authMessage: '' });
+	}
+
+	function startOAuthSignIn(provider: OAuthProvider) {
+		startOAuth(provider);
+	}
+
+	async function openConnectedAccounts() {
+		if (!state.user || state.authBusy || !options.authClient?.getIdentities) return;
+		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: '' });
+		try {
+			const [result, profile] = await Promise.all([
+				options.authClient.getIdentities(),
+				options.authClient.getProfile?.()
+			]);
+			const fallbackName = getDefaultDisplayName(result.identities, state.user?.email);
+			const displayName = profile?.displayName || fallbackName;
+			setState({
+				identities: result.identities,
+				identitiesLoading: false,
+				displayName,
+				displayNameDraft: displayName
+			});
+		} catch (error) {
+			setState({
+				identitiesLoading: false,
+				authMessage: getErrorMessage(error, 'Unable to load connected accounts.')
+			});
+		}
+	}
+
+	function getDefaultDisplayName(identities: AuthIdentity[], email?: string | null) {
+		for (const identity of identities) {
+			if (identity.displayName?.trim()) return identity.displayName.trim();
+		}
+		return email?.trim() || '';
+	}
+
+	async function saveDisplayName() {
+		if (!options.authClient?.updateProfile || state.displayNameSaving) return;
+		const displayNameDraft = state.displayNameDraft.trim();
+		setState({ displayNameSaving: true, authMessage: '' });
+		try {
+			const profile = await options.authClient.updateProfile(displayNameDraft);
+			const displayName = profile.displayName || state.user?.email || state.user?.userId || '';
+			const user = state.user ? { ...state.user, username: displayName } : null;
+			setState({
+				displayName,
+				displayNameDraft: displayName,
+				displayNameSaving: false,
+				user,
+				sessions: state.sessions.map((session) =>
+					session.userId === user?.userId ? { ...session, username: displayName } : session
+				)
+			});
+			options.onAuthChanged?.(user);
+		} catch (error) {
+			setState({
+				displayNameSaving: false,
+				authMessage: getErrorMessage(error, 'Unable to save display name.')
+			});
+		}
+	}
+
+	function cancelDisplayNameEdit() {
+		setState({ displayNameDraft: state.displayName });
+	}
+
+	function setDisplayNameDraft(value: string) {
+		setState({ displayNameDraft: value });
+	}
+
+	function closeConnectedAccounts() {
+		if (state.identitiesLoading || state.identityBusyId || state.oauthBusyProvider) return;
+		setState({ connectedAccountsOpen: false, authMessage: '' });
+	}
+
+	function connectOAuthProvider(provider: OAuthProvider) {
+		if (!state.user) return;
+		if (!options.authClient?.beginOAuthLink || typeof window === 'undefined') {
+			setState({ authMessage: 'Provider connection is unavailable.' });
+			return;
+		}
+		const returnUrl = getOAuthReturnUrl();
+		setState({ oauthBusyProvider: provider, authMessage: '' });
+		void options.authClient.beginOAuthLink(provider, returnUrl).then(
+			({ authorizationUrl }) => window.location.assign(authorizationUrl),
+			(error) =>
+				setState({
+					oauthBusyProvider: null,
+					authMessage: getErrorMessage(error, 'Unable to connect this provider.')
+				})
+		);
+	}
+
+	async function unlinkOAuthIdentity(identityId: string) {
+		if (!options.authClient?.unlinkIdentity || state.identityBusyId) return;
+		setState({ identityBusyId: identityId, authMessage: '' });
+		try {
+			const result = await options.authClient.unlinkIdentity(identityId);
+			setState({ identities: result.identities, identityBusyId: null });
+		} catch (error) {
+			setState({
+				identityBusyId: null,
+				authMessage: getErrorMessage(error, 'Unable to disconnect this account.')
+			});
+		}
+	}
+
+	function startOAuth(provider: OAuthProvider) {
+		if (!options.authClient?.getOAuthStartUrl || typeof window === 'undefined') {
+			setState({ authMessage: 'Provider sign-in is unavailable.' });
+			return;
+		}
+		setState({ oauthBusyProvider: provider, authMessage: '' });
+		window.location.assign(options.authClient.getOAuthStartUrl(provider, getOAuthReturnUrl()));
+	}
+
+	function getOAuthReturnUrl() {
+		const returnUrl = new URL(window.location.href);
+		returnUrl.searchParams.delete('oauth');
+		returnUrl.searchParams.delete('oauth_reason');
+		return returnUrl.toString();
+	}
+
+	function consumeOAuthResult() {
+		if (typeof window === 'undefined') return null;
+		const url = new URL(window.location.href);
+		const result = url.searchParams.get('oauth');
+		if (!result) return null;
+		const reason = url.searchParams.get('oauth_reason');
+		url.searchParams.delete('oauth');
+		url.searchParams.delete('oauth_reason');
+		if (options.replaceOAuthUrl) {
+			options.replaceOAuthUrl(url.toString());
+		} else {
+			window.history.replaceState(window.history.state, '', url.toString());
+		}
+		const messages: Record<string, string> = {
+			already_signed_in: 'Already signed into this account.',
+			cancelled: 'Sign-in was cancelled.',
+			expired: 'That sign-in link expired. Please try again.',
+			session_mismatch: 'Sign-in was started in a different browser session.',
+			session_changed: 'Your active account changed. Please try connecting again.',
+			account_changed: 'The connected identity did not return the active account.',
+			identity_exists: 'That provider account is already connected to another account.',
+			provider: 'The provider could not complete sign-in.',
+			exchange_failed: 'Unable to complete provider sign-in.'
+		};
+		const alreadySignedIn = result === 'success' && reason === 'already_signed_in';
+		const linked = result === 'success' && reason === 'link';
+		const successfulSignIn =
+			result === 'success' && (reason === 'sign-in' || reason === 'already_signed_in');
+		return {
+			message:
+				result === 'success'
+					? alreadySignedIn
+						? 'Already signed into this account.'
+						: linked
+							? 'Account connected.'
+							: 'Signed in successfully.'
+					: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
+			broadcast: successfulSignIn,
+			alreadySignedIn,
+			linked
+		} satisfies OAuthCallbackResult;
 	}
 
 	async function selectAccountSession(sessionId: string) {
@@ -936,6 +1150,14 @@ export function createAccountDataController<TData>(
 		verifyOtpCode,
 		resendOtpCode,
 		backToEmail,
+		startOAuthSignIn,
+		openConnectedAccounts,
+		closeConnectedAccounts,
+		connectOAuthProvider,
+		unlinkOAuthIdentity,
+		saveDisplayName,
+		setDisplayNameDraft,
+		cancelDisplayNameEdit,
 		selectAccountSession,
 		useAnonymousAccount,
 		cancelContextTransition,

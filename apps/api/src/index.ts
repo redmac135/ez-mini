@@ -1,6 +1,13 @@
 import { getSessionResponse, getRequestContext } from './auth/session-store.ts';
 import { authBroadcastFrame } from './auth/broadcast-frame.ts';
 import { login, logout, switchSession, useAnonymous, verifyOtp } from './auth/routes.ts';
+import {
+	completeOAuth,
+	listOAuthIdentities,
+	startOAuth,
+	unlinkOAuthIdentity
+} from './auth/oauth.ts';
+import { getProfile, updateProfile } from './auth/profile.ts';
 import { getCorsHeaders, stripApiPrefix } from './http/cors.ts';
 import { ApiError } from './http/errors.ts';
 import { json } from './http/json.ts';
@@ -35,6 +42,15 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 		}
 
 		const context = await getRequestContext(request, env, responseHeaders);
+		if (request.method === 'GET' && path === '/auth/oauth/start') {
+			return await startOAuth(request, env, context, responseHeaders, 'sign-in');
+		}
+		if (request.method === 'POST' && path === '/auth/oauth/link') {
+			return await startOAuth(request, env, context, responseHeaders, 'link');
+		}
+		if (request.method === 'GET' && path === '/auth/oauth/callback') {
+			return await completeOAuth(request, env, context, responseHeaders);
+		}
 
 		if (request.method === 'POST' && path === '/auth/login') {
 			return json(await login(request, env), { headers: responseHeaders });
@@ -57,6 +73,21 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 		}
 		if (request.method === 'POST' && path === '/auth/logout') {
 			return json(await logout(request, env, context, responseHeaders), {
+				headers: responseHeaders
+			});
+		}
+		if (request.method === 'GET' && path === '/auth/identities') {
+			return json(await listOAuthIdentities(env, context), { headers: responseHeaders });
+		}
+		if (request.method === 'GET' && path === '/auth/profile') {
+			return json(await getProfile(env, context), { headers: responseHeaders });
+		}
+		if (request.method === 'PUT' && path === '/auth/profile') {
+			return json(await updateProfile(request, env, context), { headers: responseHeaders });
+		}
+		if (request.method === 'DELETE' && path.startsWith('/auth/identities/')) {
+			const identityId = path.slice('/auth/identities/'.length);
+			return json(await unlinkOAuthIdentity(decodeURIComponent(identityId), env, context), {
 				headers: responseHeaders
 			});
 		}

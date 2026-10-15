@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page as appPage } from '$app/state';
 	import { createAccountDataController } from '@ez/account';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
@@ -59,7 +62,13 @@
 				if (user) queueMicrotask(requestImmediateSync);
 			}
 		},
-		getErrorMessage: (error, fallback) => (error instanceof Error ? error.message : fallback)
+		getErrorMessage: (error, fallback) => (error instanceof Error ? error.message : fallback),
+		replaceOAuthUrl: (url) => {
+			const nextUrl = new URL(url);
+			// This URL comes from the current app page after removing OAuth callback parameters.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState(`${resolve('/')}${nextUrl.search}${nextUrl.hash}`, appPage.state);
+		}
 	});
 	let accountState = $state(account.getState());
 
@@ -482,6 +491,12 @@
 										role="menuitem"
 										disabled={accountState.authBusy || syncBusy}
 										onclick={account.openLoginOrAccountList}>Switch account</button
+									>
+									<button
+										type="button"
+										role="menuitem"
+										disabled={accountState.authBusy || syncBusy}
+										onclick={() => void account.openConnectedAccounts()}>Connected accounts</button
 									>
 									<button
 										type="button"

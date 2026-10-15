@@ -1,0 +1,297 @@
+import { expect, test, type Page, type Route } from 'playwright/test';
+
+const activeSession = {
+	sessionId: 'session-a',
+	userId: 'user-a',
+	email: 'taylor@example.com',
+	username: 'Taylor',
+	createdAt: 1,
+	lastUsedAt: 2,
+	active: true
+};
+
+const identities = [
+	{
+		id: 'email-identity',
+		provider: 'email',
+		displayName: 'Taylor',
+		email: 'taylor@example.com',
+		createdAt: '2026-01-01T00:00:00.000Z'
+	},
+	{
+		id: 'github-identity',
+		provider: 'github',
+		displayName: 'taylor-dev',
+		email: 'taylor@example.com',
+		createdAt: '2026-01-02T00:00:00.000Z'
+	}
+];
+
+test('login dialog starts a provider sign-in redirect', async ({ page }) => {
+	await mockApi(page);
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Login' }).click();
+	await page.getByRole('dialog', { name: 'Login' }).waitFor();
+
+	await page.getByRole('button', { name: 'GitHub' }).click();
+
+	await expect(page.getByRole('heading', { name: 'Mock provider authorization' })).toBeVisible();
+	await expect(page).toHaveURL(/mock-oauth\?provider=github/);
+});
+
+test('OAuth return for the current account opens an already-signed-in confirmation', async ({
+	page
+}) => {
+	await mockApi(page, undefined, true);
+	await page.goto('/?oauth=success&oauth_reason=already_signed_in');
+
+	const accounts = page.getByRole('dialog', { name: 'Accounts' });
+	await expect(accounts.getByText('Already signed into this account.')).toBeVisible();
+	await expect(accounts.getByRole('button', { name: 'Taylor taylor@example.com' })).toBeVisible();
+	await expect(page).not.toHaveURL(/oauth_reason/);
+});
+
+test('adding an existing account confirms it, and adding another account keeps both available', async ({
+	page
+}) => {
+	const nextSession = {
+		...activeSession,
+		sessionId: 'session-b',
+		userId: 'user-b',
+		email: 'b@example.com',
+		username: 'b@example.com',
+		active: true
+	};
+	let currentSessions = [activeSession];
+	let currentActiveSession = activeSession;
+	await mockApi(
+		page,
+		async (route) => {
+			const pathname = new URL(route.request().url()).pathname;
+			if (pathname.endsWith('/auth/session')) {
+				await route.fulfill({
+					json: { activeSession: currentActiveSession, sessions: currentSessions }
+				});
+				return;
+			}
+			if (pathname.endsWith('/auth/login')) {
+				await route.fulfill({ json: { sent: true } });
+				return;
+			}
+			if (pathname.endsWith('/auth/verify')) {
+				const email = route.request().postDataJSON().email;
+				if (email === activeSession.email) {
+					await route.fulfill({
+						json: {
+							activeSession,
+							sessions: [activeSession],
+							alreadySignedIn: true
+						}
+					});
+					return;
+				}
+				currentSessions = [{ ...activeSession, active: false }, nextSession];
+				currentActiveSession = nextSession;
+				await route.fulfill({
+					json: {
+						activeSession: nextSession,
+						sessions: [{ ...activeSession, active: false }, nextSession]
+					}
+				});
+				return;
+			}
+			await route.fulfill({ json: {} });
+		},
+		true
+	);
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Switch Account' }).click();
+	await page
+		.getByRole('dialog', { name: 'Accounts' })
+		.getByRole('button', { name: 'Sign into another account' })
+		.click();
+	await page.getByLabel('Email').fill('taylor@example.com');
+	await page.getByRole('button', { name: 'Send Email' }).click();
+	for (let index = 0; index < 8; index += 1) {
+		await page.getByLabel(`Digit ${index + 1}`).fill(String(index + 1));
+	}
+	const alreadySignedIn = page.getByRole('dialog', { name: 'Accounts' });
+	await expect(alreadySignedIn.getByText('Already signed into this account.')).toBeVisible();
+	await page
+		.getByRole('dialog', { name: 'Accounts' })
+		.getByRole('button', { name: 'Sign into another account' })
+		.click();
+	await page.getByLabel('Email').fill('b@example.com');
+	await page.getByRole('button', { name: 'Send Email' }).click();
+	for (let index = 0; index < 8; index += 1) {
+		await page.getByLabel(`Digit ${index + 1}`).fill(String(index + 1));
+	}
+
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Switch Account' }).click();
+	const accounts = page.getByRole('dialog', { name: 'Accounts' });
+	await expect(accounts.getByText('taylor@example.com')).toBeVisible();
+	await expect(accounts.getByText('b@example.com')).toBeVisible();
+});
+
+test('connected accounts can add and remove provider identities', async ({ page }) => {
+	let currentIdentities = [...identities];
+	await mockApi(
+		page,
+		async (route) => {
+			const request = route.request();
+			const pathname = new URL(request.url()).pathname;
+			if (pathname.endsWith('/auth/session')) {
+				await route.fulfill({ json: { activeSession, sessions: [activeSession] } });
+				return;
+			}
+			if (pathname.endsWith('/auth/identities') && request.method() === 'GET') {
+				await route.fulfill({ json: { identities: currentIdentities } });
+				return;
+			}
+			if (pathname.endsWith('/auth/identities/github-identity') && request.method() === 'DELETE') {
+				currentIdentities = [identities[0]!];
+				await route.fulfill({ json: { identities: currentIdentities } });
+				return;
+			}
+			if (pathname.endsWith('/auth/oauth/link') && request.method() === 'POST') {
+				await route.fulfill({
+					json: { authorizationUrl: 'http://localhost:1350/v1/mock-oauth?provider=azure' }
+				});
+				return;
+			}
+			await route.fulfill({ json: {} });
+		},
+		true
+	);
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Connected accounts' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Connected accounts' });
+	await expect(dialog.getByText('taylor-dev')).toBeVisible();
+
+	await dialog.getByRole('button', { name: 'Connect Microsoft' }).click();
+	await expect(page).toHaveURL(/mock-oauth\?provider=azure/);
+	await expect(page.getByRole('heading', { name: 'Mock provider authorization' })).toBeVisible();
+
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Connected accounts' }).click();
+	const reconnectDialog = page.getByRole('dialog', { name: 'Connected accounts' });
+	await reconnectDialog
+		.locator('li')
+		.filter({ hasText: 'GitHub' })
+		.getByRole('button', { name: 'Disconnect' })
+		.click();
+	await page
+		.getByRole('dialog', { name: 'Disconnect GitHub?' })
+		.getByRole('button', { name: 'Disconnect' })
+		.click();
+	await expect(
+		reconnectDialog.getByText('Connect another sign-in method before disconnecting this one.')
+	).toBeVisible();
+	await expect(reconnectDialog.getByRole('button', { name: 'Disconnect' })).toBeDisabled();
+});
+
+test('display name settings save to the account and cancel restores the saved name', async ({
+	page
+}) => {
+	let savedDisplayName = 'taylor-dev';
+	await mockApi(
+		page,
+		async (route) => {
+			const request = route.request();
+			const pathname = new URL(request.url()).pathname;
+			if (pathname.endsWith('/auth/session')) {
+				await route.fulfill({ json: { activeSession, sessions: [activeSession] } });
+				return;
+			}
+			if (pathname.endsWith('/auth/identities')) {
+				await route.fulfill({ json: { identities } });
+				return;
+			}
+			if (pathname.endsWith('/auth/profile') && request.method() === 'GET') {
+				await route.fulfill({ json: { displayName: savedDisplayName, customDisplayName: null } });
+				return;
+			}
+			if (pathname.endsWith('/auth/profile') && request.method() === 'PUT') {
+				savedDisplayName = request.postDataJSON().displayName.trim();
+				await route.fulfill({
+					json: { displayName: savedDisplayName, customDisplayName: savedDisplayName }
+				});
+				return;
+			}
+			await route.fulfill({ json: {} });
+		},
+		true
+	);
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Connected accounts' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Connected accounts' });
+	const displayName = dialog.getByRole('textbox', { name: 'Display name' });
+	await expect(displayName).toHaveValue('taylor-dev');
+	await displayName.fill('Discarded value');
+	await dialog.getByRole('button', { name: 'Cancel' }).click();
+	await expect(displayName).toHaveValue('taylor-dev');
+	await displayName.fill('Taylor');
+	await dialog.getByRole('button', { name: 'Save' }).click();
+	await expect(displayName).toHaveValue('Taylor');
+	await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled();
+});
+
+async function mockApi(
+	page: Page,
+	override?: (route: Route) => Promise<void>,
+	authenticated = false
+) {
+	await page.route('http://localhost:1350/v1/**', async (route) => {
+		if (override) {
+			const pathname = new URL(route.request().url()).pathname;
+			if (
+				pathname.endsWith('/auth/identities') ||
+				pathname.includes('/auth/identities/') ||
+				pathname.endsWith('/auth/session') ||
+				pathname.endsWith('/auth/oauth/link') ||
+				pathname.endsWith('/auth/profile') ||
+				pathname.endsWith('/auth/login') ||
+				pathname.endsWith('/auth/verify')
+			) {
+				await override(route);
+				return;
+			}
+		}
+		if (route.request().url().endsWith('/auth/session')) {
+			await route.fulfill({
+				json: {
+					activeSession: authenticated ? activeSession : null,
+					sessions: authenticated ? [activeSession] : []
+				}
+			});
+			return;
+		}
+		if (route.request().url().includes('/auth/oauth/start?')) {
+			const provider = new URL(route.request().url()).searchParams.get('provider');
+			await route.fulfill({
+				status: 302,
+				headers: { location: `http://localhost:1350/v1/mock-oauth?provider=${provider}` }
+			});
+			return;
+		}
+		if (new URL(route.request().url()).pathname.endsWith('/mock-oauth')) {
+			await route.fulfill({
+				contentType: 'text/html',
+				body: '<h1>Mock provider authorization</h1>'
+			});
+			return;
+		}
+		await route.fulfill({ json: {} });
+	});
+}

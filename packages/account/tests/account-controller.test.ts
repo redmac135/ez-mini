@@ -61,6 +61,125 @@ test('opens login flow after an empty saved-session lookup', async () => {
 	account.destroy();
 });
 
+test('loads connected identities and refreshes them after disconnecting one', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	const remainingIdentity = {
+		id: 'email-identity',
+		provider: 'email',
+		displayName: 'user-a',
+		email: 'user-a@example.com',
+		createdAt: null
+	};
+	let unlinkIdentityId = '';
+	auth.getIdentities = async () => ({
+		identities: [
+			remainingIdentity,
+			{
+				id: 'github-identity',
+				provider: 'github',
+				displayName: 'user-a',
+				email: 'user-a@example.com',
+				createdAt: null
+			}
+		]
+	});
+	auth.unlinkIdentity = async (identityId) => {
+		unlinkIdentityId = identityId;
+		return { identities: [remainingIdentity] };
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.initialize();
+	await account.openConnectedAccounts();
+	assert.equal(account.getState().connectedAccountsOpen, true);
+	assert.equal(account.getState().identitiesLoading, false);
+	assert.deepEqual(
+		account.getState().identities.map(({ provider }) => provider),
+		['email', 'github']
+	);
+
+	await account.unlinkOAuthIdentity('github-identity');
+	assert.equal(unlinkIdentityId, 'github-identity');
+	assert.deepEqual(account.getState().identities, [remainingIdentity]);
+	assert.equal(account.getState().identityBusyId, null);
+	account.destroy();
+});
+
+test('connected identity request failures leave the modal open with a readable message', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.getIdentities = async () => {
+		throw new Error('Identity service unavailable.');
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.initialize();
+	await account.openConnectedAccounts();
+
+	assert.equal(account.getState().connectedAccountsOpen, true);
+	assert.equal(account.getState().identitiesLoading, false);
+	assert.equal(account.getState().authMessage, 'Identity service unavailable.');
+	account.destroy();
+});
+
+test('display name defaults to provider username, supports cancel, and saves account-wide profile state', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.getIdentities = async () => ({
+		identities: [
+			{
+				id: 'github-identity',
+				provider: 'github',
+				displayName: 'taylor-dev',
+				email: 'user-a@example.com',
+				createdAt: null
+			}
+		]
+	});
+	auth.getProfile = async () => ({ displayName: 'taylor-dev', customDisplayName: null });
+	let savedName = '';
+	auth.updateProfile = async (displayName) => {
+		savedName = displayName;
+		return { displayName, customDisplayName: displayName };
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.initialize();
+	await account.openConnectedAccounts();
+	assert.equal(account.getState().displayName, 'taylor-dev');
+	assert.equal(account.getState().displayNameDraft, 'taylor-dev');
+
+	account.setDisplayNameDraft('Discard this');
+	account.cancelDisplayNameEdit();
+	assert.equal(account.getState().displayNameDraft, 'taylor-dev');
+
+	account.setDisplayNameDraft('Taylor');
+	await account.saveDisplayName();
+	assert.equal(savedName, 'Taylor');
+	assert.equal(account.getState().displayName, 'Taylor');
+	assert.equal(account.getState().user?.username, 'Taylor');
+	assert.equal(account.getState().sessions[0]?.username, 'Taylor');
+	account.destroy();
+});
+
+test('signing in with the current account reuses the account list as a confirmation popup', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.verify = async () => ({
+		activeSession: userA,
+		sessions: [userA],
+		alreadySignedIn: true
+	});
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.initialize();
+	account.openLoginFlow();
+	await account.submitLogin('user-a@example.com');
+	await account.verifyOtpCode('12345678');
+
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().accountModalOpen, true);
+	assert.equal(account.getState().authMessage, 'Already signed into this account.');
+	account.destroy();
+});
+
 test('shows lookup errors and retries the same login flow', async () => {
 	let calls = 0;
 	const auth = createAuthClient({ activeSession: null, sessions: [] });

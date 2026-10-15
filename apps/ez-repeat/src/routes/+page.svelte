@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page as appPage } from '$app/state';
 	import { createAccountDataController } from '@ez/account';
 	import { isUnauthorizedError } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
@@ -80,6 +83,12 @@
 			}
 		},
 		getErrorMessage,
+		replaceOAuthUrl: (url) => {
+			const nextUrl = new URL(url);
+			// This URL comes from the current app page after removing OAuth callback parameters.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState(`${resolve('/')}${nextUrl.search}${nextUrl.hash}`, appPage.state);
+		},
 		onNotice(message) {
 			showStatusNotice(message);
 		}
@@ -407,6 +416,13 @@
 								on:click={account.openLoginOrAccountList}
 							>
 								Switch Account
+							</button>
+							<button
+								type="button"
+								disabled={accountState.authBusy || syncBusy}
+								on:click={() => void account.openConnectedAccounts()}
+							>
+								Connected accounts
 							</button>
 							<button
 								type="button"

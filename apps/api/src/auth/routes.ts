@@ -6,6 +6,7 @@ import {
 	activateSession,
 	clearActiveSession,
 	deleteSession,
+	getAuthUserDisplayName,
 	getOwnedSession,
 	getSessionResponse,
 	listDeviceSessions,
@@ -48,15 +49,23 @@ export async function verifyOtp(request: Request, env: Env, context: RequestCont
 		}
 	});
 	const now = Date.now();
+	const existingSessions = await listDeviceSessions(env, context.deviceId);
+	const existingSession =
+		existingSessions.find(
+			(session) =>
+				session.userId === authSession.user.id && session.sessionId === context.activeSessionId
+		) ?? existingSessions.find((session) => session.userId === authSession.user.id);
+	const alreadySignedIn = existingSession?.sessionId === context.activeSessionId;
 	const storedSession: StoredSession = {
-		sessionId: crypto.randomUUID(),
+		sessionId: existingSession?.sessionId ?? crypto.randomUUID(),
 		deviceId: context.deviceId,
 		userId: authSession.user.id,
 		email: authSession.user.email ?? email,
+		displayName: getAuthUserDisplayName(authSession.user),
 		supabaseAccessToken: authSession.access_token,
 		supabaseRefreshToken: authSession.refresh_token,
 		expiresAt: authSession.expires_at ?? null,
-		createdAt: now,
+		createdAt: existingSession?.createdAt ?? now,
 		lastUsedAt: now
 	};
 
@@ -64,7 +73,8 @@ export async function verifyOtp(request: Request, env: Env, context: RequestCont
 	context.activeSessionId = storedSession.sessionId;
 	activateSession(context.headers, storedSession.sessionId, env);
 
-	return getSessionResponse(env, context);
+	const response = await getSessionResponse(env, context);
+	return alreadySignedIn ? { ...response, alreadySignedIn: true } : response;
 }
 
 export async function switchSession(

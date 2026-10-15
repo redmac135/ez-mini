@@ -33,6 +33,11 @@
 			otpVerifying: false,
 			otpShake: false,
 			resendCooldownRemaining: 0,
+			oauthBusyProvider: null,
+			connectedAccountsOpen: false,
+			identities: [],
+			identitiesLoading: false,
+			identityBusyId: null,
 			...overrides
 		};
 
@@ -74,6 +79,11 @@
 			verifyOtpCode: async () => {},
 			resendOtpCode: async () => {},
 			backToEmail() {},
+			startOAuthSignIn() {},
+			openConnectedAccounts: async () => {},
+			closeConnectedAccounts() {},
+			connectOAuthProvider() {},
+			unlinkOAuthIdentity: async () => {},
 			selectAccountSession: async () => {},
 			useAnonymousAccount: async () => {},
 			logoutAccountSession: async () => {}
@@ -93,6 +103,45 @@
 </Story>
 
 <Story name="Account switcher" args={{ controller: createController({ accountModalOpen: true }) }}>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
+</Story>
+
+<Story
+	name="Already signed into this account"
+	args={{
+		controller: createController({
+			accountModalOpen: true,
+			authMessage: 'Already signed into this account.'
+		})
+	}}
+>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
+</Story>
+
+<Story
+	name="Connected accounts dialog"
+	args={{
+		controller: createController({
+			connectedAccountsOpen: true,
+			identities: [
+				{
+					id: 'identity-email',
+					provider: 'email',
+					displayName: 'Taylor',
+					email: 'taylor@example.com',
+					createdAt: '2026-01-01T00:00:00.000Z'
+				},
+				{
+					id: 'identity-github',
+					provider: 'github',
+					displayName: 'taylor-dev',
+					email: 'taylor@example.com',
+					createdAt: '2026-01-02T00:00:00.000Z'
+				}
+			]
+		})
+	}}
+>
 	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
 </Story>
 

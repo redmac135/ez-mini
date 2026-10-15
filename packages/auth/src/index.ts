@@ -11,6 +11,17 @@ export interface AuthSessionSummary {
 export interface AuthSessionResponse {
 	activeSession: AuthSessionSummary | null;
 	sessions: AuthSessionSummary[];
+	alreadySignedIn?: boolean;
+}
+
+export type OAuthProvider = 'github' | 'azure';
+
+export interface AuthIdentity {
+	id: string;
+	provider: string;
+	displayName: string | null;
+	email: string | null;
+	createdAt: string | null;
 }
 
 export interface AuthClientOptions {
@@ -37,6 +48,15 @@ export interface AuthClient {
 	switchSession(sessionId: string): Promise<AuthSessionResponse>;
 	useAnonymous(): Promise<AuthSessionResponse>;
 	logout(options?: { all?: boolean; sessionId?: string }): Promise<AuthSessionResponse>;
+	getOAuthStartUrl?(provider: OAuthProvider, returnTo: string): string;
+	beginOAuthLink?(provider: OAuthProvider, returnTo: string): Promise<{ authorizationUrl: string }>;
+	getIdentities?(): Promise<{ identities: AuthIdentity[] }>;
+	getProfile?(): Promise<{ displayName: string; customDisplayName: string | null }>;
+	updateProfile?(displayName: string): Promise<{
+		displayName: string;
+		customDisplayName: string | null;
+	}>;
+	unlinkIdentity?(identityId: string): Promise<{ identities: AuthIdentity[] }>;
 	authFetch(input: string, init?: RequestInit): Promise<Response>;
 	getBroadcastRelayUrl(): string;
 }
@@ -119,6 +139,33 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
 				method: 'POST',
 				body: options.sessionId ? JSON.stringify({ sessionId: options.sessionId }) : undefined
 			});
+		},
+		getOAuthStartUrl(provider, returnTo) {
+			const url = new URL(`${apiUrl}/auth/oauth/start`);
+			url.searchParams.set('provider', provider);
+			url.searchParams.set('return_to', returnTo);
+			return url.toString();
+		},
+		async beginOAuthLink(provider, returnTo) {
+			return request('/auth/oauth/link', {
+				method: 'POST',
+				body: JSON.stringify({ provider, returnTo })
+			});
+		},
+		getIdentities() {
+			return request('/auth/identities');
+		},
+		getProfile() {
+			return request('/auth/profile');
+		},
+		updateProfile(displayName: string) {
+			return request('/auth/profile', {
+				method: 'PUT',
+				body: JSON.stringify({ displayName })
+			});
+		},
+		unlinkIdentity(identityId) {
+			return request(`/auth/identities/${encodeURIComponent(identityId)}`, { method: 'DELETE' });
 		},
 		getBroadcastRelayUrl() {
 			return `${apiUrl}/auth/broadcast-frame`;

@@ -8,6 +8,7 @@
 <script lang="ts">
 	let verifiedCode = $state('');
 	let submittedEmail = $state('');
+	let selectedProvider = $state('');
 </script>
 
 <Story
@@ -24,6 +25,35 @@
 		<p aria-live="polite">
 			{submittedEmail ? `Submitted email: ${submittedEmail}` : 'No email submitted'}
 		</p>
+	{/snippet}
+</Story>
+
+<Story
+	name="Starts GitHub sign-in"
+	args={{ step: 'email', email: '' }}
+	play={async ({ canvas, userEvent }) => {
+		await userEvent.click(canvas.getByRole('button', { name: 'GitHub' }));
+		await expect(canvas.getByText('Starting GitHub sign-in')).toBeVisible();
+	}}
+>
+	{#snippet template(args)}
+		<LoginModal
+			{...args}
+			onClose={() => {}}
+			onSubmitEmail={() => {}}
+			onOAuthSignIn={(provider) => (selectedProvider = provider)}
+		/>
+		<p aria-live="polite">
+			{selectedProvider
+				? `Starting ${selectedProvider === 'azure' ? 'Microsoft' : 'GitHub'} sign-in`
+				: 'No provider selected'}
+		</p>
+	{/snippet}
+</Story>
+
+<Story name="Microsoft sign-in in progress" args={{ step: 'email', oauthBusyProvider: 'azure' }}>
+	{#snippet template(args)}
+		<LoginModal {...args} onClose={() => {}} onSubmitEmail={() => {}} />
 	{/snippet}
 </Story>
 

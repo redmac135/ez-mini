@@ -123,6 +123,19 @@ export async function deleteSession(env: Env, session: StoredSession) {
 	await env.SESSIONS.delete(sessionKey(session.deviceId, session.sessionId));
 }
 
+export function getAuthUserDisplayName(user: SupabaseSessionResponse['user']) {
+	const customName = user.user_metadata?.display_name;
+	if (typeof customName === 'string' && customName.trim()) return customName.trim();
+	for (const identity of user.identities ?? []) {
+		const data = identity.identity_data ?? {};
+		for (const key of ['user_name', 'preferred_username', 'login', 'full_name', 'name']) {
+			const value = data[key];
+			if (typeof value === 'string' && value.trim()) return value.trim();
+		}
+	}
+	return user.email?.trim() || user.id;
+}
+
 export function activateSession(headers: Headers, sessionId: string, env: Env) {
 	setCookie(headers, ACTIVE_SESSION_COOKIE, sessionId, env);
 }
@@ -144,7 +157,7 @@ function toPublicSession(session: StoredSession, activeSessionId: string | null)
 		sessionId: session.sessionId,
 		userId: session.userId,
 		email: session.email,
-		username: session.email ?? session.userId,
+		username: session.displayName || session.email || session.userId,
 		createdAt: session.createdAt,
 		lastUsedAt: session.lastUsedAt,
 		active: session.sessionId === activeSessionId
@@ -162,6 +175,9 @@ function isStoredSession(value: unknown): value is StoredSession {
 		typeof record.deviceId === 'string' &&
 		typeof record.userId === 'string' &&
 		(typeof record.email === 'string' || record.email === null) &&
+		(record.displayName === undefined ||
+			typeof record.displayName === 'string' ||
+			record.displayName === null) &&
 		typeof record.supabaseAccessToken === 'string' &&
 		typeof record.supabaseRefreshToken === 'string' &&
 		(typeof record.expiresAt === 'number' || record.expiresAt === null) &&

@@ -35,7 +35,7 @@ test('CORS only reflects configured origins', () => {
 
 	assert.equal(allowed.get('access-control-allow-origin'), 'https://app.example.test');
 	assert.equal(allowed.get('vary'), 'Origin');
-	assert.equal(allowed.get('access-control-allow-methods'), 'GET,POST,PATCH,OPTIONS');
+	assert.equal(allowed.get('access-control-allow-methods'), 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
 	assert.equal(denied.get('access-control-allow-origin'), null);
 });
 
