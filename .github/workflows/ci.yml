@@ -70,4 +70,4 @@ jobs:
             echo "CLOUDFLARE_ACCOUNT_ID repository variable is required to deploy."
             exit 1
           fi
-          pnpm deploy
+          pnpm run deploy
