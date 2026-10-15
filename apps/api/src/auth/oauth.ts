@@ -133,10 +133,22 @@ export async function completeOAuth(
 		return redirectWithResult(headers, defaultReturnTo(env), 'error', 'expired');
 	}
 	if (rawFlow.deviceId !== context.deviceId) {
-		return redirectWithResult(headers, rawFlow.returnTo, 'error', 'session_mismatch');
+		return redirectWithResult(
+			headers,
+			rawFlow.returnTo,
+			'error',
+			'session_mismatch',
+			rawFlow.intent
+		);
 	}
 	if (rawFlow.intent === 'link' && context.activeSessionId !== rawFlow.sessionId) {
-		return redirectWithResult(headers, rawFlow.returnTo, 'error', 'session_changed');
+		return redirectWithResult(
+			headers,
+			rawFlow.returnTo,
+			'error',
+			'session_changed',
+			rawFlow.intent
+		);
 	}
 	const providerError = url.searchParams.get('error');
 	if (providerError || !url.searchParams.get('code')) {
@@ -144,7 +156,8 @@ export async function completeOAuth(
 			headers,
 			rawFlow.returnTo,
 			'error',
-			providerError === 'access_denied' ? 'cancelled' : 'provider'
+			providerError === 'access_denied' ? 'cancelled' : 'provider',
+			rawFlow.intent
 		);
 	}
 
@@ -158,7 +171,13 @@ export async function completeOAuth(
 		if (rawFlow.intent === 'link') {
 			const prior = await getOwnedSession(env, context.deviceId, rawFlow.sessionId ?? '');
 			if (authSession.user.id !== prior.userId) {
-				return redirectWithResult(headers, rawFlow.returnTo, 'error', 'account_changed');
+				return redirectWithResult(
+					headers,
+					rawFlow.returnTo,
+					'error',
+					'account_changed',
+					rawFlow.intent
+				);
 			}
 			await putSession(env, {
 				...prior,
@@ -200,13 +219,13 @@ export async function completeOAuth(
 		}
 		const reason =
 			rawFlow.intent === 'sign-in' && alreadySignedIn ? 'already_signed_in' : rawFlow.intent;
-		return redirectWithResult(headers, rawFlow.returnTo, 'success', reason);
+		return redirectWithResult(headers, rawFlow.returnTo, 'success', reason, rawFlow.intent);
 	} catch (error) {
 		const reason =
 			error instanceof ApiError && /identity_already_exists|already linked/i.test(error.message)
 				? 'identity_exists'
 				: 'exchange_failed';
-		return redirectWithResult(headers, rawFlow.returnTo, 'error', reason);
+		return redirectWithResult(headers, rawFlow.returnTo, 'error', reason, rawFlow.intent);
 	}
 }
 
@@ -285,11 +304,14 @@ function redirectWithResult(
 	headers: Headers,
 	returnTo: string,
 	status: 'success' | 'error',
-	reason: string
+	reason: string,
+	intent?: OAuthFlow['intent']
 ) {
 	const redirect = new URL(returnTo);
 	redirect.searchParams.set('oauth', status);
 	redirect.searchParams.set('oauth_reason', reason);
+	redirect.searchParams.delete('oauth_intent');
+	if (intent) redirect.searchParams.set('oauth_intent', intent);
 	headers.set('location', redirect.toString());
 	return new Response(null, { status: 302, headers });
 }

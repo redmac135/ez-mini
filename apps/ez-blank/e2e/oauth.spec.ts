@@ -71,6 +71,34 @@ test('OAuth startup failure returns to login with an app-visible message', async
 	await expect(login.getByText('Unable to start provider sign-in. Please try again.')).toBeVisible();
 });
 
+test('cancelled OAuth linking keeps connected accounts open with a retryable message', async ({
+	page
+}) => {
+	await mockApi(
+		page,
+		async (route) => {
+			const request = route.request();
+			const pathname = new URL(request.url()).pathname;
+			if (pathname.endsWith('/auth/session')) {
+				await route.fulfill({ json: { activeSession, sessions: [activeSession] } });
+				return;
+			}
+			if (pathname.endsWith('/auth/identities')) {
+				await route.fulfill({ json: { identities } });
+				return;
+			}
+			await route.fulfill({ json: {} });
+		},
+		true
+	);
+	await page.goto('/?oauth=error&oauth_reason=cancelled&oauth_intent=link');
+
+	const connectedAccounts = page.getByRole('dialog', { name: 'Connected accounts' });
+	await expect(connectedAccounts).toBeVisible();
+	await expect(connectedAccounts.getByText('Connecting this provider was cancelled.')).toBeVisible();
+	await expect(page.getByRole('dialog', { name: 'Login' })).toHaveCount(0);
+});
+
 test('OAuth return for the current account opens an already-signed-in confirmation', async ({
 	page
 }) => {

@@ -578,6 +578,77 @@ test('adding a different email account preserves the current device session', as
 	assert.equal(body.alreadySignedIn, undefined);
 });
 
+test('cancelled OAuth linking returns to the app with link intent', async () => {
+	const deviceId = 'link-cancel-device';
+	const sessionId = 'link-cancel-session';
+	await env.SESSIONS.put(
+		sessionKey(deviceId, sessionId),
+		JSON.stringify({
+			sessionId,
+			deviceId,
+			userId: 'user-a',
+			email: 'a@example.com',
+			supabaseAccessToken: 'access-user-a',
+			supabaseRefreshToken: 'refresh-user-a',
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+			createdAt: 1,
+			lastUsedAt: 1
+		})
+	);
+	let callbackUrl = '';
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		if (url.pathname === '/auth/v1/token') {
+			return Response.json({
+				access_token: 'access-user-a',
+				refresh_token: 'refresh-user-a',
+				expires_at: Math.floor(Date.now() / 1000) + 3600,
+				user: { id: 'user-a', email: 'a@example.com' }
+			});
+		}
+		callbackUrl = url.searchParams.get('redirect_to') ?? '';
+		return new Response(null, {
+			status: 302,
+			headers: { location: 'https://github.com/login/oauth/authorize' }
+		});
+	});
+	const start = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/oauth/link', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`
+			},
+			body: JSON.stringify({
+				provider: 'github',
+				returnTo: 'https://blank.ethanzhao.ca/'
+			})
+		}),
+		env
+	);
+	const { authorizationUrl } = (await start.json()) as { authorizationUrl: string };
+	const flowId = new URL(callbackUrl).searchParams.get('flow');
+	assert.ok(flowId);
+	const callback = await handleRequest(
+		new Request(
+			`https://mini.api.ethanzhao.ca/v1/auth/oauth/callback?flow=${flowId}&error=access_denied`,
+			{
+				headers: {
+					cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`
+				}
+			}
+		),
+		env
+	);
+	const returnUrl = new URL(callback.headers.get('location') ?? '');
+
+	assert.equal(start.status, 200);
+	assert.equal(authorizationUrl, 'https://github.com/login/oauth/authorize');
+	assert.equal(callback.status, 302);
+	assert.equal(returnUrl.searchParams.get('oauth_reason'), 'cancelled');
+	assert.equal(returnUrl.searchParams.get('oauth_intent'), 'link');
+});
+
 test('linked identities require an active session and unlink through the authenticated Supabase user', async () => {
 	const unauthorized = await handleRequest(
 		new Request('https://mini.api.ethanzhao.ca/v1/auth/identities'),

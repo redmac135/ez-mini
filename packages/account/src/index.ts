@@ -130,6 +130,7 @@ interface OAuthCallbackResult {
 	alreadySignedIn: boolean;
 	linked: boolean;
 	showLogin: boolean;
+	linkAttempt: boolean;
 }
 
 export function createAccountDataController<TData>(
@@ -231,11 +232,11 @@ export function createAccountDataController<TData>(
 				setState({
 					accountModalOpen: oauthResult.alreadySignedIn,
 					loginModalOpen: oauthResult.showLogin,
-					connectedAccountsOpen: oauthResult.linked,
+					connectedAccountsOpen: oauthResult.linkAttempt,
 					authMessage: oauthResult.message
 				});
 			}
-			if (state.connectedAccountsOpen) await openConnectedAccounts();
+			if (state.connectedAccountsOpen) await openConnectedAccounts(oauthResult?.message);
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
 			setState({
@@ -420,9 +421,9 @@ export function createAccountDataController<TData>(
 		startOAuth(provider);
 	}
 
-	async function openConnectedAccounts() {
+	async function openConnectedAccounts(message = '') {
 		if (!state.user || state.authBusy || !options.authClient?.getIdentities) return;
-		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: '' });
+		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: message });
 		try {
 			const [result, profile] = await Promise.all([
 				options.authClient.getIdentities(),
@@ -535,6 +536,7 @@ export function createAccountDataController<TData>(
 		const returnUrl = new URL(window.location.href);
 		returnUrl.searchParams.delete('oauth');
 		returnUrl.searchParams.delete('oauth_reason');
+		returnUrl.searchParams.delete('oauth_intent');
 		return returnUrl.toString();
 	}
 
@@ -544,8 +546,10 @@ export function createAccountDataController<TData>(
 		const result = url.searchParams.get('oauth');
 		if (!result) return null;
 		const reason = url.searchParams.get('oauth_reason');
+		const linkAttempt = url.searchParams.get('oauth_intent') === 'link';
 		url.searchParams.delete('oauth');
 		url.searchParams.delete('oauth_reason');
+		url.searchParams.delete('oauth_intent');
 		if (options.replaceOAuthUrl) {
 			options.replaceOAuthUrl(url.toString());
 		} else {
@@ -563,6 +567,11 @@ export function createAccountDataController<TData>(
 			provider: 'The provider could not complete sign-in.',
 			exchange_failed: 'Unable to complete provider sign-in.'
 		};
+		const linkFailureMessages: Record<string, string> = {
+			cancelled: 'Connecting this provider was cancelled.',
+			provider: 'The provider could not complete linking.',
+			exchange_failed: 'Unable to connect this provider.'
+		};
 		const alreadySignedIn = result === 'success' && reason === 'already_signed_in';
 		const linked = result === 'success' && reason === 'link';
 		const successfulSignIn =
@@ -575,11 +584,14 @@ export function createAccountDataController<TData>(
 						: linked
 							? 'Account connected.'
 							: 'Signed in successfully.'
+				: linkAttempt
+					? (linkFailureMessages[reason ?? ''] ?? 'Unable to connect this provider.')
 					: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,
 			linked,
-			showLogin: result !== 'success'
+			showLogin: result !== 'success' && !linkAttempt,
+			linkAttempt
 		} satisfies OAuthCallbackResult;
 	}
 
