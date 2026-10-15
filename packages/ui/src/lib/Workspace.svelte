@@ -7,7 +7,7 @@
 <main
 	class:compactTop={topPadding === 'compact'}
 	class:noTop={topPadding === 'none'}
-	class:fullHeight={fullHeight}
+	class:fullHeight
 	class="workspace"
 	style={`--workspace-max-width: ${maxWidth}`}
 >

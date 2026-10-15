@@ -265,7 +265,9 @@ test('the app keeps page margins inside the viewport in every editor state', asy
 	await expect(entryCards).toHaveCount(30);
 	await expect
 		.poll(() =>
-			page.locator('.timeline-scroll').evaluate((element) => element.scrollHeight > element.clientHeight)
+			page
+				.locator('.timeline-scroll')
+				.evaluate((element) => element.scrollHeight > element.clientHeight)
 		)
 		.toBe(true);
 	await expectNoPageOverflow(page);
