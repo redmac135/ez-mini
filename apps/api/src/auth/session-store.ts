@@ -107,11 +107,10 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 		storedSessions.map(async (storedSession) => {
 			try {
 				const session = await refreshStoredSession(env, storedSession, false);
-				const user = await supabaseAuth<{ user_metadata?: Record<string, unknown> }>(
-					env,
-					'/user',
-					{ method: 'GET', accessToken: session.supabaseAccessToken }
-				);
+				const user = await supabaseAuth<{ user_metadata?: Record<string, unknown> }>(env, '/user', {
+					method: 'GET',
+					accessToken: session.supabaseAccessToken
+				});
 				const displayName = getPersistedDisplayName(user.user_metadata);
 				if (!displayName || displayName === session.displayName) return session;
 				const updatedSession = { ...session, displayName };
@@ -165,8 +164,9 @@ export async function getDeviceUserSessionId(deviceId: string, userId: string) {
 		'SHA-256',
 		new TextEncoder().encode(JSON.stringify([deviceId, userId]))
 	);
-	const encoded = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0'))
-		.join('');
+	const encoded = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, '0')
+	).join('');
 	return `account-${encoded}`;
 }
 

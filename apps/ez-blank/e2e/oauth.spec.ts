@@ -52,8 +52,7 @@ test('OAuth startup failure returns to login with an app-visible message', async
 			await route.fulfill({
 				status: 302,
 				headers: {
-					location:
-						'http://localhost:1351/?oauth=error&oauth_reason=provider_start_failed'
+					location: 'http://localhost:1351/?oauth=error&oauth_reason=provider_start_failed'
 				}
 			});
 			return;
@@ -68,7 +67,9 @@ test('OAuth startup failure returns to login with an app-visible message', async
 
 	const login = page.getByRole('dialog', { name: 'Login' });
 	await expect(login).toBeVisible();
-	await expect(login.getByText('Unable to start provider sign-in. Please try again.')).toBeVisible();
+	await expect(
+		login.getByText('Unable to start provider sign-in. Please try again.')
+	).toBeVisible();
 });
 
 test('cancelled OAuth linking keeps connected accounts open with a retryable message', async ({

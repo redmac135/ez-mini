@@ -9,7 +9,10 @@ export class IdentityUnlinkCoordinator {
 	) {}
 
 	async fetch(request: Request) {
-		let response: Response = Response.json({ error: 'Unable to disconnect this account.' }, { status: 502 });
+		let response: Response = Response.json(
+			{ error: 'Unable to disconnect this account.' },
+			{ status: 502 }
+		);
 		await this.state.blockConcurrencyWhile(async () => {
 			try {
 				const body = (await request.json()) as {
@@ -18,7 +21,8 @@ export class IdentityUnlinkCoordinator {
 				};
 				const identityId = typeof body.identityId === 'string' ? body.identityId : '';
 				const accessToken = typeof body.accessToken === 'string' ? body.accessToken : '';
-				if (!identityId || !accessToken) throw new ApiError(400, 'Identity and session are required.');
+				if (!identityId || !accessToken)
+					throw new ApiError(400, 'Identity and session are required.');
 
 				const user = await supabaseAuth<{ identities?: SupabaseIdentity[] }>(this.env, '/user', {
 					method: 'GET',
@@ -38,7 +42,8 @@ export class IdentityUnlinkCoordinator {
 				response = Response.json({ unlinked: true });
 			} catch (error) {
 				const status = error instanceof ApiError ? error.status : 502;
-				const message = error instanceof Error ? error.message : 'Unable to disconnect this account.';
+				const message =
+					error instanceof Error ? error.message : 'Unable to disconnect this account.';
 				response = Response.json({ error: message }, { status });
 			}
 		});

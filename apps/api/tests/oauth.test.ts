@@ -781,7 +781,11 @@ test('simultaneous unlinks serialize identity checks and preserve one sign-in me
 		})
 	);
 	let currentIdentities = [
-		{ identity_id: 'email-identity', provider: 'email', identity_data: { email: 'person@example.com' } },
+		{
+			identity_id: 'email-identity',
+			provider: 'email',
+			identity_data: { email: 'person@example.com' }
+		},
 		{ identity_id: 'github-identity', provider: 'github', identity_data: { user_name: 'person' } }
 	];
 	const deletedIdentities: string[] = [];
@@ -796,18 +800,17 @@ test('simultaneous unlinks serialize identity checks and preserve one sign-in me
 		return Response.json({});
 	});
 	const cookie = `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`;
-	const responses = await Promise.all([
-		'github-identity',
-		'email-identity'
-	].map((identityId) =>
-		handleRequest(
-			new Request(`https://mini.api.ethanzhao.ca/v1/auth/identities/${identityId}`, {
-				method: 'DELETE',
-				headers: { cookie }
-			}),
-			env
+	const responses = await Promise.all(
+		['github-identity', 'email-identity'].map((identityId) =>
+			handleRequest(
+				new Request(`https://mini.api.ethanzhao.ca/v1/auth/identities/${identityId}`, {
+					method: 'DELETE',
+					headers: { cookie }
+				}),
+				env
+			)
 		)
-	));
+	);
 	const statuses = responses.map((response) => response.status).sort();
 
 	assert.deepEqual(statuses, [200, 409]);

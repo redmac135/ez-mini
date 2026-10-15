@@ -209,11 +209,10 @@ test('session startup uses cached inactive accounts while account listing refres
 		sessions: Array<{ sessionId: string; username: string }>;
 	};
 	assert.equal(accounts.status, 200);
-	assert.deepEqual(upstreamRequests.sort(), [
-		'GET /auth/v1/user',
-		'GET /auth/v1/user',
-		'POST /auth/v1/token'
-	].sort());
+	assert.deepEqual(
+		upstreamRequests.sort(),
+		['GET /auth/v1/user', 'GET /auth/v1/user', 'POST /auth/v1/token'].sort()
+	);
 	assert.deepEqual(
 		accountBody.sessions.map(({ sessionId, username }) => ({ sessionId, username })),
 		[

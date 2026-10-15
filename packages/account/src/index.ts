@@ -579,9 +579,9 @@ export function createAccountDataController<TData>(
 						: linked
 							? 'Account connected.'
 							: 'Signed in successfully.'
-				: linkAttempt
-					? 'Failed to connect. Please try again.'
-					: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
+					: linkAttempt
+						? 'Failed to connect. Please try again.'
+						: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,
 			linked,
