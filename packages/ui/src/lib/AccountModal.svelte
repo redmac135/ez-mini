@@ -13,6 +13,7 @@
 	import Modal from './Modal.svelte';
 
 	export let accounts: AccountEntry[] = [];
+	export let embedded = false;
 	export let message = '';
 	export let busy = false;
 	export let syncBusy = false;
@@ -29,7 +30,7 @@
 	}
 </script>
 
-<Modal title="Accounts" {onClose}>
+<Modal title="Accounts" {embedded} {onClose}>
 	<div class="account-list">
 		{#each accounts as account (account.sessionId)}
 			<div class:active={account.active} class="account-row">

@@ -33,7 +33,7 @@ export class AuthApiError extends Error {
 export interface AuthClient {
 	login(email: string): Promise<{ sent: true }>;
 	verify(email: string, token: string): Promise<AuthSessionResponse>;
-	getSession(): Promise<AuthSessionResponse>;
+	getSession(options?: { signal?: AbortSignal }): Promise<AuthSessionResponse>;
 	switchSession(sessionId: string): Promise<AuthSessionResponse>;
 	useAnonymous(): Promise<AuthSessionResponse>;
 	logout(options?: { all?: boolean; sessionId?: string }): Promise<AuthSessionResponse>;
@@ -97,8 +97,8 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
 				body: JSON.stringify({ email, token })
 			});
 		},
-		getSession() {
-			return request('/auth/session');
+		getSession(options = {}) {
+			return request('/auth/session', { signal: options.signal });
 		},
 		switchSession(sessionId: string) {
 			return request('/auth/switch', {
