@@ -73,7 +73,7 @@
 <Story
 	name="Login action opens the dialog"
 	play={async ({ canvas, userEvent }) => {
-		await userEvent.click(canvas.getByRole('menuitem', { name: 'Log in' }));
+		await userEvent.click(canvas.getByRole('menuitem', { name: 'Login' }));
 		await expect(canvas.getByRole('dialog', { name: 'Login' })).toBeInTheDocument();
 	}}
 >
@@ -85,7 +85,7 @@
 					role="menuitem"
 					onclick={() => void loginController.openLoginOrAccountList()}
 				>
-					Log in
+					Login
 				</button>
 			</FloatingMenu>
 		</div>

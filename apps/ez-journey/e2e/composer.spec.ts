@@ -166,7 +166,7 @@ test('app menu toggles theme and opens the shared login flow', async ({ page }) 
 	);
 
 	await page.getByRole('button', { name: 'Open app menu' }).click();
-	await page.getByRole('menuitem', { name: 'Log in' }).click();
+	await page.getByRole('menuitem', { name: 'Login' }).click();
 	await expect(page.getByRole('dialog')).toBeVisible();
 	await expect(page.getByRole('dialog')).toContainText('Email');
 });

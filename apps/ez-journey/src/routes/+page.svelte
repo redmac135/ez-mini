@@ -495,7 +495,7 @@
 										type="button"
 										role="menuitem"
 										disabled={!auth || accountState.authBusy}
-										onclick={account.openLoginOrAccountList}>Log in</button
+										onclick={account.openLoginOrAccountList}>Login</button
 									>
 								{/if}
 							</FloatingMenu>
