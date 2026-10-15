@@ -20,7 +20,17 @@ import {
 } from './session-store.ts';
 
 const OAUTH_FLOW_TTL_SECONDS = 10 * 60;
+const OAUTH_FLOW_RECOVERY_TTL_SECONDS = 30 * 60;
 const OAUTH_PROVIDERS = new Set(['github', 'azure']);
+
+interface OAuthFlowRecovery {
+	flowId: string;
+	deviceId: string;
+	intent: OAuthFlow['intent'];
+	returnTo: string;
+	sessionId: string | null;
+	expiresAt: number;
+}
 
 export async function startOAuth(
 	request: Request,
@@ -68,6 +78,18 @@ export async function startOAuth(
 	await env.SESSIONS.put(oauthFlowKey(flow.flowId), JSON.stringify(flow), {
 		expirationTtl: OAUTH_FLOW_TTL_SECONDS
 	});
+	await env.SESSIONS.put(
+		oauthFlowRecoveryKey(flow.flowId),
+		JSON.stringify({
+			flowId: flow.flowId,
+			deviceId: flow.deviceId,
+			intent: flow.intent,
+			returnTo: flow.returnTo,
+			sessionId: flow.sessionId,
+			expiresAt: Date.now() + OAUTH_FLOW_RECOVERY_TTL_SECONDS * 1000
+		} satisfies OAuthFlowRecovery),
+		{ expirationTtl: OAUTH_FLOW_RECOVERY_TTL_SECONDS }
+	);
 
 	const authUrl = new URL(
 		`${env.SUPABASE_URL.replace(/\/+$/, '')}/auth/v1/${intent === 'link' ? 'user/identities/authorize' : 'authorize'}`
@@ -130,6 +152,21 @@ export async function completeOAuth(
 	const rawFlow = await env.SESSIONS.get(key, 'json');
 	await env.SESSIONS.delete(key);
 	if (!isOAuthFlow(rawFlow) || rawFlow.flowId !== flowId) {
+		const rawRecovery = await env.SESSIONS.get(oauthFlowRecoveryKey(flowId), 'json');
+		if (
+			isOAuthFlowRecovery(rawRecovery) &&
+			rawRecovery.flowId === flowId &&
+			rawRecovery.deviceId === context.deviceId &&
+			rawRecovery.expiresAt > Date.now()
+		) {
+			return redirectWithResult(
+				headers,
+				rawRecovery.returnTo,
+				'error',
+				'expired',
+				rawRecovery.intent
+			);
+		}
 		return redirectWithResult(headers, defaultReturnTo(env), 'error', 'expired');
 	}
 	if (rawFlow.deviceId !== context.deviceId) {
@@ -320,6 +357,10 @@ function oauthFlowKey(flowId: string) {
 	return `oauth-flow:${flowId}`;
 }
 
+function oauthFlowRecoveryKey(flowId: string) {
+	return `oauth-flow-recovery:${flowId}`;
+}
+
 function defaultReturnTo(env: Env) {
 	const firstAllowedOrigin = (env.CORS_ORIGINS ?? '')
 		.split(',')
@@ -380,5 +421,18 @@ function isOAuthFlow(value: unknown): value is OAuthFlow {
 		typeof flow.codeVerifier === 'string' &&
 		typeof flow.returnTo === 'string' &&
 		(flow.sessionId === null || typeof flow.sessionId === 'string')
+	);
+}
+
+function isOAuthFlowRecovery(value: unknown): value is OAuthFlowRecovery {
+	if (!value || typeof value !== 'object') return false;
+	const recovery = value as Partial<OAuthFlowRecovery>;
+	return (
+		typeof recovery.flowId === 'string' &&
+		typeof recovery.deviceId === 'string' &&
+		(recovery.intent === 'sign-in' || recovery.intent === 'link') &&
+		typeof recovery.returnTo === 'string' &&
+		(recovery.sessionId === null || typeof recovery.sessionId === 'string') &&
+		typeof recovery.expiresAt === 'number'
 	);
 }

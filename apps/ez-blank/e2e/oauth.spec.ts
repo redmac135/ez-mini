@@ -95,7 +95,16 @@ test('cancelled OAuth linking keeps connected accounts open with a retryable mes
 
 	const connectedAccounts = page.getByRole('dialog', { name: 'Connected accounts' });
 	await expect(connectedAccounts).toBeVisible();
-	await expect(connectedAccounts.getByText('Connecting this provider was cancelled.')).toBeVisible();
+	await expect(connectedAccounts.getByText('Failed to connect. Please try again.')).toBeVisible();
+	await expect(connectedAccounts.getByRole('button', { name: 'Connect Microsoft' })).toBeVisible();
+	await expect(page.getByRole('dialog', { name: 'Login' })).toHaveCount(0);
+});
+
+test('plain page refresh does not create a pending OAuth link result', async ({ page }) => {
+	await mockApi(page, undefined, true);
+	await page.goto('/');
+
+	await expect(page.getByRole('dialog', { name: 'Connected accounts' })).toHaveCount(0);
 	await expect(page.getByRole('dialog', { name: 'Login' })).toHaveCount(0);
 });
 

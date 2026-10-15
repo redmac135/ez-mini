@@ -567,11 +567,6 @@ export function createAccountDataController<TData>(
 			provider: 'The provider could not complete sign-in.',
 			exchange_failed: 'Unable to complete provider sign-in.'
 		};
-		const linkFailureMessages: Record<string, string> = {
-			cancelled: 'Connecting this provider was cancelled.',
-			provider: 'The provider could not complete linking.',
-			exchange_failed: 'Unable to connect this provider.'
-		};
 		const alreadySignedIn = result === 'success' && reason === 'already_signed_in';
 		const linked = result === 'success' && reason === 'link';
 		const successfulSignIn =
@@ -585,7 +580,7 @@ export function createAccountDataController<TData>(
 							? 'Account connected.'
 							: 'Signed in successfully.'
 				: linkAttempt
-					? (linkFailureMessages[reason ?? ''] ?? 'Unable to connect this provider.')
+					? 'Failed to connect. Please try again.'
 					: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,

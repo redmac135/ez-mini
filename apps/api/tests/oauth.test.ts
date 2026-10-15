@@ -578,7 +578,7 @@ test('adding a different email account preserves the current device session', as
 	assert.equal(body.alreadySignedIn, undefined);
 });
 
-test('cancelled OAuth linking returns to the app with link intent', async () => {
+test('cancelled and replayed OAuth linking returns retain link intent', async () => {
 	const deviceId = 'link-cancel-device';
 	const sessionId = 'link-cancel-session';
 	await env.SESSIONS.put(
@@ -647,6 +647,23 @@ test('cancelled OAuth linking returns to the app with link intent', async () => 
 	assert.equal(callback.status, 302);
 	assert.equal(returnUrl.searchParams.get('oauth_reason'), 'cancelled');
 	assert.equal(returnUrl.searchParams.get('oauth_intent'), 'link');
+
+	const replay = await handleRequest(
+		new Request(
+			`https://mini.api.ethanzhao.ca/v1/auth/oauth/callback?flow=${flowId}&code=provider-code`,
+			{
+				headers: {
+					cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`
+				}
+			}
+		),
+		env
+	);
+	const replayUrl = new URL(replay.headers.get('location') ?? '');
+	assert.equal(replay.status, 302);
+	assert.equal(replayUrl.origin, 'https://blank.ethanzhao.ca');
+	assert.equal(replayUrl.searchParams.get('oauth_reason'), 'expired');
+	assert.equal(replayUrl.searchParams.get('oauth_intent'), 'link');
 });
 
 test('linked identities require an active session and unlink through the authenticated Supabase user', async () => {
