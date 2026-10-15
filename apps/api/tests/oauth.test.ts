@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handleRequest, type Env } from '../src/index.ts';
+import { IdentityUnlinkCoordinator } from '../src/auth/identity-unlink-coordinator.ts';
 import { sessionKey } from '../src/auth/session-store.ts';
 
 class MemoryKv {
@@ -36,8 +37,22 @@ const env = {
 	CORS_ORIGINS: 'https://blank.ethanzhao.ca,http://localhost:1351'
 } as unknown as Env;
 
+class SerialCoordinatorState {
+	private pending = Promise.resolve();
+
+	blockConcurrencyWhile<T>(callback: () => Promise<T>) {
+		const result = this.pending.then(callback, callback);
+		this.pending = result.then(
+			() => undefined,
+			() => undefined
+		);
+		return result;
+	}
+}
+
 test.beforeEach(() => {
 	env.SESSIONS = new MemoryKv() as unknown as KVNamespace;
+	env.IDENTITY_UNLINKER = createUnlinkNamespace(env);
 });
 
 test('OAuth rejects return URLs outside the configured app origins', async () => {
@@ -659,6 +674,82 @@ test('linked identities require an active session and unlink through the authent
 	});
 	assert.equal(deleteCount, 1);
 });
+
+test('simultaneous unlinks serialize identity checks and preserve one sign-in method', async () => {
+	const deviceId = 'concurrent-unlink-device';
+	const sessionId = 'concurrent-unlink-session';
+	await env.SESSIONS.put(
+		sessionKey(deviceId, sessionId),
+		JSON.stringify({
+			sessionId,
+			deviceId,
+			userId: 'concurrent-unlink-user',
+			email: 'person@example.com',
+			supabaseAccessToken: 'unlink-access',
+			supabaseRefreshToken: 'unlink-refresh',
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+			createdAt: 1,
+			lastUsedAt: 1
+		})
+	);
+	let currentIdentities = [
+		{ identity_id: 'email-identity', provider: 'email', identity_data: { email: 'person@example.com' } },
+		{ identity_id: 'github-identity', provider: 'github', identity_data: { user_name: 'person' } }
+	];
+	const deletedIdentities: string[] = [];
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		assert.equal(request.headers.get('authorization'), 'Bearer unlink-access');
+		if (request.method === 'GET') return Response.json({ identities: currentIdentities });
+		assert.equal(request.method, 'DELETE');
+		const identityId = decodeURIComponent(url.pathname.split('/').at(-1) ?? '');
+		deletedIdentities.push(identityId);
+		currentIdentities = currentIdentities.filter((identity) => identity.identity_id !== identityId);
+		return Response.json({});
+	});
+	const cookie = `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`;
+	const responses = await Promise.all([
+		'github-identity',
+		'email-identity'
+	].map((identityId) =>
+		handleRequest(
+			new Request(`https://mini.api.ethanzhao.ca/v1/auth/identities/${identityId}`, {
+				method: 'DELETE',
+				headers: { cookie }
+			}),
+			env
+		)
+	));
+	const statuses = responses.map((response) => response.status).sort();
+
+	assert.deepEqual(statuses, [200, 409]);
+	assert.equal(deletedIdentities.length, 1);
+	assert.equal(currentIdentities.length, 1);
+});
+
+function createUnlinkNamespace(env: Env) {
+	const coordinators = new Map<string, IdentityUnlinkCoordinator>();
+	return {
+		idFromName(name: string) {
+			return name;
+		},
+		get(id: string) {
+			let coordinator = coordinators.get(id);
+			if (!coordinator) {
+				coordinator = new IdentityUnlinkCoordinator(
+					new SerialCoordinatorState() as unknown as DurableObjectState,
+					env
+				);
+				coordinators.set(id, coordinator);
+			}
+			return {
+				fetch(request: Request) {
+					return coordinator!.fetch(request);
+				}
+			};
+		}
+	} as unknown as DurableObjectNamespace;
+}
 
 function mockFetch(handler: (request: Request) => Promise<Response> | Response) {
 	globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>

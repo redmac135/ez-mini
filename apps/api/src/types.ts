@@ -1,5 +1,6 @@
 export interface Env {
 	SESSIONS: KVNamespace;
+	IDENTITY_UNLINKER: DurableObjectNamespace;
 	SUPABASE_URL: string;
 	SUPABASE_PUBLISHABLE_KEY: string;
 	API_PUBLIC_URL?: string;

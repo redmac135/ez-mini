@@ -16,6 +16,7 @@ import { handleJourney } from './journey/routes.ts';
 import { handleRepeat } from './repeat/routes.ts';
 import { handleSettings } from './settings/routes.ts';
 import type { Env } from './types.ts';
+export { IdentityUnlinkCoordinator } from './auth/identity-unlink-coordinator.ts';
 
 export type { Env } from './types.ts';
 

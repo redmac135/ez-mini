@@ -228,21 +228,22 @@ export async function unlinkOAuthIdentity(identityId: string, env: Env, context:
 		env,
 		await getOwnedSession(env, context.deviceId, context.activeSessionId ?? '')
 	);
-	const user = await supabaseAuth<{ identities?: SupabaseIdentity[] }>(env, '/user', {
-		method: 'GET',
-		accessToken: session.supabaseAccessToken
-	});
-	const identities = user.identities ?? [];
-	if (!identities.some((identity) => identity.identity_id === identityId)) {
-		throw new ApiError(404, 'Connected identity not found.');
+	const coordinatorId = env.IDENTITY_UNLINKER.idFromName(session.userId);
+	const coordinator = env.IDENTITY_UNLINKER.get(coordinatorId);
+	const response = await coordinator.fetch(
+		new Request('https://identity-unlinker/unlink', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ identityId, accessToken: session.supabaseAccessToken })
+		})
+	);
+	if (!response.ok) {
+		const result = (await response.json()) as { error?: unknown };
+		throw new ApiError(
+			response.status,
+			typeof result.error === 'string' ? result.error : 'Unable to disconnect this account.'
+		);
 	}
-	if (identities.length < 2) {
-		throw new ApiError(409, 'At least one sign-in method must remain connected.');
-	}
-	await supabaseAuth(env, `/user/identities/${encodeURIComponent(identityId)}`, {
-		method: 'DELETE',
-		accessToken: session.supabaseAccessToken
-	});
 	return listOAuthIdentities(env, context);
 }
 
