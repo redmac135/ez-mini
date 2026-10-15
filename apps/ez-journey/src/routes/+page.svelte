@@ -506,7 +506,11 @@
 		</div>
 	</Navbar>
 
-	<Workspace maxWidth="calc(680px + var(--space-5) + var(--space-5))" topPadding="none">
+	<Workspace
+		maxWidth="calc(680px + var(--space-5) + var(--space-5))"
+		topPadding="none"
+		fullHeight={true}
+	>
 		<div class="composer-slot" class:scrolled={pageScrolled} bind:this={composerSlot}>
 			<section
 				bind:this={composer}
@@ -601,11 +605,6 @@
 </AppShell>
 
 <style>
-	:global(main.workspace) {
-		height: 100dvh;
-		min-height: 0;
-	}
-
 	.navbar-content {
 		width: 100%;
 		min-height: 2rem;

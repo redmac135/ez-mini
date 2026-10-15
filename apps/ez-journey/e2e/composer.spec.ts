@@ -279,7 +279,9 @@ test('the app keeps page margins inside the viewport in every editor state', asy
 	await expectNoPageOverflow(page);
 
 	await page.getByRole('button', { name: 'Save and submit entry' }).click();
-	const entryCard = page.getByRole('button', { name: /open journal entry/i });
+	const entryCard = page.getByRole('button', { name: /open journal entry/i }).filter({
+		hasText: 'A moment to save'
+	});
 	await expect(entryCard).toContainText('A moment to save');
 	await expectNoPageOverflow(page);
 

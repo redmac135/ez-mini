@@ -1,11 +1,13 @@
 <script lang="ts">
 	export let maxWidth = '680px';
 	export let topPadding: 'default' | 'compact' | 'none' = 'default';
+	export let fullHeight = false;
 </script>
 
 <main
 	class:compactTop={topPadding === 'compact'}
 	class:noTop={topPadding === 'none'}
+	class:fullHeight={fullHeight}
 	class="workspace"
 	style={`--workspace-max-width: ${maxWidth}`}
 >
@@ -40,5 +42,10 @@
 
 	.workspace.noTop {
 		padding-top: 0;
+	}
+
+	.workspace.fullHeight {
+		height: 100dvh;
+		min-height: 0;
 	}
 </style>
