@@ -260,6 +260,14 @@ test('saved entries appear in the timeline and open as editable full-screen entr
 
 test('the app keeps page margins inside the viewport in every editor state', async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 800 });
+	await page.goto('/?demo=journey');
+	const entryCards = page.getByRole('button', { name: /open journal entry/i });
+	await expect(entryCards).toHaveCount(30);
+	await expect
+		.poll(() =>
+			page.locator('.timeline-scroll').evaluate((element) => element.scrollHeight > element.clientHeight)
+		)
+		.toBe(true);
 	await expectNoPageOverflow(page);
 
 	const composerEditor = page.getByRole('textbox', { name: 'Markdown editor' });

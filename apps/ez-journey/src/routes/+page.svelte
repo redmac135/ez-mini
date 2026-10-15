@@ -601,6 +601,11 @@
 </AppShell>
 
 <style>
+	:global(main.workspace) {
+		height: 100dvh;
+		min-height: 0;
+	}
+
 	.navbar-content {
 		width: 100%;
 		min-height: 2rem;
