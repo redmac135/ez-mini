@@ -5,6 +5,7 @@
 	import TextInput from './TextInput.svelte';
 
 	export let step: 'email' | 'otp' = 'email';
+	export let embedded = false;
 	export let email = '';
 	export let otp = '';
 	export let message = '';
@@ -19,7 +20,7 @@
 	export let onBackToEmail: () => void = () => {};
 </script>
 
-<Modal title="Login" {onClose}>
+<Modal title="Login" {embedded} {onClose}>
 	{#if step === 'email'}
 		<label class="auth-field">
 			<span>Email</span>

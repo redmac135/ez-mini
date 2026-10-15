@@ -61,6 +61,55 @@ test('opens login flow after an empty saved-session lookup', async () => {
 	account.destroy();
 });
 
+test('shows lookup errors and retries the same login flow', async () => {
+	let calls = 0;
+	const auth = createAuthClient({ activeSession: null, sessions: [] });
+	const getSession = auth.getSession;
+	auth.getSession = async (options) => {
+		calls += 1;
+		if (calls === 1) throw new Error('Network unavailable');
+		return getSession(options);
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.openLoginOrAccountList();
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(account.getState().loginLookup, 'failed');
+	assert.equal(account.getState().authMessage, 'Network unavailable');
+
+	await account.openLoginOrAccountList();
+	assert.equal(account.getState().loginLookup, 'idle');
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(calls, 2);
+	account.destroy();
+});
+
+test('closing the login dialog aborts a pending session lookup', async () => {
+	let lookupSignal: AbortSignal | undefined;
+	const auth = createAuthClient({ activeSession: null, sessions: [] });
+	auth.getSession = (options) => {
+		lookupSignal = options?.signal;
+		return new Promise((_resolve, reject) => {
+			lookupSignal?.addEventListener('abort', () =>
+				reject(new DOMException('Aborted', 'AbortError'))
+			);
+		});
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+	const lookup = account.openLoginOrAccountList();
+
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(account.getState().loginLookup, 'loading');
+	account.closeLoginModal();
+	await lookup;
+
+	assert.equal(lookupSignal?.aborted, true);
+	assert.equal(account.getState().loginModalOpen, false);
+	assert.equal(account.getState().loginLookup, 'idle');
+	assert.equal(account.getState().authBusy, false);
+	account.destroy();
+});
+
 test('verifies otp, closes login modal, and loads account data', async () => {
 	const activeUser = { ...userA, active: true };
 	const auth = createAuthClient({
