@@ -129,6 +129,7 @@ interface OAuthCallbackResult {
 	broadcast: boolean;
 	alreadySignedIn: boolean;
 	linked: boolean;
+	showLogin: boolean;
 }
 
 export function createAccountDataController<TData>(
@@ -229,6 +230,7 @@ export function createAccountDataController<TData>(
 			if (oauthResult) {
 				setState({
 					accountModalOpen: oauthResult.alreadySignedIn,
+					loginModalOpen: oauthResult.showLogin,
 					connectedAccountsOpen: oauthResult.linked,
 					authMessage: oauthResult.message
 				});
@@ -576,7 +578,8 @@ export function createAccountDataController<TData>(
 					: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,
-			linked
+			linked,
+			showLogin: result !== 'success'
 		} satisfies OAuthCallbackResult;
 	}
 

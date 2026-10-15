@@ -41,6 +41,36 @@ test('login dialog starts a provider sign-in redirect', async ({ page }) => {
 	await expect(page).toHaveURL(/mock-oauth\?provider=github/);
 });
 
+test('OAuth startup failure returns to login with an app-visible message', async ({ page }) => {
+	await mockApi(page, async (route) => {
+		const pathname = new URL(route.request().url()).pathname;
+		if (pathname.endsWith('/auth/session')) {
+			await route.fulfill({ json: { activeSession: null, sessions: [] } });
+			return;
+		}
+		if (pathname.endsWith('/auth/oauth/start')) {
+			await route.fulfill({
+				status: 302,
+				headers: {
+					location:
+						'http://localhost:1351/?oauth=error&oauth_reason=provider_start_failed'
+				}
+			});
+			return;
+		}
+		await route.fulfill({ json: {} });
+	});
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Login' }).click();
+	await page.getByRole('dialog', { name: 'Login' }).getByRole('button', { name: 'GitHub' }).click();
+
+	const login = page.getByRole('dialog', { name: 'Login' });
+	await expect(login).toBeVisible();
+	await expect(login.getByText('Unable to start provider sign-in. Please try again.')).toBeVisible();
+});
+
 test('OAuth return for the current account opens an already-signed-in confirmation', async ({
 	page
 }) => {
@@ -259,6 +289,7 @@ async function mockApi(
 				pathname.endsWith('/auth/identities') ||
 				pathname.includes('/auth/identities/') ||
 				pathname.endsWith('/auth/session') ||
+				pathname.endsWith('/auth/oauth/start') ||
 				pathname.endsWith('/auth/oauth/link') ||
 				pathname.endsWith('/auth/profile') ||
 				pathname.endsWith('/auth/login') ||
