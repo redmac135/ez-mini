@@ -3,10 +3,13 @@ import { supabaseAuth } from '../supabase/client.ts';
 import type { Env, SupabaseIdentity } from '../types.ts';
 
 export class IdentityUnlinkCoordinator {
-	constructor(
-		private readonly state: DurableObjectState,
-		private readonly env: Env
-	) {}
+	private readonly state: DurableObjectState;
+	private readonly env: Env;
+
+	constructor(state: DurableObjectState, env: Env) {
+		this.state = state;
+		this.env = env;
+	}
 
 	async fetch(request: Request) {
 		let response: Response = Response.json(
