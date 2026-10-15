@@ -274,6 +274,81 @@ test('OAuth sign-in with the current user returns an already-signed-in result wi
 	assert.equal(sessions.keys.length, 1);
 });
 
+test('OAuth sign-in confirms when switching to an existing inactive device session', async () => {
+	const deviceId = 'device-a';
+	const existingSessionId = 'session-a';
+	await env.SESSIONS.put(
+		sessionKey(deviceId, existingSessionId),
+		JSON.stringify({
+			sessionId: existingSessionId,
+			deviceId,
+			userId: 'user-a',
+			email: 'a@example.com',
+			supabaseAccessToken: 'old-access-a',
+			supabaseRefreshToken: 'old-refresh-a',
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+			createdAt: 123,
+			lastUsedAt: 456
+		})
+	);
+	await env.SESSIONS.put(
+		sessionKey(deviceId, 'session-b'),
+		JSON.stringify({
+			sessionId: 'session-b',
+			deviceId,
+			userId: 'user-b',
+			email: 'b@example.com',
+			supabaseAccessToken: 'old-access-b',
+			supabaseRefreshToken: 'old-refresh-b',
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+			createdAt: 123,
+			lastUsedAt: 456
+		})
+	);
+	let callbackUrl = '';
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		if (url.pathname === '/auth/v1/authorize') {
+			callbackUrl = url.searchParams.get('redirect_to') ?? '';
+			return new Response(null, {
+				status: 302,
+				headers: { location: 'https://github.com/login/oauth/authorize' }
+			});
+		}
+		assert.equal(url.pathname, '/auth/v1/token');
+		return Response.json({
+			access_token: 'new-access-a',
+			refresh_token: 'new-refresh-a',
+			expires_at: Math.floor(Date.now() / 1000) + 3600,
+			user: { id: 'user-a', email: 'a@example.com' }
+		});
+	});
+	const cookies = `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-b`;
+	await handleRequest(
+		new Request(
+			`https://mini.api.ethanzhao.ca/v1/auth/oauth/start?provider=github&return_to=${encodeURIComponent('https://blank.ethanzhao.ca/')}`,
+			{ headers: { cookie: cookies } }
+		),
+		env
+	);
+	const flowId = new URL(callbackUrl).searchParams.get('flow');
+	assert.ok(flowId);
+	const callback = await handleRequest(
+		new Request(
+			`https://mini.api.ethanzhao.ca/v1/auth/oauth/callback?flow=${flowId}&code=provider-code`,
+			{ headers: { cookie: cookies } }
+		),
+		env
+	);
+	const redirect = new URL(callback.headers.get('location') ?? '');
+	const sessions = await env.SESSIONS.list({ prefix: `device:${deviceId}:session:` });
+
+	assert.equal(redirect.searchParams.get('oauth'), 'success');
+	assert.equal(redirect.searchParams.get('oauth_reason'), 'already_signed_in');
+	assert.equal(sessions.keys.length, 2);
+	assert.match(callback.headers.get('set-cookie') ?? '', new RegExp(existingSessionId));
+});
+
 test('email verification reuses the active session and reports an already signed-in account', async () => {
 	const deviceId = 'device-a';
 	const sessionId = 'session-a';

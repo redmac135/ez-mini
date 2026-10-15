@@ -174,7 +174,7 @@ export async function completeOAuth(
 					(entry) =>
 						entry.userId === authSession.user.id && entry.sessionId === context.activeSessionId
 				) ?? existingSessions.find((entry) => entry.userId === authSession.user.id);
-			alreadySignedIn = existing?.sessionId === context.activeSessionId;
+			alreadySignedIn = existing !== undefined;
 			const stored: StoredSession = {
 				sessionId: existing?.sessionId ?? crypto.randomUUID(),
 				deviceId: context.deviceId,
