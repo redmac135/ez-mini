@@ -3,7 +3,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"test": "pnpm --dir ../.. exec vitest --config vitest.config.ts --project=storybook run --testNamePattern='Components/(Patterns/(Login Modal|Account Modal|Confirm Modal)|Layouts/Workspace)'"
+		"test": "pnpm --dir ../.. exec vitest --config vitest.config.ts --project=storybook run packages/ui/src/lib"
 	},
 	"svelte": "./src/lib/index.ts",
 	"exports": {

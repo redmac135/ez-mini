@@ -18,14 +18,13 @@
 		writeCachedAuthSession as writeCachedAuthSessionToStorage
 	} from '$lib/auth/session-cache';
 	import {
-		AccountModal,
 		AccountLoading,
+		AccountDialogs,
 		AppShell,
 		Button,
 		ConfirmModal,
 		FloatingMenu,
 		Icon,
-		LoginModal,
 		Modal,
 		Navbar,
 		Sidebar,
@@ -99,21 +98,10 @@
 	let isMobileViewport = false;
 	let previousActiveText = '';
 
-	let emailDraft = '';
-	let otpDraft = '';
-	let loginModalOpen = false;
-	let accountModalOpen = false;
 	let importPromptOpen = false;
 	let authUser: AuthSessionSummary | null = null;
-	let authSessions: AuthSessionSummary[] = [];
 	let authBusy = false;
-	let accountBusySessionId: string | null = null;
 	let authMessage = '';
-	let loginSubmitting = false;
-	let loginStep: 'email' | 'otp' = 'email';
-	let otpVerifying = false;
-	let otpShake = false;
-	let resendCooldownRemaining = 0;
 	let pendingAnonymousImportSession: EditorSession | null = null;
 	let syncBusy = false;
 	let appSyncStatus: AppSyncStatus = 'synced';
@@ -219,19 +207,8 @@
 	$: syncStatusLabel = getSyncStatusLabel(appSyncStatus);
 	$: accountState = $account;
 	$: authUser = accountState.user;
-	$: authSessions = accountState.sessions;
 	$: authBusy = accountState.authBusy;
-	$: accountBusySessionId = accountState.accountBusySessionId;
 	$: authMessage = accountState.authMessage;
-	$: loginModalOpen = accountState.loginModalOpen;
-	$: accountModalOpen = accountState.accountModalOpen;
-	$: loginStep = accountState.loginStep;
-	$: emailDraft = accountState.emailDraft;
-	$: otpDraft = accountState.otpDraft;
-	$: loginSubmitting = accountState.loginSubmitting;
-	$: otpVerifying = accountState.otpVerifying;
-	$: otpShake = accountState.otpShake;
-	$: resendCooldownRemaining = accountState.resendCooldownRemaining;
 
 	$: if (!hasDocumentContent || drawerOpen || countMenuOpen || settingsMenuOpen) {
 		chromeVisible = true;
@@ -487,36 +464,12 @@
 		deletePageId = null;
 	}
 
-	function closeLoginModal() {
-		account.closeLoginModal();
-	}
-
-	function closeAccountModal() {
-		account.closeAccountModal();
-	}
-
-	async function openLoginFlow() {
-		account.openLoginFlow();
-	}
-
 	async function openLoginOrAccountList() {
 		await account.openLoginOrAccountList();
 	}
 
 	async function switchAccount() {
 		await account.openLoginOrAccountList();
-	}
-
-	async function submitLogin(nextEmail = emailDraft) {
-		await account.submitLogin(nextEmail);
-	}
-
-	async function verifyOtpCode(code: string) {
-		await account.verifyOtpCode(code);
-	}
-
-	async function resendOtpCode() {
-		await account.resendOtpCode();
 	}
 
 	async function logoutCurrentAccount() {
@@ -529,10 +482,6 @@
 	async function logoutAccountSession(sessionId: string, userId: string) {
 		clearAllToasts();
 		await account.logoutAccountSession(sessionId, userId);
-	}
-
-	async function selectAccountSession(nextSessionId: string) {
-		await account.selectAccountSession(nextSessionId);
 	}
 
 	async function resolveAnonymousImport(addAnonymousToAccount: boolean) {
@@ -557,7 +506,6 @@
 
 		pendingAnonymousImportSession = null;
 		importPromptOpen = false;
-		loginModalOpen = false;
 	}
 
 	function clearHideChromeTimeout() {
@@ -1395,7 +1343,7 @@
 								Login
 							</button>
 						{/if}
-						{#if authMessage && !loginModalOpen}
+						{#if authMessage && !accountState.loginModalOpen}
 							<div class="menu-stat">{authMessage}</div>
 						{/if}
 					</FloatingMenu>
@@ -1427,43 +1375,11 @@
 		/>
 	{/if}
 
-	{#if loginModalOpen}
-		<LoginModal
-			step={loginStep}
-			email={emailDraft}
-			otp={otpDraft}
-			message={authMessage}
-			{loginSubmitting}
-			{otpVerifying}
-			{otpShake}
-			{resendCooldownRemaining}
-			onClose={closeLoginModal}
-			onSubmitEmail={(email) => void submitLogin(email)}
-			onVerifyOtp={(code) => void verifyOtpCode(code)}
-			onResendOtp={resendOtpCode}
-			onBackToEmail={() => {
-				loginStep = 'email';
-				otpDraft = '';
-				authMessage = '';
-			}}
-		/>
-	{/if}
-
-	{#if accountModalOpen}
-		<AccountModal
-			accounts={authSessions}
-			message={authMessage}
-			busy={authBusy}
-			{syncBusy}
-			busySessionId={accountBusySessionId}
-			localActive={!authUser}
-			onClose={closeAccountModal}
-			onSelectAccount={(sessionId) => void selectAccountSession(sessionId)}
-			onLogoutAccount={(sessionId, userId) => void logoutAccountSession(sessionId, userId)}
-			onAddAccount={openLoginFlow}
-			onUseLocalAccount={() => void account.useAnonymousAccount()}
-		/>
-	{/if}
+	<AccountDialogs
+		controller={account}
+		{syncBusy}
+		onLogoutAccount={(sessionId, userId) => void logoutAccountSession(sessionId, userId)}
+	/>
 
 	{#if accountState.contextTransition}
 		<AccountLoading

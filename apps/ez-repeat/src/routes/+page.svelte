@@ -5,14 +5,13 @@
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import {
-		AccountModal,
 		AccountLoading,
+		AccountDialogs,
 		AppShell,
 		Button,
 		ConfirmModal,
 		FloatingMenu,
 		Icon,
-		LoginModal,
 		Navbar,
 		ToastStack,
 		Workspace
@@ -482,39 +481,7 @@
 		<HabitCreateModal onCancel={() => (addModalOpen = false)} onCreate={createHabit} />
 	{/if}
 
-	{#if accountState.loginModalOpen}
-		<LoginModal
-			step={accountState.loginStep}
-			email={accountState.emailDraft}
-			otp={accountState.otpDraft}
-			message={accountState.authMessage}
-			loginSubmitting={accountState.loginSubmitting}
-			otpVerifying={accountState.otpVerifying}
-			otpShake={accountState.otpShake}
-			resendCooldownRemaining={accountState.resendCooldownRemaining}
-			onClose={account.closeLoginModal}
-			onSubmitEmail={(email) => void account.submitLogin(email)}
-			onVerifyOtp={(code) => void account.verifyOtpCode(code)}
-			onResendOtp={account.resendOtpCode}
-			onBackToEmail={account.backToEmail}
-		/>
-	{/if}
-
-	{#if accountState.accountModalOpen}
-		<AccountModal
-			accounts={accountState.sessions}
-			message={accountState.authMessage}
-			busy={accountState.authBusy}
-			{syncBusy}
-			busySessionId={accountState.accountBusySessionId}
-			localActive={!accountState.user}
-			onClose={account.closeAccountModal}
-			onSelectAccount={(sessionId) => void account.selectAccountSession(sessionId)}
-			onLogoutAccount={(sessionId, userId) => void account.logoutAccountSession(sessionId, userId)}
-			onAddAccount={account.openLoginFlow}
-			onUseLocalAccount={() => void account.useAnonymousAccount()}
-		/>
-	{/if}
+	<AccountDialogs controller={account} {syncBusy} />
 
 	{#if accountState.contextTransition}
 		<AccountLoading

@@ -28,6 +28,24 @@ test('auth client sends credentials and normalizes API URL', async () => {
 	assert.equal(requests[0]?.headers.get('content-type'), 'application/json');
 });
 
+test('session lookup forwards an abort signal to fetch', async () => {
+	let requestSignal: AbortSignal | null = null;
+	const client = createAuthClient({
+		apiUrl: 'https://api.example.test/v1',
+		fetch: async (input, init) => {
+			requestSignal = new Request(input, init).signal;
+			return Response.json({ activeSession: null, sessions: [] });
+		}
+	});
+	const controller = new AbortController();
+
+	await client.getSession({ signal: controller.signal });
+
+	assert.equal(requestSignal?.aborted, false);
+	controller.abort();
+	assert.equal(requestSignal?.aborted, true);
+});
+
 test('auth client surfaces API error messages', async () => {
 	const client = createAuthClient({
 		apiUrl: 'https://api.example.test',

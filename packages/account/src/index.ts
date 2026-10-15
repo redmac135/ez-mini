@@ -6,6 +6,7 @@ import {
 } from '@ez/auth';
 
 export type LoginStep = 'email' | 'otp';
+export type LoginLookupState = 'idle' | 'loading' | 'failed';
 export type AccountPhase = 'idle' | 'loading-session' | 'loading-data' | 'ready' | 'error';
 
 export interface AccountContextTransition {
@@ -42,6 +43,7 @@ export interface AccountControllerState<TData> {
 	authMessage: string;
 	loginModalOpen: boolean;
 	accountModalOpen: boolean;
+	loginLookup: LoginLookupState;
 	loginStep: LoginStep;
 	emailDraft: string;
 	otpDraft: string;
@@ -120,6 +122,7 @@ export function createAccountDataController<TData>(
 		authMessage: '',
 		loginModalOpen: false,
 		accountModalOpen: false,
+		loginLookup: 'idle',
 		loginStep: 'email',
 		emailDraft: '',
 		otpDraft: '',
@@ -130,6 +133,7 @@ export function createAccountDataController<TData>(
 	};
 	const subscribers = new Set<(state: AccountControllerState<TData>) => void>();
 	let requestId = 0;
+	let loginLookupAbortController: AbortController | null = null;
 	let unsubscribeDataChanges: (() => void) | null = null;
 	let resendCooldownInterval: ReturnType<typeof setInterval> | null = null;
 	let authChannel: BroadcastChannel | null = null;
@@ -206,39 +210,64 @@ export function createAccountDataController<TData>(
 	}
 
 	async function openLoginOrAccountList() {
-		if (state.authBusy) return;
+		if (state.authBusy || state.loginLookup === 'loading') return;
 		if (!options.authClient) {
-			setState({ authMessage: 'Sync is not configured.' });
+			setState({
+				loginModalOpen: true,
+				accountModalOpen: false,
+				loginLookup: 'failed',
+				authMessage: 'Sync is not configured.'
+			});
 			return;
 		}
 
-		setState({ authBusy: true, authMessage: '' });
-		let shouldOpenLogin = false;
+		const abortController = new AbortController();
+		loginLookupAbortController = abortController;
+		setState({
+			loginModalOpen: true,
+			accountModalOpen: false,
+			loginLookup: 'loading',
+			authBusy: true,
+			authMessage: ''
+		});
 		try {
-			const response = await options.authClient.getSession();
+			const response = await options.authClient.getSession({ signal: abortController.signal });
+			if (loginLookupAbortController !== abortController || abortController.signal.aborted) return;
 			if (response.sessions.length > 0) {
 				setState({
 					sessions: response.sessions,
 					accountModalOpen: true,
-					loginModalOpen: false
+					loginModalOpen: false,
+					loginLookup: 'idle'
 				});
 			} else {
-				setState({ sessions: response.sessions });
-				shouldOpenLogin = true;
+				setState({ sessions: response.sessions, loginLookup: 'idle' });
 			}
 		} catch (error) {
-			setState({ authMessage: getErrorMessage(error, 'Unable to load accounts.') });
+			if (loginLookupAbortController !== abortController || abortController.signal.aborted) return;
+			setState({
+				loginLookup: 'failed',
+				authMessage: getErrorMessage(error, 'Unable to load accounts.')
+			});
 		} finally {
-			setState({ authBusy: false });
-			if (shouldOpenLogin) openLoginFlow();
+			if (loginLookupAbortController === abortController) {
+				loginLookupAbortController = null;
+				setState({ authBusy: false });
+			}
 		}
 	}
 
 	function closeLoginModal() {
 		if (state.loginSubmitting || state.otpVerifying) return;
+		if (loginLookupAbortController) {
+			loginLookupAbortController.abort();
+			loginLookupAbortController = null;
+		}
 		stopResendCooldown();
 		setState({
 			loginModalOpen: false,
+			loginLookup: 'idle',
+			authBusy: false,
 			loginStep: 'email',
 			otpDraft: '',
 			authMessage: ''
@@ -875,6 +904,8 @@ export function createAccountDataController<TData>(
 
 	function destroy() {
 		destroyed = true;
+		loginLookupAbortController?.abort();
+		loginLookupAbortController = null;
 		pendingContextTransition?.abortController.abort();
 		pendingContextTransition = null;
 		stopResendCooldown();

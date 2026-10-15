@@ -1,26 +1,34 @@
 <script lang="ts">
 	export let title: string;
 	export let dismissible = true;
+	export let embedded = false;
 	export let onClose: () => void = () => {};
 
 	const headingId = `modal-${Math.random().toString(36).slice(2, 10)}`;
 </script>
 
-{#if dismissible}
-	<button class="modal-scrim" type="button" aria-label="Close dialog" onclick={onClose}></button>
-{:else}
-	<div class="modal-scrim" aria-hidden="true"></div>
-{/if}
-
-<div class="modal" role="dialog" aria-modal="true" aria-labelledby={headingId}>
-	<h2 id={headingId}>{title}</h2>
-	<div class="modal-body">
-		<slot />
-	</div>
+{#if embedded}
+	<slot />
 	<div class="modal-actions">
 		<slot name="actions" />
 	</div>
-</div>
+{:else}
+	{#if dismissible}
+		<button class="modal-scrim" type="button" aria-label="Close dialog" onclick={onClose}></button>
+	{:else}
+		<div class="modal-scrim" aria-hidden="true"></div>
+	{/if}
+
+	<div class="modal" role="dialog" aria-modal="true" aria-labelledby={headingId}>
+		<h2 id={headingId}>{title}</h2>
+		<div class="modal-body">
+			<slot />
+		</div>
+		<div class="modal-actions">
+			<slot name="actions" />
+		</div>
+	</div>
+{/if}
 
 <style>
 	.modal-scrim {

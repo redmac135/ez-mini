@@ -5,7 +5,10 @@
 	import AccountDialogs from './AccountDialogs.svelte';
 	import FloatingMenu from './FloatingMenu.svelte';
 
-	function createController(overrides: Record<string, unknown>) {
+	function createController(
+		overrides: Record<string, unknown>,
+		lookupResult: 'login' | 'accounts' = 'login'
+	) {
 		const subscribers = new SvelteSet<(value: typeof state) => void>();
 		let state = {
 			sessions: [
@@ -22,6 +25,7 @@
 			authMessage: '',
 			loginModalOpen: false,
 			accountModalOpen: false,
+			loginLookup: 'idle',
 			loginStep: 'email',
 			emailDraft: 'taylor@example.com',
 			otpDraft: '',
@@ -39,12 +43,33 @@
 				return () => subscribers.delete(run);
 			},
 			async openLoginOrAccountList() {
-				state = { ...state, loginModalOpen: true, accountModalOpen: false };
+				state = {
+					...state,
+					loginModalOpen: true,
+					accountModalOpen: false,
+					loginLookup: 'loading',
+					authBusy: true
+				};
+				for (const subscriber of subscribers) subscriber(state);
+				await new Promise((resolve) => window.setTimeout(resolve, 300));
+				state = {
+					...state,
+					loginLookup: 'idle',
+					authBusy: false,
+					loginModalOpen: lookupResult === 'login',
+					accountModalOpen: lookupResult === 'accounts'
+				};
 				for (const subscriber of subscribers) subscriber(state);
 			},
 			openLoginFlow() {},
-			closeLoginModal() {},
-			closeAccountModal() {},
+			closeLoginModal() {
+				state = { ...state, loginModalOpen: false, loginLookup: 'idle', authBusy: false };
+				for (const subscriber of subscribers) subscriber(state);
+			},
+			closeAccountModal() {
+				state = { ...state, accountModalOpen: false };
+				for (const subscriber of subscribers) subscriber(state);
+			},
 			submitLogin: async () => {},
 			verifyOtpCode: async () => {},
 			resendOtpCode: async () => {},
@@ -60,6 +85,7 @@
 		component: AccountDialogs
 	});
 	const loginController = createController({});
+	const accountLookupController = createController({}, 'accounts');
 </script>
 
 <Story name="Login dialog" args={{ controller: createController({ loginModalOpen: true }) }}>
@@ -71,10 +97,109 @@
 </Story>
 
 <Story
+	name="Session lookup loading state"
+	args={{
+		controller: createController({ loginModalOpen: true, loginLookup: 'loading', authBusy: true })
+	}}
+>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
+</Story>
+
+<Story
+	name="Session lookup loading"
+	args={{
+		controller: createController({ loginModalOpen: true, loginLookup: 'loading', authBusy: true })
+	}}
+	play={async ({ canvas, userEvent }) => {
+		const dialog = canvas.getByRole('dialog', { name: 'Loading account' });
+		await expect(canvas.getByRole('status', { name: 'Loading account' })).toBeVisible();
+		await userEvent.click(canvas.getByRole('button', { name: 'Cancel' }));
+		await expect(dialog).not.toBeInTheDocument();
+	}}
+>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
+</Story>
+
+<Story
+	name="Clicking away cancels session lookup"
+	args={{
+		controller: createController({ loginModalOpen: true, loginLookup: 'loading', authBusy: true })
+	}}
+	play={async ({ canvas, userEvent }) => {
+		await userEvent.click(canvas.getByRole('button', { name: 'Close dialog' }));
+		await expect(canvas.queryByRole('dialog')).not.toBeInTheDocument();
+	}}
+>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
+</Story>
+
+<Story
+	name="Session lookup populates saved accounts"
+	play={async ({ canvas, userEvent }) => {
+		await userEvent.click(canvas.getByRole('menuitem', { name: 'Login' }));
+		const dialog = canvas.getByRole('dialog', { name: 'Loading account' });
+		const accountDialog = await canvas.findByRole('dialog', { name: 'Accounts' });
+		await expect(dialog).toBe(accountDialog);
+		await expect(canvas.getByText('Taylor')).toBeVisible();
+	}}
+>
+	{#snippet template()}
+		<div class="menu-anchor">
+			<FloatingMenu label="Account menu">
+				<button
+					type="button"
+					role="menuitem"
+					onclick={() => void accountLookupController.openLoginOrAccountList()}
+				>
+					Login
+				</button>
+			</FloatingMenu>
+		</div>
+		<AccountDialogs controller={accountLookupController} />
+	{/snippet}
+</Story>
+
+<Story
+	name="Session lookup failed state"
+	args={{
+		controller: createController({
+			loginModalOpen: true,
+			loginLookup: 'failed',
+			authMessage: 'Unable to reach the account service.'
+		})
+	}}
+>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
+</Story>
+
+<Story
+	name="Session lookup failure and retry"
+	args={{
+		controller: createController({
+			loginModalOpen: true,
+			loginLookup: 'failed',
+			authMessage: 'Unable to reach the account service.'
+		})
+	}}
+	play={async ({ canvas, userEvent }) => {
+		await expect(canvas.getByRole('alert')).toHaveTextContent(
+			'Unable to reach the account service.'
+		);
+		await userEvent.click(canvas.getByRole('button', { name: 'Retry loading account' }));
+		await expect(canvas.getByRole('status', { name: 'Loading account' })).toBeVisible();
+	}}
+>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
+</Story>
+
+<Story
 	name="Login action opens the dialog"
 	play={async ({ canvas, userEvent }) => {
 		await userEvent.click(canvas.getByRole('menuitem', { name: 'Login' }));
-		await expect(canvas.getByRole('dialog', { name: 'Login' })).toBeInTheDocument();
+		const dialog = canvas.getByRole('dialog', { name: 'Loading account' });
+		await expect(canvas.getByRole('status', { name: 'Loading account' })).toBeVisible();
+		const loginDialog = await canvas.findByRole('dialog', { name: 'Login' });
+		await expect(dialog).toBe(loginDialog);
 	}}
 >
 	{#snippet template()}
