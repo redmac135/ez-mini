@@ -11,7 +11,7 @@
 {#if notices.length > 0}
 	<div class="toast-stack" aria-live="polite" aria-atomic="false">
 		{#each notices as notice (notice.id)}
-			<button type="button" class="toast" on:click={() => onDismiss(notice.id)}>
+			<button type="button" class="toast" onclick={() => onDismiss(notice.id)}>
 				<span class="toast-message">{notice.message}</span>
 			</button>
 		{/each}

@@ -143,6 +143,7 @@ export interface SyncEngineConfig<Local, Remote> {
 	getRemoteDeletedAt(remote: Remote): string | null;
 	getLastSyncedAt(local: Local): string | null;
 	setLastSyncedAt(local: Local, value: string): Local;
+	pullIsDelta?: boolean;
 	shouldSync?(local: Local): boolean;
 	shouldKeepRemote?(remote: Remote): boolean;
 	areStatesEqual?(local: Local, remote: Remote): boolean;
@@ -198,7 +199,7 @@ export function createSyncEngine<Local, Remote>(
 	function toSyncedLocal(remote: Remote, existing?: Local | null) {
 		return config.setLastSyncedAt(
 			config.toLocal(remote, existing ?? null),
-			config.getRemoteUpdatedAt(remote)
+			latestRemoteMutationAt(remote)
 		);
 	}
 
@@ -244,6 +245,16 @@ export function createSyncEngine<Local, Remote>(
 					const remote = remoteById.get(localId) ?? null;
 
 					if (!remote) {
+						if (config.pullIsDelta) {
+							if (!hasLocalChangedSinceSync(local)) {
+								if (config.getLocalDeletedAt(local) !== null) continue;
+								nextItems.push(local);
+								continue;
+							}
+							nextItems.push(await pushLocal(local));
+							continue;
+						}
+
 						if (config.getLocalDeletedAt(local) !== null) {
 							continue;
 						}

@@ -32,7 +32,7 @@ const env = {
 	SESSIONS: new MemoryKv(),
 	SUPABASE_URL: 'https://supabase.example.test',
 	SUPABASE_PUBLISHABLE_KEY: 'publishable',
-	CORS_ORIGINS: 'https://blank.ethanzhao.ca,http://localhost:5173',
+	CORS_ORIGINS: 'https://blank.ethanzhao.ca,http://localhost:1351',
 	COOKIE_DOMAIN: '.ethanzhao.ca'
 } as unknown as Env;
 
@@ -44,13 +44,13 @@ test('OPTIONS returns CORS preflight headers without creating cookies', async ()
 	const response = await handleRequest(
 		new Request('https://mini.api.ethanzhao.ca/v1/pages', {
 			method: 'OPTIONS',
-			headers: { origin: 'http://localhost:5173' }
+			headers: { origin: 'http://localhost:1351' }
 		}),
 		env
 	);
 
 	assert.equal(response.status, 204);
-	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:1351');
 	assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
 	assert.equal(response.headers.get('set-cookie'), null);
 });
@@ -71,13 +71,13 @@ test('session creates a device cookie and returns an empty session list', async 
 test('session includes CORS headers for allowed app origins', async () => {
 	const response = await handleRequest(
 		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
-			headers: { origin: 'http://localhost:5173' }
+			headers: { origin: 'http://localhost:1351' }
 		}),
 		env
 	);
 
 	assert.equal(response.status, 200);
-	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+	assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:1351');
 	assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
 });
 
@@ -631,6 +631,135 @@ test('repeat completion upsert uses composite conflict identity', async () => {
 
 	assert.equal(response.status, 200);
 	assert.equal(((await response.json()) as { user_id: string; count: number }).user_id, 'user-a');
+});
+
+test('Journey entry list uses the journey schema and returns a stable page cursor', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		assert.equal(url.pathname, '/rest/v1/entries');
+		assert.equal(url.searchParams.get('limit'), '1');
+		assert.equal(url.searchParams.get('sync_updated_at'), 'gte.2026-01-01T23:59:55.000Z');
+		assert.equal(url.searchParams.get('updated_at'), null);
+		assert.equal(request.headers.get('accept-profile'), 'journey');
+		return Response.json([
+			{
+				id: '57b177d2-4a84-42df-873d-dbb8e45def49',
+				user_id: 'user-a',
+				text: 'A thought',
+				created_at: '2026-01-02T00:00:00.000Z',
+				updated_at: '2026-01-02T00:00:00.000Z',
+				sync_updated_at: '2026-01-02T00:00:00.000Z',
+				deleted_at: null
+			}
+		]);
+	});
+	const response = await handleRequest(
+		new Request(
+			'https://mini.api.ethanzhao.ca/v1/journey/entries?limit=1&since=2026-01-02T00%3A00%3A00.000Z',
+			{
+				headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` }
+			}
+		),
+		env
+	);
+	const body = (await response.json()) as {
+		entries: Array<{ id: string }>;
+		nextCursor: { id: string } | null;
+	};
+	assert.equal(response.status, 200);
+	assert.equal(body.entries.length, 1);
+	assert.equal(body.nextCursor?.id, body.entries[0].id);
+});
+
+test('Journey upserts reject malformed deletion markers instead of clearing tombstones', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	let remoteWasCalled = false;
+	mockFetch(async () => {
+		remoteWasCalled = true;
+		return Response.json([]);
+	});
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/journey/entries', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				id: '57b177d2-4a84-42df-873d-dbb8e45def49',
+				text: 'edited entry',
+				created_at: '2026-01-02T00:00:00.000Z',
+				updated_at: '2026-01-02T11:00:00.000Z',
+				sync_updated_at: '2026-01-02T10:00:01.000Z',
+				deleted_at: { malformed: true }
+			})
+		}),
+		env
+	);
+
+	assert.equal(response.status, 400);
+	assert.equal(remoteWasCalled, false);
+});
+
+test('Journey upserts recheck the device-clock winner after a concurrent server update', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
+	const currentEntry = (updatedAt: string, syncUpdatedAt: string) => ({
+		id: '57b177d2-4a84-42df-873d-dbb8e45def49',
+		user_id: 'user-a',
+		text: 'remote version',
+		created_at: '2026-01-02T00:00:00.000Z',
+		updated_at: updatedAt,
+		sync_updated_at: syncUpdatedAt,
+		deleted_at: null
+	});
+	let readCount = 0;
+	let patchCount = 0;
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		assert.equal(request.headers.get('accept-profile'), 'journey');
+		if (request.method === 'GET') {
+			readCount += 1;
+			return Response.json([
+				readCount === 1
+					? currentEntry('2026-01-02T10:00:00.000Z', '2026-01-02T10:00:01.000Z')
+					: currentEntry('2026-01-02T12:00:00.000Z', '2026-01-02T12:00:01.000Z')
+			]);
+		}
+		assert.equal(request.headers.get('content-profile'), 'journey');
+		if (request.method === 'POST') return Response.json([]);
+		assert.equal(request.method, 'PATCH');
+		patchCount += 1;
+		assert.equal(url.searchParams.get('sync_updated_at'), 'eq.2026-01-02T10:00:01.000Z');
+		return Response.json([]);
+	});
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/journey/entries', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				id: '57b177d2-4a84-42df-873d-dbb8e45def49',
+				text: 'stale local version',
+				created_at: '2026-01-02T00:00:00.000Z',
+				updated_at: '2026-01-02T11:00:00.000Z',
+				sync_updated_at: '2026-01-02T10:00:01.000Z',
+				deleted_at: null
+			})
+		}),
+		env
+	);
+	const body = (await response.json()) as { text: string; updated_at: string };
+	assert.equal(response.status, 200, JSON.stringify(body));
+	assert.equal(body.text, 'remote version');
+	assert.equal(body.updated_at, '2026-01-02T12:00:00.000Z');
+	assert.equal(readCount, 2);
+	assert.equal(patchCount, 1);
 });
 
 test('unknown routes return a JSON 404', async () => {

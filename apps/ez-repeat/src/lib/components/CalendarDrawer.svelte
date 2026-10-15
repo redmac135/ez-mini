@@ -136,7 +136,7 @@
 			<h1>Calendar {visibleYear || todayDate.slice(0, 4)}</h1>
 		</div>
 
-		<div bind:this={scroller} class="calendar-scroll" on:scroll={handleScroll}>
+		<div bind:this={scroller} class="calendar-scroll" onscroll={handleScroll}>
 			<div class="calendar-spacer" aria-hidden="true" style={`height: ${topSpacerHeight}px`}></div>
 			{#each months as month (month.key)}
 				<CalendarMonth {month} {onSelectDate} />

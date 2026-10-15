@@ -1,8 +1,21 @@
 <script lang="ts">
-	export let selected = false;
-	export let disabled = false;
-	export let type: 'button' | 'submit' | 'reset' = 'button';
-	export let ariaLabel = '';
+	import type { Snippet } from 'svelte';
+
+	let {
+		selected = false,
+		disabled = false,
+		type = 'button',
+		ariaLabel = '',
+		onclick,
+		children
+	}: {
+		selected?: boolean;
+		disabled?: boolean;
+		type?: 'button' | 'submit' | 'reset';
+		ariaLabel?: string;
+		onclick?: (event: MouseEvent) => void;
+		children?: Snippet;
+	} = $props();
 </script>
 
 <button
@@ -11,9 +24,9 @@
 	{type}
 	aria-label={ariaLabel || undefined}
 	aria-pressed={selected}
-	on:click
+	{onclick}
 >
-	<slot />
+	{@render children?.()}
 </button>
 
 <style>

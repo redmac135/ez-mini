@@ -1,10 +1,15 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { expect } from 'storybook/test';
 	import FloatingMenu from './FloatingMenu.svelte';
 	const { Story } = defineMeta({
 		title: 'Components/Patterns/Floating Menu',
 		component: FloatingMenu
 	});
+</script>
+
+<script lang="ts">
+	let menuOpen = $state(false);
 </script>
 
 <Story name="Menu items">
@@ -15,6 +20,28 @@
 				<div class="menu-stat">Synced just now</div></FloatingMenu
 			>
 		</div>
+	{/snippet}
+</Story>
+
+<Story
+	name="Dismiss on outside click"
+	play={async ({ canvas, userEvent }) => {
+		await userEvent.click(canvas.getByRole('button', { name: 'Open menu' }));
+		await expect(canvas.getByRole('menu', { name: 'Example actions' })).toBeInTheDocument();
+		await userEvent.click(canvas.getByRole('button', { name: 'Outside area' }));
+		await expect(canvas.queryByRole('menu', { name: 'Example actions' })).not.toBeInTheDocument();
+	}}
+>
+	{#snippet template()}
+		<div class="anchor">
+			<button type="button" onclick={() => (menuOpen = !menuOpen)}>Open menu</button>
+			{#if menuOpen}
+				<FloatingMenu label="Example actions" onDismiss={() => (menuOpen = false)}>
+					<button type="button">Rename</button>
+				</FloatingMenu>
+			{/if}
+		</div>
+		<button type="button">Outside area</button>
 	{/snippet}
 </Story>
 

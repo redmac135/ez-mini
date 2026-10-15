@@ -5,6 +5,7 @@ import { getCorsHeaders, stripApiPrefix } from './http/cors.ts';
 import { ApiError } from './http/errors.ts';
 import { json } from './http/json.ts';
 import { handlePages } from './pages/routes.ts';
+import { handleJourney } from './journey/routes.ts';
 import { handleRepeat } from './repeat/routes.ts';
 import { handleSettings } from './settings/routes.ts';
 import type { Env } from './types.ts';
@@ -64,6 +65,9 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 		}
 		if (path === '/settings') {
 			return json(await handleSettings(request, env, context), { headers: responseHeaders });
+		}
+		if (path === '/journey/entries') {
+			return json(await handleJourney(request, env, context, path), { headers: responseHeaders });
 		}
 		if (path === '/repeat/habits' || path === '/repeat/completions') {
 			return json(await handleRepeat(request, env, context, path), { headers: responseHeaders });

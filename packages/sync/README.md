@@ -102,6 +102,7 @@ interface SyncEngineConfig<Local, Remote> {
 Required callbacks:
 
 - `pull(since)`: returns remote records changed since the caller-selected cursor. The engine passes the value returned by `getSince(localItems)`.
+- `pullIsDelta`: set to `true` when `pull` returns only changed records. Missing remote rows are then preserved locally, and only locally changed entries are pushed.
 - `push(item)`: writes one mapped remote item and returns the authoritative remote row from the server.
 - `getLocal()`: returns the local records that may participate in this sync pass.
 - `saveLocal(items)`: persists the full reconciled local collection returned by the engine.

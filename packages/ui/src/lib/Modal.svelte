@@ -7,7 +7,7 @@
 </script>
 
 {#if dismissible}
-	<button class="modal-scrim" type="button" aria-label="Close dialog" on:click={onClose}></button>
+	<button class="modal-scrim" type="button" aria-label="Close dialog" onclick={onClose}></button>
 {:else}
 	<div class="modal-scrim" aria-hidden="true"></div>
 {/if}

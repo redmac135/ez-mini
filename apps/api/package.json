@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "wrangler dev --env development",
+		"dev": "wrangler dev --env development --port 1350",
 		"deploy": "wrangler deploy",
 		"test": "node --test tests/*.test.ts",
 		"check": "tsc --noEmit"

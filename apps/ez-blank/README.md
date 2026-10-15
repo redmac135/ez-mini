@@ -19,7 +19,7 @@ pnpm dev
 The app requires a public API URL at build and dev-server startup. Use the tracked mode-specific env files or create `.env` from `.env.example`:
 
 ```sh
-PUBLIC_EZ_API_URL=http://localhost:8787/v1
+PUBLIC_EZ_API_URL=http://localhost:1350/v1
 ```
 
 The Vite config fails fast when `PUBLIC_EZ_API_URL` is missing, so production builds cannot silently ship without sync/auth.

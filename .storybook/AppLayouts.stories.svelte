@@ -69,7 +69,7 @@
 			<div class="blank-screen">
 				<Navbar visible>
 					<div class="blank-navbar">
-						<Button ariaLabel="Open pages" on:click={togglePages}><Icon name="bars-3" /></Button>
+						<Button ariaLabel="Open pages" onclick={togglePages}><Icon name="bars-3" /></Button>
 						<span>ez-blank</span>
 						<Button ariaLabel="Open settings"><Icon name="ellipsis-horizontal" /></Button>
 					</div>

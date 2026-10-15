@@ -13,7 +13,7 @@
 <Modal {title} onClose={onCancel}>
 	<p>{message}</p>
 	<svelte:fragment slot="actions">
-		<Button on:click={onCancel}>Cancel</Button>
-		<Button variant={danger ? 'danger' : 'primary'} on:click={onConfirm}>{actionLabel}</Button>
+		<Button onclick={onCancel}>Cancel</Button>
+		<Button variant={danger ? 'danger' : 'primary'} onclick={onConfirm}>{actionLabel}</Button>
 	</svelte:fragment>
 </Modal>

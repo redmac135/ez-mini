@@ -1,6 +1,6 @@
 # ez-mini API
 
-Cloudflare Worker API for ez-mini auth sessions, settings, and page sync.
+Cloudflare Worker API for ez-mini auth sessions, settings, and app data sync.
 
 Routes are served under `/v1`.
 
@@ -13,12 +13,12 @@ pnpm --filter @ez/apps-api dev
 ```
 
 The dev script starts Wrangler with the `development` environment from `wrangler.toml`,
-which sets localhost CORS for the blank app.
+which sets localhost CORS for the apps.
 
-The blank app expects this local URL:
+The apps expect this local URL:
 
 ```sh
-PUBLIC_EZ_API_URL=http://localhost:8787/v1
+PUBLIC_EZ_API_URL=http://localhost:1350/v1
 ```
 
 Production-style values are documented in `.env.example`.
@@ -42,10 +42,16 @@ The Worker also needs a `SESSIONS` KV namespace, configured in `wrangler.toml`.
 - `POST /v1/auth/logout`
 - `GET /v1/pages`
 - `POST /v1/pages`
+- `GET /v1/journey/entries`
+- `POST /v1/journey/entries`
 - `GET /v1/settings`
 - `PATCH /v1/settings`
 
 The pages API only exposes collection list/upsert routes because `ez-blank` is the sole client and already represents deletes as soft-deleted upserted page rows.
+
+Journey stores entries in the `journey.entries` table. Apply `supabase/migrations/20261014000000_journey_entries.sql` to the Supabase project, then add `journey` to the project's **Exposed schemas** setting (alongside `blank` and `repeat`) so PostgREST can serve the Worker requests. The table is protected by row level security and each request is scoped to the authenticated user's ID.
+
+Journey entry listing returns `{ entries, nextCursor }`. Pass `limit` (up to 200), plus both `before_created_at` and `before_id` from `nextCursor`, to fetch older rows. The cursor orders entries by `(created_at, id)` so equally dated entries are not skipped. Sync requests can also pass `since` to fetch changed rows; the client follows pagination cursors until it has reconciled all pages. Writes include the last observed server change cursor, which the API checks before accepting updates. If both devices changed an entry, sync keeps the entry with the later `updated_at` timestamp.
 
 ## Scripts
 

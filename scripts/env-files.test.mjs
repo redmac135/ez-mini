@@ -39,10 +39,124 @@ test('ez-blank build modes include public API URLs from dotenv', async () => {
 		new URL('../apps/ez-blank/wrangler.toml', import.meta.url),
 		'utf8'
 	);
+	const config = parseToml(wrangler);
 
-	assert.match(developmentEnv, /PUBLIC_EZ_API_URL=http:\/\/localhost:8787\/v1/);
-	assert.match(productionEnv, /PUBLIC_EZ_API_URL=https:\/\/mini\.api\.ethanzhao\.ca\/v1/);
-	assert.equal(wrangler.includes('PUBLIC_EZ_API_URL'), false);
-	assert.equal(wrangler.includes('[vars]'), false);
-	assert.equal(wrangler.includes('preview_urls'), false);
+	assert.equal(parseEnv(developmentEnv).PUBLIC_EZ_API_URL, 'http://localhost:1350/v1');
+	assert.equal(parseEnv(productionEnv).PUBLIC_EZ_API_URL, 'https://mini.api.ethanzhao.ca/v1');
+	assert.equal(config.vars, undefined);
+	assert.equal(config.env?.preview?.vars, undefined);
+	assert.equal(config.preview_urls, undefined);
 });
+
+test('ez-journey build modes include the shared API URL', async () => {
+	const developmentEnv = await readFile(
+		new URL('../apps/ez-journey/.env.development', import.meta.url),
+		'utf8'
+	);
+	const productionEnv = await readFile(
+		new URL('../apps/ez-journey/.env.production', import.meta.url),
+		'utf8'
+	);
+	const exampleEnv = await readFile(
+		new URL('../apps/ez-journey/.env.example', import.meta.url),
+		'utf8'
+	);
+
+	assert.equal(parseEnv(developmentEnv).PUBLIC_EZ_API_URL, 'http://localhost:1350/v1');
+	assert.equal(parseEnv(productionEnv).PUBLIC_EZ_API_URL, 'https://mini.api.ethanzhao.ca/v1');
+	assert.equal(parseEnv(exampleEnv).PUBLIC_EZ_API_URL, 'http://localhost:1350/v1');
+});
+
+test('TOML array tables retain their nested semantic structure', () => {
+	assert.deepEqual(
+		parseToml('[[env.development.kv_namespaces]]\nbinding = "CACHE"\nid = "namespace-id"'),
+		{
+			env: {
+				development: {
+					kv_namespaces: [{ binding: 'CACHE', id: 'namespace-id' }]
+				}
+			}
+		}
+	);
+});
+
+function parseEnv(source) {
+	const values = {};
+	for (const line of source.split(/\r?\n/)) {
+		const assignment = line.trim().match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+		if (!assignment) continue;
+		const [, key, rawValue] = assignment;
+		const value = rawValue.trim();
+		values[key] =
+			(value.startsWith('"') && value.endsWith('"')) ||
+			(value.startsWith("'") && value.endsWith("'"))
+				? value.slice(1, -1)
+				: value.replace(/\s+#.*$/, '').trim();
+	}
+	return values;
+}
+
+function parseToml(source) {
+	const root = {};
+	let current = root;
+	for (const sourceLine of source.split(/\r?\n/)) {
+		const line = stripTomlComment(sourceLine).trim();
+		if (!line) continue;
+		const arrayTable = line.match(/^\[\[([A-Za-z0-9_.-]+)\]\]$/);
+		if (arrayTable) {
+			const segments = arrayTable[1].split('.');
+			current = root;
+			for (const segment of segments.slice(0, -1)) {
+				current[segment] ??= {};
+				current = Array.isArray(current[segment]) ? current[segment].at(-1) : current[segment];
+			}
+			const name = segments.at(-1);
+			current[name] ??= [];
+			if (!Array.isArray(current[name])) throw new Error(`Invalid TOML array table: ${line}`);
+			current[name].push({});
+			current = current[name].at(-1);
+			continue;
+		}
+		const table = line.match(/^\[([A-Za-z0-9_.-]+)\]$/);
+		if (table) {
+			current = root;
+			for (const segment of table[1].split('.')) {
+				current[segment] ??= {};
+				current = Array.isArray(current[segment]) ? current[segment].at(-1) : current[segment];
+			}
+			continue;
+		}
+		const assignment = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.*?)\s*$/);
+		if (!assignment) throw new Error(`Unsupported TOML configuration line: ${line}`);
+		current[assignment[1]] = parseTomlValue(assignment[2]);
+	}
+	return root;
+}
+
+function stripTomlComment(line) {
+	let quote = null;
+	for (let index = 0; index < line.length; index += 1) {
+		const char = line[index];
+		if (quote) {
+			if (char === quote && line[index - 1] !== '\\') quote = null;
+		} else if (char === '"' || char === "'") {
+			quote = char;
+		} else if (char === '#') {
+			return line.slice(0, index);
+		}
+	}
+	return line;
+}
+
+function parseTomlValue(value) {
+	if (
+		(value.startsWith('"') && value.endsWith('"')) ||
+		(value.startsWith("'") && value.endsWith("'"))
+	) {
+		return value.slice(1, -1);
+	}
+	if (value === 'true') return true;
+	if (value === 'false') return false;
+	if (/^-?\d+(?:\.\d+)?$/.test(value)) return Number(value);
+	return value;
+}

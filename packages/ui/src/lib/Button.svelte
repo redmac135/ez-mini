@@ -1,9 +1,27 @@
 <script lang="ts">
-	export let variant: 'ghost' | 'primary' | 'danger' = 'ghost';
-	export let size: 'sm' | 'md' | 'icon' = 'md';
-	export let type: 'button' | 'submit' | 'reset' = 'button';
-	export let disabled = false;
-	export let ariaLabel = '';
+	import type { Snippet } from 'svelte';
+
+	let {
+		variant = 'ghost',
+		size = 'md',
+		type = 'button',
+		disabled = false,
+		ariaLabel = '',
+		ariaHaspopup = undefined,
+		ariaExpanded = undefined,
+		onclick,
+		children
+	}: {
+		variant?: 'ghost' | 'primary' | 'danger';
+		size?: 'sm' | 'md' | 'icon';
+		type?: 'button' | 'submit' | 'reset';
+		disabled?: boolean;
+		ariaLabel?: string;
+		ariaHaspopup?: 'menu' | 'dialog' | 'listbox' | 'tree' | 'grid' | boolean;
+		ariaExpanded?: boolean;
+		onclick?: (event: MouseEvent) => void;
+		children?: Snippet;
+	} = $props();
 </script>
 
 <button
@@ -14,9 +32,11 @@
 	{type}
 	{disabled}
 	aria-label={ariaLabel || undefined}
-	on:click
+	aria-haspopup={ariaHaspopup}
+	aria-expanded={ariaExpanded}
+	{onclick}
 >
-	<slot />
+	{@render children?.()}
 </button>
 
 <style>

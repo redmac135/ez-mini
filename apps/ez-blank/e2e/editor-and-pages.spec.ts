@@ -6,7 +6,7 @@ async function openPages(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
-	await page.route('http://localhost:8787/v1/**', async (route) => {
+	await page.route('http://localhost:1350/v1/**', async (route) => {
 		if (route.request().url().endsWith('/auth/session')) {
 			await route.fulfill({
 				status: 200,
