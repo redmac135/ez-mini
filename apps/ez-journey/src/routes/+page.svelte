@@ -8,6 +8,7 @@
 		AccountLoading,
 		AppShell,
 		Button,
+		ConfirmModal,
 		FloatingMenu,
 		Icon,
 		Modal,
@@ -73,6 +74,7 @@
 	let entrySourceBounds = $state<ElementBounds | null>(null);
 	let entryEditorState = $state<EditorState>(EMPTY_STATE);
 	let entryEditorClosing = $state(false);
+	let discardEntryConfirmationOpen = $state(false);
 	let menuOpen = $state(false);
 	let theme = $state<'light' | 'dark'>('light');
 	let pageScrolled = $state(false);
@@ -258,12 +260,22 @@
 		menuOpen = false;
 	}
 
-	function closeEntry() {
+	function requestCloseEntry() {
 		if (entryBeingEdited) {
-			entryEditorClosing = true;
+			if (entryEditorState.text !== entryBeingEdited.text) {
+				discardEntryConfirmationOpen = true;
+				return;
+			}
+			beginCloseEntry();
 			return;
 		}
 		minimize();
+	}
+
+	function beginCloseEntry() {
+		if (entryBeingEdited) {
+			entryEditorClosing = true;
+		}
 	}
 
 	async function saveCurrentEntry() {
@@ -293,7 +305,7 @@
 				entrySaveError = '';
 				scheduleSync();
 			}
-			closeEntry();
+			beginCloseEntry();
 			return;
 		}
 		submitEntry();
@@ -416,7 +428,7 @@
 					<Button
 						size="icon"
 						ariaLabel={entryBeingEdited ? 'Close journal entry' : 'Minimize entry'}
-						onclick={closeEntry}
+						onclick={requestCloseEntry}
 					>
 						<Icon name="chevron-left" />
 					</Button>
@@ -547,6 +559,19 @@
 	{/if}
 
 	<AccountDialogs controller={account} {syncBusy} />
+	{#if discardEntryConfirmationOpen}
+		<ConfirmModal
+			title="Discard changes?"
+			message="Your changes to this journal entry haven’t been saved. Discard them?"
+			actionLabel="Discard changes"
+			danger
+			onCancel={() => (discardEntryConfirmationOpen = false)}
+			onConfirm={() => {
+				discardEntryConfirmationOpen = false;
+				beginCloseEntry();
+			}}
+		/>
+	{/if}
 	{#if accountState.contextTransition}
 		<AccountLoading
 			canceling={accountState.contextTransition.canceling}

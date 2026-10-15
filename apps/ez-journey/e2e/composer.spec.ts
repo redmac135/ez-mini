@@ -252,6 +252,44 @@ test('saved entries appear in the timeline and open as editable full-screen entr
 	await expect(entryCard).toContainText('A moment worth keeping and more');
 });
 
+test('backing out of a changed journal entry asks before discarding edits', async ({ page }) => {
+	const composerEditor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await composerEditor.pressSequentially('A saved moment');
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+	const entryCard = page.getByRole('button', { name: /open journal entry/i });
+	await expect(entryCard).toContainText('A saved moment');
+	await entryCard.click();
+
+	const entryEditor = page
+		.locator('.entry-editor')
+		.getByRole('textbox', { name: 'Markdown editor' });
+	await entryEditor.pressSequentially(' with an unsaved addition');
+	await page.getByRole('button', { name: 'Close journal entry' }).click();
+
+	const confirmation = page.getByRole('dialog', { name: 'Discard changes?' });
+	await expect(confirmation).toContainText(
+		'Your changes to this journal entry haven’t been saved.'
+	);
+	await confirmation.getByRole('button', { name: 'Cancel' }).click();
+	await expect(confirmation).toHaveCount(0);
+	await expect(entryEditor).toContainText('with an unsaved addition');
+
+	await page.getByRole('button', { name: 'Close journal entry' }).click();
+	await page
+		.getByRole('dialog', { name: 'Discard changes?' })
+		.getByRole('button', { name: 'Discard changes' })
+		.click();
+	await expect(page.locator('.entry-editor')).toHaveCount(0);
+	await expect(entryCard).toContainText('A saved moment');
+	await expect(entryCard).not.toContainText('unsaved addition');
+
+	await entryCard.click();
+	await page.getByRole('button', { name: 'Close journal entry' }).click();
+	await expect(page.locator('.entry-editor')).toHaveCount(0);
+	await expect(page.getByRole('dialog', { name: 'Discard changes?' })).toHaveCount(0);
+});
+
 test('short drafts can be saved from the compact composer', async ({ page }) => {
 	await page.evaluate(() => localStorage.setItem('ez-journey-theme', 'light'));
 	await page.reload();
