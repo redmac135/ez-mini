@@ -183,11 +183,11 @@ test('signing in with the current account reuses the account list as a confirmat
 test('shows lookup errors and retries the same login flow', async () => {
 	let calls = 0;
 	const auth = createAuthClient({ activeSession: null, sessions: [] });
-	const getSession = auth.getSession;
-	auth.getSession = async (options) => {
+	const getAccounts = auth.getAccounts;
+	auth.getAccounts = async (options) => {
 		calls += 1;
 		if (calls === 1) throw new Error('Network unavailable');
-		return getSession(options);
+		return getAccounts(options);
 	};
 	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
 
@@ -206,7 +206,7 @@ test('shows lookup errors and retries the same login flow', async () => {
 test('closing the login dialog aborts a pending session lookup', async () => {
 	let lookupSignal: AbortSignal | undefined;
 	const auth = createAuthClient({ activeSession: null, sessions: [] });
-	auth.getSession = (options) => {
+	auth.getAccounts = (options) => {
 		lookupSignal = options?.signal;
 		return new Promise((_resolve, reject) => {
 			lookupSignal?.addEventListener('abort', () =>
@@ -664,6 +664,12 @@ function createAuthClient(options: {
 			);
 		},
 		async getSession() {
+			return {
+				activeSession: options.activeSession,
+				sessions: options.sessions
+			};
+		},
+		async getAccounts() {
 			return {
 				activeSession: options.activeSession,
 				sessions: options.sessions

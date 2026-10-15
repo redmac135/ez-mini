@@ -45,6 +45,7 @@ export interface AuthClient {
 	login(email: string): Promise<{ sent: true }>;
 	verify(email: string, token: string): Promise<AuthSessionResponse>;
 	getSession(options?: { signal?: AbortSignal }): Promise<AuthSessionResponse>;
+	getAccounts(options?: { signal?: AbortSignal }): Promise<AuthSessionResponse>;
 	switchSession(sessionId: string): Promise<AuthSessionResponse>;
 	useAnonymous(): Promise<AuthSessionResponse>;
 	logout(options?: { all?: boolean; sessionId?: string }): Promise<AuthSessionResponse>;
@@ -119,6 +120,9 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
 		},
 		getSession(options = {}) {
 			return request('/auth/session', { signal: options.signal });
+		},
+		getAccounts(options = {}) {
+			return request('/auth/accounts', { signal: options.signal });
 		},
 		switchSession(sessionId: string) {
 			return request('/auth/switch', {

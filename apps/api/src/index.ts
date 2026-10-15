@@ -1,4 +1,8 @@
-import { getSessionResponse, getRequestContext } from './auth/session-store.ts';
+import {
+	getAccountSessionsResponse,
+	getSessionResponse,
+	getRequestContext
+} from './auth/session-store.ts';
 import { authBroadcastFrame } from './auth/broadcast-frame.ts';
 import { login, logout, switchSession, useAnonymous, verifyOtp } from './auth/routes.ts';
 import {
@@ -61,6 +65,9 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 		}
 		if (request.method === 'GET' && path === '/auth/session') {
 			return json(await getSessionResponse(env, context), { headers: responseHeaders });
+		}
+		if (request.method === 'GET' && path === '/auth/accounts') {
+			return json(await getAccountSessionsResponse(env, context), { headers: responseHeaders });
 		}
 		if (request.method === 'POST' && path === '/auth/switch') {
 			return json(await switchSession(request, env, context, responseHeaders), {

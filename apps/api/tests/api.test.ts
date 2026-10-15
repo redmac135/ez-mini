@@ -138,6 +138,97 @@ test('session lists device accounts with usernames and active state', async () =
 	);
 });
 
+test('session startup uses cached inactive accounts while account listing refreshes shared names', async () => {
+	const deviceId = 'cached-account-device';
+	await putStoredSession({
+		deviceId,
+		sessionId: 'active',
+		userId: 'active-user',
+		expiresAt: Math.floor(Date.now() / 1000) + 3600,
+		lastUsedAt: 10
+	});
+	await putStoredSession({
+		deviceId,
+		sessionId: 'inactive',
+		userId: 'inactive-user',
+		expiresAt: 1,
+		lastUsedAt: 20
+	});
+	const upstreamRequests: string[] = [];
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		upstreamRequests.push(`${request.method} ${url.pathname}`);
+		if (url.pathname.endsWith('/token')) {
+			return Response.json({
+				access_token: 'rotated-inactive-access',
+				refresh_token: 'rotated-inactive-refresh',
+				expires_at: Math.floor(Date.now() / 1000) + 3600,
+				user: {
+					id: 'inactive-user',
+					user_metadata: { display_name: 'Shared inactive-user' }
+				}
+			});
+		}
+		if (url.pathname.endsWith('/user')) {
+			const userId = request.headers.get('authorization')?.includes('rotated-inactive-access')
+				? 'inactive-user'
+				: 'active-user';
+			return Response.json({ user_metadata: { display_name: `Shared ${userId}` } });
+		}
+		throw new Error(`Unexpected Supabase request: ${request.url}`);
+	});
+	const sessionRequest = (path: string) =>
+		handleRequest(
+			new Request(`https://mini.api.ethanzhao.ca/v1/auth/${path}`, {
+				headers: {
+					cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=active`
+				}
+			}),
+			env
+		);
+	const startup = await sessionRequest('session');
+	const startupBody = (await startup.json()) as {
+		sessions: Array<{ sessionId: string; username: string }>;
+	};
+	const cachedInactive = (await env.SESSIONS.get(sessionKey(deviceId, 'inactive'), 'json')) as {
+		supabaseRefreshToken: string;
+	};
+	assert.equal(startup.status, 200);
+	assert.deepEqual(upstreamRequests, []);
+	assert.equal(cachedInactive.supabaseRefreshToken, 'refresh-inactive');
+	assert.deepEqual(
+		startupBody.sessions.map(({ sessionId, username }) => ({ sessionId, username })),
+		[
+			{ sessionId: 'active', username: 'a@example.com' },
+			{ sessionId: 'inactive', username: 'a@example.com' }
+		]
+	);
+
+	const accounts = await sessionRequest('accounts');
+	const accountBody = (await accounts.json()) as {
+		sessions: Array<{ sessionId: string; username: string }>;
+	};
+	assert.equal(accounts.status, 200);
+	assert.deepEqual(upstreamRequests.sort(), [
+		'GET /auth/v1/user',
+		'GET /auth/v1/user',
+		'POST /auth/v1/token'
+	].sort());
+	assert.deepEqual(
+		accountBody.sessions.map(({ sessionId, username }) => ({ sessionId, username })),
+		[
+			{ sessionId: 'active', username: 'Shared active-user' },
+			{ sessionId: 'inactive', username: 'Shared inactive-user' }
+		]
+	);
+	const refreshedInactive = (await env.SESSIONS.get(sessionKey(deviceId, 'inactive'), 'json')) as {
+		supabaseRefreshToken: string;
+		displayName: string;
+	};
+	assert.equal(refreshedInactive.supabaseRefreshToken, 'rotated-inactive-refresh');
+	assert.equal(refreshedInactive.displayName, 'Shared inactive-user');
+});
+
 test('login normalizes email before asking Supabase to send an OTP', async () => {
 	mockFetch(async (request) => {
 		assert.equal(request.url, 'https://supabase.example.test/auth/v1/otp');

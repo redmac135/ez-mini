@@ -46,6 +46,21 @@ test('session lookup forwards an abort signal to fetch', async () => {
 	assert.equal(requestSignal?.aborted, true);
 });
 
+test('account listing requests the explicit account summary endpoint', async () => {
+	let requestedUrl = '';
+	const client = createAuthClient({
+		apiUrl: 'https://api.example.test/v1',
+		fetch: async (input) => {
+			requestedUrl = String(input);
+			return Response.json({ activeSession: null, sessions: [] });
+		}
+	});
+
+	await client.getAccounts();
+
+	assert.equal(requestedUrl, 'https://api.example.test/v1/auth/accounts');
+});
+
 test('auth client surfaces API error messages', async () => {
 	const client = createAuthClient({
 		apiUrl: 'https://api.example.test',

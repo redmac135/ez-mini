@@ -280,7 +280,7 @@ export function createAccountDataController<TData>(
 			authMessage: ''
 		});
 		try {
-			const response = await options.authClient.getSession({ signal: abortController.signal });
+			const response = await options.authClient.getAccounts({ signal: abortController.signal });
 			if (loginLookupAbortController !== abortController || abortController.signal.aborted) return;
 			if (response.sessions.length > 0) {
 				setState({

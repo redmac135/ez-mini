@@ -79,7 +79,7 @@ test('cancelled OAuth linking keeps connected accounts open with a retryable mes
 		async (route) => {
 			const request = route.request();
 			const pathname = new URL(request.url()).pathname;
-			if (pathname.endsWith('/auth/session')) {
+			if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts')) {
 				await route.fulfill({ json: { activeSession, sessions: [activeSession] } });
 				return;
 			}
@@ -137,7 +137,7 @@ test('adding an existing account confirms it, and adding another account keeps b
 		page,
 		async (route) => {
 			const pathname = new URL(route.request().url()).pathname;
-			if (pathname.endsWith('/auth/session')) {
+			if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts')) {
 				await route.fulfill({
 					json: { activeSession: currentActiveSession, sessions: currentSessions }
 				});
@@ -326,6 +326,7 @@ async function mockApi(
 				pathname.endsWith('/auth/identities') ||
 				pathname.includes('/auth/identities/') ||
 				pathname.endsWith('/auth/session') ||
+				pathname.endsWith('/auth/accounts') ||
 				pathname.endsWith('/auth/oauth/start') ||
 				pathname.endsWith('/auth/oauth/link') ||
 				pathname.endsWith('/auth/profile') ||
@@ -336,7 +337,10 @@ async function mockApi(
 				return;
 			}
 		}
-		if (route.request().url().endsWith('/auth/session')) {
+		if (
+			route.request().url().endsWith('/auth/session') ||
+			route.request().url().endsWith('/auth/accounts')
+		) {
 			await route.fulfill({
 				json: {
 					activeSession: authenticated ? activeSession : null,

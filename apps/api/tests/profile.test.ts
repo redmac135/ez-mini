@@ -89,14 +89,15 @@ test('profile persists its initial provider name after that identity is removed'
 
 test('profile updates Supabase user metadata and limits display name length', async () => {
 	let updateBody: unknown;
+	let profileReads = 0;
 	mockFetch(async (request) => {
-		assert.equal(request.method, 'PUT');
-		updateBody = await request.json();
+		if (request.method === 'PUT') updateBody = await request.json();
+		else profileReads += 1;
 		return Response.json({
-			id: 'user-profile',
-			email: 'person@example.com',
 			user_metadata: { display_name: 'Taylor Zhao' },
-			identities: []
+			...(request.method === 'PUT'
+				? { id: 'user-profile', email: 'person@example.com', identities: [] }
+				: {})
 		});
 	});
 	const saved = await requestProfile('PUT', { displayName: '  Taylor Zhao  ' });
@@ -116,6 +117,7 @@ test('profile updates Supabase user metadata and limits display name length', as
 	);
 	const sessionBody = (await sessions.json()) as { activeSession: { username: string } };
 	assert.equal(sessionBody.activeSession.username, 'Taylor Zhao');
+	assert.equal(profileReads, 0);
 	const otherDeviceId = 'profile-other-device';
 	await env.SESSIONS.put(
 		sessionKey(otherDeviceId, 'other-session'),
@@ -133,7 +135,7 @@ test('profile updates Supabase user metadata and limits display name length', as
 		})
 	);
 	const otherDeviceSessions = await handleRequest(
-		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/accounts', {
 			headers: { cookie: `ez_mini_device_id=${otherDeviceId}` }
 		}),
 		env
@@ -142,6 +144,7 @@ test('profile updates Supabase user metadata and limits display name length', as
 		sessions: Array<{ username: string }>;
 	};
 	assert.equal(otherDeviceBody.sessions[0]?.username, 'Taylor Zhao');
+	assert.equal(profileReads, 1);
 	const updatedOtherDeviceSession = (await env.SESSIONS.get(
 		sessionKey(otherDeviceId, 'other-session'),
 		'json'
