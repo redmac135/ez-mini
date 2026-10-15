@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"deploy": "wrangler pages deploy build --project-name ez-journey",
+		"deploy": "wrangler pages deploy build --project-name ez-journey --branch prod",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "node scripts/run-tests.mjs",
