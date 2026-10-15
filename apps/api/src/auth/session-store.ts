@@ -140,21 +140,18 @@ export async function putSession(env: Env, session: StoredSession) {
 	});
 }
 
-export async function deleteSession(env: Env, session: StoredSession) {
-	await env.SESSIONS.delete(sessionKey(session.deviceId, session.sessionId));
+export async function getDeviceUserSessionId(deviceId: string, userId: string) {
+	const digest = await crypto.subtle.digest(
+		'SHA-256',
+		new TextEncoder().encode(JSON.stringify([deviceId, userId]))
+	);
+	const encoded = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0'))
+		.join('');
+	return `account-${encoded}`;
 }
 
-export function getAuthUserDisplayName(user: SupabaseSessionResponse['user']) {
-	const customName = user.user_metadata?.display_name;
-	if (typeof customName === 'string' && customName.trim()) return customName.trim();
-	for (const identity of user.identities ?? []) {
-		const data = identity.identity_data ?? {};
-		for (const key of ['user_name', 'preferred_username', 'login', 'full_name', 'name']) {
-			const value = data[key];
-			if (typeof value === 'string' && value.trim()) return value.trim();
-		}
-	}
-	return user.email?.trim() || user.id;
+export async function deleteSession(env: Env, session: StoredSession) {
+	await env.SESSIONS.delete(sessionKey(session.deviceId, session.sessionId));
 }
 
 function getPersistedDisplayName(metadata: Record<string, unknown> | undefined) {

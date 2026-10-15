@@ -194,7 +194,11 @@ test('verify creates a backend session and sets device plus active-session cooki
 			access_token: 'access-a',
 			refresh_token: 'refresh-a',
 			expires_at: 2_000_000_000,
-			user: { id: 'user-a', email: 'a@example.com' }
+			user: {
+				id: 'user-a',
+				email: 'a@example.com',
+				user_metadata: { display_name: 'a@example.com' }
+			}
 		});
 	});
 
@@ -216,6 +220,56 @@ test('verify creates a backend session and sets device plus active-session cooki
 	assert.equal(body.activeSession.userId, 'user-a');
 	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_device_id=/);
 	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_active_session_id=/);
+});
+
+test('OTP verification persists the initial email display name during sign-in', async () => {
+	const deviceId = 'initial-name-device';
+	let persistedName: string | undefined;
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		if (url.pathname === '/auth/v1/verify') {
+			return Response.json({
+				access_token: 'initial-access',
+				refresh_token: 'initial-refresh',
+				expires_at: Math.floor(Date.now() / 1000) + 3600,
+				user: {
+					id: 'initial-user',
+					email: 'initial@example.com',
+					user_metadata: {},
+					identities: []
+				}
+			});
+		}
+		if (url.pathname === '/auth/v1/user' && request.method === 'PUT') {
+			const body = (await request.json()) as { data: { display_name: string } };
+			persistedName = body.data.display_name;
+			return Response.json({ user_metadata: { display_name: persistedName } });
+		}
+		if (url.pathname === '/auth/v1/user') {
+			return Response.json({ user_metadata: { display_name: persistedName } });
+		}
+		throw new Error(`Unexpected Supabase request: ${request.url}`);
+	});
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/verify', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ email: 'initial@example.com', token: '12345678' })
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: { username: string };
+		sessions: Array<{ sessionId: string }>;
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(persistedName, 'initial@example.com');
+	assert.equal(body.activeSession.username, 'initial@example.com');
+	assert.equal(body.sessions.length, 1);
 });
 
 test('switch validates ownership, refreshes session, and updates active-session cookie before returning', async () => {

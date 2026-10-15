@@ -9,9 +9,10 @@ import type {
 	SupabaseSessionResponse
 } from '../types.ts';
 import { supabaseAuth } from '../supabase/client.ts';
+import { persistInitialDisplayName } from './profile.ts';
 import {
 	activateSession,
-	getAuthUserDisplayName,
+	getDeviceUserSessionId,
 	getOwnedSession,
 	listDeviceSessions,
 	putSession,
@@ -168,6 +169,11 @@ export async function completeOAuth(
 				lastUsedAt: now
 			});
 		} else {
+			const displayName = await persistInitialDisplayName(
+				env,
+				authSession.access_token,
+				authSession.user
+			);
 			const existingSessions = await listDeviceSessions(env, context.deviceId);
 			const existing =
 				existingSessions.find(
@@ -176,11 +182,13 @@ export async function completeOAuth(
 				) ?? existingSessions.find((entry) => entry.userId === authSession.user.id);
 			alreadySignedIn = existing !== undefined;
 			const stored: StoredSession = {
-				sessionId: existing?.sessionId ?? crypto.randomUUID(),
+				sessionId:
+					existing?.sessionId ??
+					(await getDeviceUserSessionId(context.deviceId, authSession.user.id)),
 				deviceId: context.deviceId,
 				userId: authSession.user.id,
 				email: authSession.user.email ?? null,
-				displayName: getAuthUserDisplayName(authSession.user),
+				displayName,
 				supabaseAccessToken: authSession.access_token,
 				supabaseRefreshToken: authSession.refresh_token,
 				expiresAt: authSession.expires_at ?? null,

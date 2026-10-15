@@ -129,7 +129,11 @@ test('OAuth sign-in uses a PKCE callback on the shared API and creates the share
 			access_token: 'access-user-a',
 			refresh_token: 'refresh-user-a',
 			expires_at: Math.floor(Date.now() / 1000) + 3600,
-			user: { id: 'user-a', email: 'a@example.com' }
+			user: {
+				id: 'user-a',
+				email: 'a@example.com',
+				user_metadata: { display_name: 'A' }
+			}
 		});
 	});
 
@@ -177,6 +181,78 @@ test('OAuth sign-in uses a PKCE callback on the shared API and creates the share
 	};
 	assert.equal(stored.userId, 'user-a');
 	assert.equal(stored.supabaseAccessToken, 'access-user-a');
+});
+
+test('OAuth sign-in persists the provider default and concurrent callbacks share one session', async () => {
+	const deviceId = 'concurrent-device';
+	const callbackUrls: string[] = [];
+	const displayNameWrites: unknown[] = [];
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		if (url.pathname === '/auth/v1/authorize') {
+			callbackUrls.push(url.searchParams.get('redirect_to') ?? '');
+			return new Response(null, {
+				status: 302,
+				headers: { location: 'https://github.com/login/oauth/authorize' }
+			});
+		}
+		if (url.pathname === '/auth/v1/token') {
+			return Response.json({
+				access_token: 'shared-access',
+				refresh_token: 'shared-refresh',
+				expires_at: Math.floor(Date.now() / 1000) + 3600,
+				user: {
+					id: 'shared-user',
+					email: 'shared@example.com',
+					identities: [
+						{
+							identity_id: 'github-identity',
+							provider: 'github',
+							identity_data: { user_name: 'shared-handle' }
+						}
+					]
+				}
+			});
+		}
+		if (url.pathname === '/auth/v1/user' && request.method === 'PUT') {
+			const body = (await request.json()) as { data: { display_name: string } };
+			displayNameWrites.push(body.data.display_name);
+			return Response.json({ user_metadata: { display_name: body.data.display_name } });
+		}
+		if (url.pathname === '/auth/v1/user') {
+			return Response.json({ user_metadata: { display_name: 'shared-handle' } });
+		}
+		throw new Error(`Unexpected Supabase request: ${request.url}`);
+	});
+	const startUrl = `https://mini.api.ethanzhao.ca/v1/auth/oauth/start?provider=github&return_to=${encodeURIComponent('https://blank.ethanzhao.ca/')}`;
+	const cookies = `ez_mini_device_id=${deviceId}`;
+	await Promise.all([
+		handleRequest(new Request(startUrl, { headers: { cookie: cookies } }), env),
+		handleRequest(new Request(startUrl, { headers: { cookie: cookies } }), env)
+	]);
+	const flowIds = callbackUrls.map((callbackUrl) => new URL(callbackUrl).searchParams.get('flow'));
+	assert.equal(flowIds.length, 2);
+	assert.ok(flowIds.every((flowId) => flowId));
+	const callbacks = await Promise.all(
+		flowIds.map((flowId) =>
+			handleRequest(
+				new Request(
+					`https://mini.api.ethanzhao.ca/v1/auth/oauth/callback?flow=${flowId}&code=provider-code`,
+					{ headers: { cookie: cookies } }
+				),
+				env
+			)
+		)
+	);
+	const sessions = await env.SESSIONS.list({ prefix: `device:${deviceId}:session:` });
+	const stored = (await env.SESSIONS.get(sessions.keys[0]?.name ?? '', 'json')) as {
+		displayName: string;
+	};
+
+	assert.ok(callbacks.every((response) => response.status === 302));
+	assert.ok(displayNameWrites.includes('shared-handle'));
+	assert.equal(sessions.keys.length, 1);
+	assert.equal(stored.displayName, 'shared-handle');
 });
 
 test('OAuth callback rejects a flow started on another device', async () => {
@@ -246,7 +322,11 @@ test('OAuth sign-in with the current user returns an already-signed-in result wi
 			access_token: 'new-access',
 			refresh_token: 'new-refresh',
 			expires_at: Math.floor(Date.now() / 1000) + 3600,
-			user: { id: 'user-a', email: 'a@example.com' }
+			user: {
+				id: 'user-a',
+				email: 'a@example.com',
+				user_metadata: { display_name: 'A' }
+			}
 		});
 	});
 	const cookies = `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`;
@@ -320,7 +400,11 @@ test('OAuth sign-in confirms when switching to an existing inactive device sessi
 			access_token: 'new-access-a',
 			refresh_token: 'new-refresh-a',
 			expires_at: Math.floor(Date.now() / 1000) + 3600,
-			user: { id: 'user-a', email: 'a@example.com' }
+			user: {
+				id: 'user-a',
+				email: 'a@example.com',
+				user_metadata: { display_name: 'A' }
+			}
 		});
 	});
 	const cookies = `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-b`;
@@ -372,7 +456,11 @@ test('email verification reuses the active session and reports an already signed
 			access_token: 'new-access',
 			refresh_token: 'new-refresh',
 			expires_at: Math.floor(Date.now() / 1000) + 3600,
-			user: { id: 'user-a', email: 'a@example.com' }
+			user: {
+				id: 'user-a',
+				email: 'a@example.com',
+				user_metadata: { display_name: 'A' }
+			}
 		});
 	});
 
@@ -431,7 +519,11 @@ test('adding a different email account preserves the current device session', as
 			access_token: 'access-user-b',
 			refresh_token: 'refresh-user-b',
 			expires_at: Math.floor(Date.now() / 1000) + 3600,
-			user: { id: 'user-b', email: 'b@example.com' }
+			user: {
+				id: 'user-b',
+				email: 'b@example.com',
+				user_metadata: { display_name: 'B' }
+			}
 		})
 	);
 	const response = await handleRequest(

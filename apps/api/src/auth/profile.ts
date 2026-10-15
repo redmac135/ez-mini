@@ -1,6 +1,11 @@
 import { ApiError } from '../http/errors.ts';
 import { supabaseAuth } from '../supabase/client.ts';
-import type { Env, RequestContext, SupabaseUserProfile } from '../types.ts';
+import type {
+	Env,
+	RequestContext,
+	SupabaseSessionResponse,
+	SupabaseUserProfile
+} from '../types.ts';
 import { listDeviceSessions, putSession, requireActiveSession } from './session-store.ts';
 
 const DISPLAY_NAME_MAX_LENGTH = 80;
@@ -14,19 +19,30 @@ export async function getProfile(env: Env, context: RequestContext) {
 	let customDisplayName = readCustomDisplayName(user.user_metadata);
 	let displayName = customDisplayName ?? getDefaultDisplayName(user);
 	if (!customDisplayName) {
-		const initializedUser = await supabaseAuth<SupabaseUserProfile>(env, '/user', {
-			method: 'PUT',
-			accessToken: session.supabaseAccessToken,
-			body: { data: { display_name: displayName } }
-		});
-		customDisplayName = readCustomDisplayName(initializedUser.user_metadata) ?? displayName;
-		displayName = customDisplayName;
+		displayName = await persistInitialDisplayName(env, session.supabaseAccessToken, user);
+		customDisplayName = displayName;
 	}
 	await cacheDisplayName(env, context.deviceId, user.id, displayName);
 	return {
 		displayName,
 		customDisplayName
 	};
+}
+
+export async function persistInitialDisplayName(
+	env: Env,
+	accessToken: string,
+	user: SupabaseSessionResponse['user']
+) {
+	const existing = readCustomDisplayName(user.user_metadata);
+	if (existing) return existing;
+	const displayName = getDefaultDisplayName(user);
+	const updatedUser = await supabaseAuth<SupabaseUserProfile>(env, '/user', {
+		method: 'PUT',
+		accessToken,
+		body: { data: { display_name: displayName } }
+	});
+	return readCustomDisplayName(updatedUser.user_metadata) ?? displayName;
 }
 
 export async function updateProfile(request: Request, env: Env, context: RequestContext) {
