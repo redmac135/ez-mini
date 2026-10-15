@@ -58,6 +58,53 @@ test('OAuth rejects return URLs outside the configured app origins', async () =>
 	assert.equal(providerRequestMade, false);
 });
 
+test('OAuth sign-in startup failures return to the app with a clear error result', async () => {
+	mockFetch(async () => new Response('unavailable', { status: 503 }));
+	const response = await handleRequest(
+		new Request(
+			`https://mini.api.ethanzhao.ca/v1/auth/oauth/start?provider=github&return_to=${encodeURIComponent('https://blank.ethanzhao.ca/')}`
+		),
+		env
+	);
+	const returnUrl = new URL(response.headers.get('location') ?? '');
+
+	assert.equal(response.status, 302);
+	assert.equal(returnUrl.origin, 'https://blank.ethanzhao.ca');
+	assert.equal(returnUrl.searchParams.get('oauth'), 'error');
+	assert.equal(returnUrl.searchParams.get('oauth_reason'), 'provider_start_failed');
+});
+
+test('OAuth sign-in handles a missing provider authorization URL', async () => {
+	mockFetch(async () => new Response(null, { status: 302 }));
+	const response = await handleRequest(
+		new Request(
+			`https://mini.api.ethanzhao.ca/v1/auth/oauth/start?provider=github&return_to=${encodeURIComponent('https://blank.ethanzhao.ca/')}`
+		),
+		env
+	);
+	const returnUrl = new URL(response.headers.get('location') ?? '');
+
+	assert.equal(response.status, 302);
+	assert.equal(returnUrl.searchParams.get('oauth_reason'), 'provider_start_failed');
+});
+
+test('OAuth sign-in startup network failures return to the app', async () => {
+	mockFetch(async () => {
+		throw new Error('upstream unavailable');
+	});
+	const response = await handleRequest(
+		new Request(
+			`https://mini.api.ethanzhao.ca/v1/auth/oauth/start?provider=github&return_to=${encodeURIComponent('https://blank.ethanzhao.ca/')}`
+		),
+		env
+	);
+	const returnUrl = new URL(response.headers.get('location') ?? '');
+
+	assert.equal(response.status, 302);
+	assert.equal(returnUrl.searchParams.get('oauth'), 'error');
+	assert.equal(returnUrl.searchParams.get('oauth_reason'), 'provider_start_failed');
+});
+
 test('OAuth sign-in uses a PKCE callback on the shared API and creates the shared device session', async () => {
 	let callbackUrl = '';
 	let verifier = '';

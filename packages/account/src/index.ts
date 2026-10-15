@@ -557,6 +557,7 @@ export function createAccountDataController<TData>(
 			session_changed: 'Your active account changed. Please try connecting again.',
 			account_changed: 'The connected identity did not return the active account.',
 			identity_exists: 'That provider account is already connected to another account.',
+			provider_start_failed: 'Unable to start provider sign-in. Please try again.',
 			provider: 'The provider could not complete sign-in.',
 			exchange_failed: 'Unable to complete provider sign-in.'
 		};

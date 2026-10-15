@@ -80,7 +80,28 @@ export async function getSessionResponse(env: Env, context: RequestContext) {
 		}
 	}
 
-	const sessions = await listDeviceSessions(env, context.deviceId);
+	const storedSessions = await listDeviceSessions(env, context.deviceId);
+	const sessions = await Promise.all(
+		storedSessions.map(async (storedSession) => {
+			try {
+				const session = await refreshStoredSession(env, storedSession);
+				const user = await supabaseAuth<{ user_metadata?: Record<string, unknown> }>(
+					env,
+					'/user',
+					{ method: 'GET', accessToken: session.supabaseAccessToken }
+				);
+				const displayName = getPersistedDisplayName(user.user_metadata);
+				if (displayName && displayName !== session.displayName) {
+					const updatedSession = { ...session, displayName };
+					await putSession(env, updatedSession);
+					return updatedSession;
+				}
+				return session;
+			} catch {
+				return storedSession;
+			}
+		})
+	);
 	return {
 		activeSession:
 			sessions
@@ -134,6 +155,11 @@ export function getAuthUserDisplayName(user: SupabaseSessionResponse['user']) {
 		}
 	}
 	return user.email?.trim() || user.id;
+}
+
+function getPersistedDisplayName(metadata: Record<string, unknown> | undefined) {
+	const value = metadata?.display_name;
+	return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 export function activateSession(headers: Headers, sessionId: string, env: Env) {

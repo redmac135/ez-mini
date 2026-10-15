@@ -77,21 +77,36 @@ export async function startOAuth(
 	authUrl.searchParams.set('code_challenge_method', 's256');
 	authUrl.searchParams.set('scopes', provider === 'azure' ? 'email' : 'read:user user:email');
 
-	const response = await fetch(authUrl, {
-		method: 'GET',
-		redirect: 'manual',
-		headers: {
-			apikey: env.SUPABASE_PUBLISHABLE_KEY,
-			...(session ? { authorization: `Bearer ${session.supabaseAccessToken}` } : {})
+	let response: Response;
+	try {
+		response = await fetch(authUrl, {
+			method: 'GET',
+			redirect: 'manual',
+			headers: {
+				apikey: env.SUPABASE_PUBLISHABLE_KEY,
+				...(session ? { authorization: `Bearer ${session.supabaseAccessToken}` } : {})
+			}
+		});
+	} catch {
+		await env.SESSIONS.delete(oauthFlowKey(flow.flowId));
+		if (intent === 'sign-in') {
+			return redirectWithResult(headers, returnTo, 'error', 'provider_start_failed');
 		}
-	});
+		throw new ApiError(502, 'Unable to start provider sign-in.');
+	}
 	if (response.status < 300 || response.status >= 400) {
 		await env.SESSIONS.delete(oauthFlowKey(flow.flowId));
+		if (intent === 'sign-in') {
+			return redirectWithResult(headers, returnTo, 'error', 'provider_start_failed');
+		}
 		throw new ApiError(response.status >= 500 ? 502 : 400, 'Unable to start provider sign-in.');
 	}
 	const location = response.headers.get('location');
 	if (!location) {
 		await env.SESSIONS.delete(oauthFlowKey(flow.flowId));
+		if (intent === 'sign-in') {
+			return redirectWithResult(headers, returnTo, 'error', 'provider_start_failed');
+		}
 		throw new ApiError(502, 'Supabase did not return a provider authorization URL.');
 	}
 	if (intent === 'link') {

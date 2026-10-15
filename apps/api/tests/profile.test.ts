@@ -116,6 +116,37 @@ test('profile updates Supabase user metadata and limits display name length', as
 	);
 	const sessionBody = (await sessions.json()) as { activeSession: { username: string } };
 	assert.equal(sessionBody.activeSession.username, 'Taylor Zhao');
+	const otherDeviceId = 'profile-other-device';
+	await env.SESSIONS.put(
+		sessionKey(otherDeviceId, 'other-session'),
+		JSON.stringify({
+			sessionId: 'other-session',
+			deviceId: otherDeviceId,
+			userId: 'user-profile',
+			email: 'person@example.com',
+			displayName: 'person-dev',
+			supabaseAccessToken: 'other-access',
+			supabaseRefreshToken: 'other-refresh',
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+			createdAt: 1,
+			lastUsedAt: 1
+		})
+	);
+	const otherDeviceSessions = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+			headers: { cookie: `ez_mini_device_id=${otherDeviceId}` }
+		}),
+		env
+	);
+	const otherDeviceBody = (await otherDeviceSessions.json()) as {
+		sessions: Array<{ username: string }>;
+	};
+	assert.equal(otherDeviceBody.sessions[0]?.username, 'Taylor Zhao');
+	const updatedOtherDeviceSession = (await env.SESSIONS.get(
+		sessionKey(otherDeviceId, 'other-session'),
+		'json'
+	)) as { displayName: string };
+	assert.equal(updatedOtherDeviceSession.displayName, 'Taylor Zhao');
 
 	const tooLong = await requestProfile('PUT', { displayName: 'x'.repeat(81) });
 	assert.equal(tooLong.status, 400);
