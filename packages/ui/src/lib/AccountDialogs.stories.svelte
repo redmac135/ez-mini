@@ -97,6 +97,15 @@
 </Story>
 
 <Story
+	name="Session lookup loading state"
+	args={{
+		controller: createController({ loginModalOpen: true, loginLookup: 'loading', authBusy: true })
+	}}
+>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
+</Story>
+
+<Story
 	name="Session lookup loading"
 	args={{
 		controller: createController({ loginModalOpen: true, loginLookup: 'loading', authBusy: true })
@@ -148,6 +157,19 @@
 		</div>
 		<AccountDialogs controller={accountLookupController} />
 	{/snippet}
+</Story>
+
+<Story
+	name="Session lookup failed state"
+	args={{
+		controller: createController({
+			loginModalOpen: true,
+			loginLookup: 'failed',
+			authMessage: 'Unable to reach the account service.'
+		})
+	}}
+>
+	{#snippet template(args)}<AccountDialogs {...args} />{/snippet}
 </Story>
 
 <Story
