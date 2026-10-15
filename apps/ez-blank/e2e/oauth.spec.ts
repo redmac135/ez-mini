@@ -44,7 +44,7 @@ test('login dialog starts a provider sign-in redirect', async ({ page }) => {
 test('OAuth startup failure returns to login with an app-visible message', async ({ page }) => {
 	await mockApi(page, async (route) => {
 		const pathname = new URL(route.request().url()).pathname;
-		if (pathname.endsWith('/auth/session')) {
+		if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts')) {
 			await route.fulfill({ json: { activeSession: null, sessions: [] } });
 			return;
 		}
