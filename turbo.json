@@ -15,6 +15,7 @@
 			"persistent": true
 		},
 		"deploy": {
+			"cache": false,
 			"dependsOn": ["build"],
 			"outputs": []
 		}
