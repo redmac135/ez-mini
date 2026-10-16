@@ -67,13 +67,15 @@
 </Story>
 
 <Story
-	name="Completes verification when all digits are entered"
+	name="Accepts verification code autofill and paste"
 	args={{ step: 'otp', email: 'reader@example.com', otp: '' }}
 	play={async ({ canvas, userEvent }) => {
-		for (const [index, digit] of [...'12345678'].entries()) {
-			await userEvent.type(canvas.getByLabelText(`Digit ${index + 1}`), digit);
-		}
+		const codeInput = canvas.getByLabelText('8-digit verification code');
+		await userEvent.fill(codeInput, '12345678');
 		await expect(canvas.getByText('Verified code: 12345678')).toBeInTheDocument();
+		await userEvent.clear(codeInput);
+		await userEvent.paste(codeInput, '87654321');
+		await expect(canvas.getByText('Verified code: 87654321')).toBeInTheDocument();
 	}}
 >
 	{#snippet template(args)}
