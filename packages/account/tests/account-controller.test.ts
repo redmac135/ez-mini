@@ -36,6 +36,63 @@ test('initializes authenticated data from the active session', async () => {
 	account.destroy();
 });
 
+test('confirms a different existing account discovered during initialization', async () => {
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({ activeSession: activeB, sessions: [userA, activeB] });
+	let finishAccountLoad!: (value: string) => void;
+	const adapter = createDataAdapter();
+	adapter.loadAccount = (user) => {
+		if (user.userId === 'user-b') {
+			return new Promise((resolve) => {
+				finishAccountLoad = resolve;
+			});
+		}
+		return Promise.resolve(`account:${user.userId}`);
+	};
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		channelName: 'account-controller-init-transition'
+	});
+	const initialization = account.initialize({ initialUser: userA });
+
+	await waitFor(() => account.getState().contextTransition !== null);
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().contextTransition?.targetUser?.userId, 'user-b');
+
+	finishAccountLoad('account:user-b');
+	await initialization;
+	assert.equal(account.getState().user?.userId, 'user-b');
+	account.destroy();
+});
+
+test('shows the account ownership error after a rejected OAuth link', async () => {
+	const originalWindow = globalThis.window;
+	Object.defineProperty(globalThis, 'window', {
+		configurable: true,
+		value: {
+			location: {
+				href: 'https://app.example.test/?oauth=error&oauth_reason=identity_exists&oauth_intent=link'
+			},
+			history: { state: null, replaceState() {} }
+		}
+	});
+	const account = createAccountDataController({
+		authClient: createAuthClient({ activeSession: userA, sessions: [userA] }),
+		adapter: createDataAdapter(),
+		channelName: 'account-controller-oauth-link-conflict'
+	});
+
+	try {
+		await account.initialize({ initialUser: userA });
+		assert.equal(account.getState().connectedAccountsOpen, true);
+		assert.equal(account.getState().authMessage, 'This account is linked to another account.');
+	} finally {
+		account.destroy();
+		Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+	}
+});
+
 test('opens login flow and surfaces login request failures', async () => {
 	const auth = createAuthClient({
 		activeSession: null,

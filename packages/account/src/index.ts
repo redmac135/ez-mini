@@ -256,10 +256,15 @@ export function createAccountDataController<TData>(
 				options.onAuthChanged?.(response.activeSession);
 				if (oauthResult?.broadcast) broadcastAuthSessionChanged(response.activeSession);
 			} else {
+				const switchingExistingAccount =
+					initialUser !== null &&
+					response.activeSession !== null &&
+					initialUser.userId !== response.activeSession.userId;
 				await applyAuthResponse(response, {
 					broadcast: oauthResult?.broadcast ?? false,
 					requestId: nextRequestId,
-					setBusy: false
+					setBusy: false,
+					transition: switchingExistingAccount
 				});
 			}
 			await applyOAuthResult(oauthResult);
@@ -650,7 +655,7 @@ export function createAccountDataController<TData>(
 			session_mismatch: 'Sign-in was started in a different browser session.',
 			session_changed: 'Your active account changed. Please try connecting again.',
 			account_changed: 'The connected identity did not return the active account.',
-			identity_exists: 'That provider account is already connected to another account.',
+			identity_exists: 'This account is linked to another account.',
 			provider_start_failed: 'Unable to start provider sign-in. Please try again.',
 			provider: 'The provider could not complete sign-in.',
 			exchange_failed: 'Unable to complete provider sign-in.'
@@ -668,7 +673,9 @@ export function createAccountDataController<TData>(
 							? 'Account connected.'
 							: 'Signed in successfully.'
 					: linkAttempt
-						? 'Failed to connect. Please try again.'
+						? reason === 'identity_exists'
+							? messages.identity_exists
+							: 'Failed to connect. Please try again.'
 						: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,
