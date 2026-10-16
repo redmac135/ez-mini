@@ -1,0 +1,24 @@
+name: Require prod PRs from dev
+
+on:
+  pull_request:
+    branches:
+      - prod
+
+permissions: {}
+
+jobs:
+  require-dev-source:
+    name: Require source branch dev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR source branch
+        env:
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "$PR_HEAD_REF" != "dev" ] || [ "$PR_HEAD_REPOSITORY" != "$BASE_REPOSITORY" ]; then
+            echo "::error::Pull requests targeting prod must come from the repository's dev branch."
+            exit 1
+          fi
