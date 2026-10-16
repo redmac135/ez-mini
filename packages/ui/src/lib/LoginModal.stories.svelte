@@ -71,10 +71,13 @@
 	args={{ step: 'otp', email: 'reader@example.com', otp: '' }}
 	play={async ({ canvas, userEvent }) => {
 		const codeInput = canvas.getByLabelText('8-digit verification code');
-		await userEvent.fill(codeInput, '12345678');
-		await expect(canvas.getByText('Verified code: 12345678')).toBeInTheDocument();
+		codeInput.value = '12345678';
+		codeInput.dispatchEvent(
+			new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText' })
+		);
+		await expect(await canvas.findByText('Verified code: 12345678')).toBeInTheDocument();
 		await userEvent.clear(codeInput);
-		await userEvent.paste(codeInput, '87654321');
+		await userEvent.paste('87654321');
 		await expect(canvas.getByText('Verified code: 87654321')).toBeInTheDocument();
 	}}
 >
