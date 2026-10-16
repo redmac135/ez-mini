@@ -74,7 +74,9 @@ test('shows the account ownership error after a rejected OAuth link', async () =
 			location: {
 				href: 'https://app.example.test/?oauth=error&oauth_reason=identity_exists&oauth_intent=link'
 			},
-			history: { state: null, replaceState() {} }
+			history: { state: null, replaceState() {} },
+			addEventListener() {},
+			removeEventListener() {}
 		}
 	});
 	const account = createAccountDataController({
