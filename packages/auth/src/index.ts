@@ -14,6 +14,15 @@ export interface AuthSessionResponse {
 	alreadySignedIn?: boolean;
 }
 
+export {
+	AUTH_SESSION_CACHE_KEY,
+	clearCachedAuthSessionForUser,
+	normalizeCachedAuthSession,
+	readCachedAuthSession,
+	writeCachedAuthSession,
+	type AuthSessionCacheStorage
+} from './session-cache.ts';
+
 export type OAuthProvider = 'github' | 'azure';
 
 export interface AuthIdentity {

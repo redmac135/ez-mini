@@ -41,6 +41,38 @@ test('login dialog starts a provider sign-in redirect', async ({ page }) => {
 	await expect(page).toHaveURL(/mock-oauth\?provider=github/);
 });
 
+test('cold offline startup renders the editor and login stays local until reconnect', async ({
+	page
+}) => {
+	let sessionRequests = 0;
+	let accountRequests = 0;
+	let oauthRequests = 0;
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+	});
+	await mockApi(page, async (route) => {
+		const pathname = new URL(route.request().url()).pathname;
+		if (pathname.endsWith('/auth/session')) sessionRequests += 1;
+		if (pathname.endsWith('/auth/accounts')) accountRequests += 1;
+		if (pathname.endsWith('/auth/oauth/start')) oauthRequests += 1;
+		await route.fulfill({ json: { activeSession: null, sessions: [] } });
+	});
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Login' }).click();
+
+	const login = page.getByRole('dialog', { name: 'Login' });
+	await expect(login).toBeVisible();
+	await expect(
+		login.getByText("You're offline. Connect to the internet to continue.")
+	).toBeVisible();
+	await login.getByRole('button', { name: 'GitHub' }).click();
+	await expect(login).toBeVisible();
+	await expect(page).not.toHaveURL(/mock-oauth/);
+	await expect.poll(() => [sessionRequests, accountRequests, oauthRequests]).toEqual([0, 0, 0]);
+});
+
 test('OAuth startup failure returns to login with an app-visible message', async ({ page }) => {
 	await mockApi(page, async (route) => {
 		const pathname = new URL(route.request().url()).pathname;

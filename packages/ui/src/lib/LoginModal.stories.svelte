@@ -58,6 +58,15 @@
 </Story>
 
 <Story
+	name="Offline sign-in keeps a retryable message"
+	args={{ step: 'email', message: "You're offline. Connect to the internet to continue." }}
+>
+	{#snippet template(args)}
+		<LoginModal {...args} onClose={() => {}} onSubmitEmail={() => {}} onOAuthSignIn={() => {}} />
+	{/snippet}
+</Story>
+
+<Story
 	name="Completes verification when all digits are entered"
 	args={{ step: 'otp', email: 'reader@example.com', otp: '' }}
 	play={async ({ canvas, userEvent }) => {

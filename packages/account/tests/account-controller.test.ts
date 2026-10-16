@@ -21,13 +21,18 @@ test('initializes anonymous data without an auth client', async () => {
 test('initializes authenticated data from the active session', async () => {
 	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
 	const adapter = createDataAdapter();
-	const account = createAccountDataController({ authClient: auth, adapter });
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		isOnline: () => true,
+		channelName: 'account-controller-init-active'
+	});
 
 	await account.initialize();
 
 	assert.equal(account.getState().user?.userId, 'user-a');
 	assert.equal(account.getState().data, 'account:user-a');
-	assert.deepEqual(adapter.loads, ['account:user-a']);
+	assert.deepEqual(adapter.loads, ['anonymous', 'account:user-a']);
 	account.destroy();
 });
 
@@ -58,6 +63,128 @@ test('opens login flow after an empty saved-session lookup', async () => {
 
 	assert.equal(account.getState().loginModalOpen, true);
 	assert.equal(account.getState().authBusy, false);
+	account.destroy();
+});
+
+test('opens the login modal immediately while offline without looking up accounts', async () => {
+	const auth = createAuthClient({ activeSession: null, sessions: [] });
+	let lookupCount = 0;
+	const getAccounts = auth.getAccounts;
+	if (getAccounts) {
+		auth.getAccounts = async (...args) => {
+			lookupCount += 1;
+			return getAccounts(...args);
+		};
+	}
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		isOnline: () => false
+	});
+
+	await account.openLoginOrAccountList();
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(
+		account.getState().authMessage,
+		"You're offline. Connect to the internet to continue."
+	);
+	assert.equal(lookupCount, 0);
+	account.destroy();
+});
+
+test('keeps the offline login message when local startup hydration finishes afterward', async () => {
+	let finishLocalLoad!: (value: string) => void;
+	const adapter = createDataAdapter();
+	adapter.loadAnonymous = () =>
+		new Promise((resolve) => {
+			finishLocalLoad = resolve;
+		});
+	const account = createAccountDataController({
+		authClient: createAuthClient({ activeSession: null, sessions: [] }),
+		adapter,
+		isOnline: () => false
+	});
+	const initialization = account.initialize();
+
+	await account.openLoginOrAccountList();
+	finishLocalLoad('anonymous');
+	await initialization;
+
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(
+		account.getState().authMessage,
+		"You're offline. Connect to the internet to continue."
+	);
+	account.destroy();
+});
+
+test('offline OAuth sign-in leaves the login modal open without starting provider auth', async () => {
+	const auth = createAuthClient({ activeSession: null, sessions: [] });
+	let startCount = 0;
+	auth.getOAuthStartUrl = async () => {
+		startCount += 1;
+		return 'https://provider.example/oauth';
+	};
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		isOnline: () => false
+	});
+
+	account.openLoginFlow();
+	account.startOAuthSignIn('github');
+
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(
+		account.getState().authMessage,
+		"You're offline. Connect to the internet to continue."
+	);
+	assert.equal(startCount, 0);
+	account.destroy();
+});
+
+test('offline startup loads cached account data without requesting a remote session', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	let sessionLookupCount = 0;
+	auth.getSession = async () => {
+		sessionLookupCount += 1;
+		throw new Error('Network unavailable.');
+	};
+	const adapter = createDataAdapter();
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		isOnline: () => false
+	});
+
+	await account.initialize({ initialUser: userA });
+
+	assert.equal(sessionLookupCount, 0);
+	assert.deepEqual(adapter.loads, ['account:user-a']);
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().phase, 'ready');
+	assert.equal(account.getState().authBusy, false);
+	account.destroy();
+});
+
+test('pending startup session lookup does not block login interactions', async () => {
+	let resolveSession!: (response: AuthSessionResponse) => void;
+	const auth = createAuthClient({ activeSession: null, sessions: [] });
+	auth.getSession = () =>
+		new Promise((resolve) => {
+			resolveSession = resolve;
+		});
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+	const initialization = account.initialize();
+	await waitFor(() => resolveSession !== undefined);
+
+	assert.equal(account.getState().authBusy, false);
+	account.openLoginFlow();
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(account.getState().authBusy, false);
+
+	resolveSession({ activeSession: null, sessions: [] });
+	await initialization;
 	account.destroy();
 });
 
@@ -505,7 +632,7 @@ test('ignores repeated email submissions while the first request is pending', as
 	account.destroy();
 });
 
-test('initial cached user is exposed without starting a duplicate data load', async () => {
+test('initial cached user data is loaded before applying a different server session', async () => {
 	const adapter = createDataAdapter();
 	const activeB = { ...userB, active: true };
 	const auth = createAuthClient({
@@ -518,7 +645,7 @@ test('initial cached user is exposed without starting a duplicate data load', as
 
 	assert.equal(account.getState().user?.userId, 'user-b');
 	assert.equal(account.getState().data, 'account:user-b');
-	assert.deepEqual(adapter.loads, ['account:user-b']);
+	assert.deepEqual(adapter.loads, ['account:user-a', 'account:user-b']);
 	account.destroy();
 });
 
