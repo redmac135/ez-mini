@@ -46,6 +46,21 @@ test('session lookup forwards an abort signal to fetch', async () => {
 	assert.equal(requestSignal?.aborted, true);
 });
 
+test('account listing requests the explicit account summary endpoint', async () => {
+	let requestedUrl = '';
+	const client = createAuthClient({
+		apiUrl: 'https://api.example.test/v1',
+		fetch: async (input) => {
+			requestedUrl = String(input);
+			return Response.json({ activeSession: null, sessions: [] });
+		}
+	});
+
+	await client.getAccounts();
+
+	assert.equal(requestedUrl, 'https://api.example.test/v1/auth/accounts');
+});
+
 test('auth client surfaces API error messages', async () => {
 	const client = createAuthClient({
 		apiUrl: 'https://api.example.test',
@@ -86,6 +101,43 @@ test('auth client exposes broadcast relay URL', () => {
 	});
 
 	assert.equal(client.getBroadcastRelayUrl(), 'https://api.example.test/v1/auth/broadcast-frame');
+});
+
+test('auth client builds provider sign-in URL and sends authenticated identity-link requests', async () => {
+	const requests: Request[] = [];
+	const client = createAuthClient({
+		apiUrl: 'https://api.example.test/v1',
+		fetch: async (input, init) => {
+			const request = new Request(input, init);
+			requests.push(request);
+			if (request.url.endsWith('/auth/identities')) {
+				return Response.json({ identities: [] });
+			}
+			return Response.json({ authorizationUrl: 'https://github.com/login/oauth/authorize' });
+		}
+	});
+
+	const signInUrl = new URL(
+		client.getOAuthStartUrl?.('azure', 'https://blank.example.test/?from=login') ?? ''
+	);
+	assert.equal(signInUrl.origin, 'https://api.example.test');
+	assert.equal(signInUrl.pathname, '/v1/auth/oauth/start');
+	assert.equal(signInUrl.searchParams.get('provider'), 'azure');
+	assert.equal(signInUrl.searchParams.get('return_to'), 'https://blank.example.test/?from=login');
+
+	await client.beginOAuthLink?.('github', 'https://blank.example.test/');
+	await client.getIdentities?.();
+	await client.unlinkIdentity?.('identity/a');
+
+	assert.equal(requests[0]?.method, 'POST');
+	assert.deepEqual(await requests[0]?.json(), {
+		provider: 'github',
+		returnTo: 'https://blank.example.test/'
+	});
+	assert.equal(requests[0]?.credentials, 'include');
+	assert.equal(requests[1]?.url, 'https://api.example.test/v1/auth/identities');
+	assert.equal(requests[2]?.url, 'https://api.example.test/v1/auth/identities/identity%2Fa');
+	assert.equal(requests[2]?.method, 'DELETE');
 });
 
 test('unauthorized helper recognizes expired session failures', () => {

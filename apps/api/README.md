@@ -30,16 +30,27 @@ Production-style values are documented in `.env.example`.
 - `CORS_ORIGINS`
 - `COOKIE_DOMAIN` for production shared-domain cookies
 
-The Worker also needs a `SESSIONS` KV namespace, configured in `wrangler.toml`.
+The Worker also needs a `SESSIONS` KV namespace and `IDENTITY_UNLINKER` Durable Object binding, configured in `wrangler.toml`.
+OAuth callbacks use `API_PUBLIC_URL` (the API origin without `/v1`); set it to the local API URL for development. Configure GitHub and Microsoft credentials in Supabase Auth; provider secrets do not belong in Worker variables. Add the API callback (`/v1/auth/oauth/callback`) to Supabase's redirect allowlist and register Supabase's provider callback URL with each provider. The app return origins must be listed in `CORS_ORIGINS`.
+
+OAuth sign-in and identity management use the same API-owned device and active-session cookies as email sign-in. Blank, Repeat, and Journey therefore share the device's account list in one browser profile. OAuth uses PKCE through the API callback, which validates the flow and app return origin. Linking and unlinking change the Supabase account's identities across devices; unlinking is rejected when only one identity remains. Adding a sign-in only adds or selects a session on the current device.
 
 ## API Shape
 
 - `POST /v1/auth/login`
 - `POST /v1/auth/verify`
+- `GET /v1/auth/oauth/start?provider=github|azure&return_to=...` (redirects to provider authorization)
+- `POST /v1/auth/oauth/link` (returns an authorization URL for linking to the active account)
+- `GET /v1/auth/oauth/callback` (internal provider callback)
 - `GET /v1/auth/session`
+- `GET /v1/auth/accounts`
 - `POST /v1/auth/switch`
 - `POST /v1/auth/anonymous`
 - `POST /v1/auth/logout`
+- `GET /v1/auth/identities`
+- `DELETE /v1/auth/identities/:identityId`
+- `GET /v1/auth/profile`
+- `PUT /v1/auth/profile`
 - `GET /v1/pages`
 - `POST /v1/pages`
 - `GET /v1/journey/entries`

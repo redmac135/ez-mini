@@ -1,0 +1,186 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { handleRequest, type Env } from '../src/index.ts';
+import { sessionKey } from '../src/auth/session-store.ts';
+
+class MemoryKv {
+	private values = new Map<string, string>();
+
+	async get(key: string, type?: 'json') {
+		const value = this.values.get(key) ?? null;
+		return type === 'json' && value ? JSON.parse(value) : value;
+	}
+
+	async put(key: string, value: string) {
+		this.values.set(key, value);
+	}
+
+	async delete(key: string) {
+		this.values.delete(key);
+	}
+
+	async list({ prefix }: { prefix?: string }) {
+		return {
+			keys: [...this.values.keys()]
+				.filter((key) => !prefix || key.startsWith(prefix))
+				.map((name) => ({ name }))
+		};
+	}
+}
+
+const deviceId = 'profile-device';
+const sessionId = 'profile-session';
+const env = {
+	SESSIONS: new MemoryKv(),
+	SUPABASE_URL: 'https://supabase.example.test',
+	SUPABASE_PUBLISHABLE_KEY: 'publishable'
+} as unknown as Env;
+
+test.beforeEach(async () => {
+	env.SESSIONS = new MemoryKv() as unknown as KVNamespace;
+	await env.SESSIONS.put(
+		sessionKey(deviceId, sessionId),
+		JSON.stringify({
+			sessionId,
+			deviceId,
+			userId: 'user-profile',
+			email: 'person@example.com',
+			supabaseAccessToken: 'access-profile',
+			supabaseRefreshToken: 'refresh-profile',
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+			createdAt: 1,
+			lastUsedAt: 1
+		})
+	);
+});
+
+test('profile persists its initial provider name after that identity is removed', async () => {
+	let userMetadata: Record<string, unknown> = {};
+	let identities = [
+		{ identity_id: 'g', provider: 'github', identity_data: { user_name: 'person-dev' } }
+	];
+	mockFetch(async (request) => {
+		assert.equal(new URL(request.url).pathname, '/auth/v1/user');
+		assert.equal(request.headers.get('authorization'), 'Bearer access-profile');
+		if (request.method === 'PUT') {
+			const body = (await request.json()) as { data: Record<string, unknown> };
+			userMetadata = { ...userMetadata, ...body.data };
+		}
+		return Response.json({
+			id: 'user-profile',
+			email: 'person@example.com',
+			user_metadata: userMetadata,
+			identities
+		});
+	});
+	const response = await requestProfile('GET');
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), {
+		displayName: 'person-dev',
+		customDisplayName: 'person-dev'
+	});
+	identities = [];
+	const afterUnlink = await requestProfile('GET');
+	assert.deepEqual(await afterUnlink.json(), {
+		displayName: 'person-dev',
+		customDisplayName: 'person-dev'
+	});
+});
+
+test('profile updates Supabase user metadata and limits display name length', async () => {
+	let updateBody: unknown;
+	let profileReads = 0;
+	mockFetch(async (request) => {
+		if (request.method === 'PUT') updateBody = await request.json();
+		else profileReads += 1;
+		return Response.json({
+			user_metadata: { display_name: 'Taylor Zhao' },
+			...(request.method === 'PUT'
+				? { id: 'user-profile', email: 'person@example.com', identities: [] }
+				: {})
+		});
+	});
+	const saved = await requestProfile('PUT', { displayName: '  Taylor Zhao  ' });
+	assert.equal(saved.status, 200);
+	assert.deepEqual(updateBody, { data: { display_name: 'Taylor Zhao' } });
+	assert.deepEqual(await saved.json(), {
+		displayName: 'Taylor Zhao',
+		customDisplayName: 'Taylor Zhao'
+	});
+	const sessions = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`
+			}
+		}),
+		env
+	);
+	const sessionBody = (await sessions.json()) as { activeSession: { username: string } };
+	assert.equal(sessionBody.activeSession.username, 'Taylor Zhao');
+	assert.equal(profileReads, 0);
+	const otherDeviceId = 'profile-other-device';
+	await env.SESSIONS.put(
+		sessionKey(otherDeviceId, 'other-session'),
+		JSON.stringify({
+			sessionId: 'other-session',
+			deviceId: otherDeviceId,
+			userId: 'user-profile',
+			email: 'person@example.com',
+			displayName: 'person-dev',
+			supabaseAccessToken: 'other-access',
+			supabaseRefreshToken: 'other-refresh',
+			expiresAt: Math.floor(Date.now() / 1000) + 3600,
+			createdAt: 1,
+			lastUsedAt: 1
+		})
+	);
+	const otherDeviceSessions = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/accounts', {
+			headers: { cookie: `ez_mini_device_id=${otherDeviceId}` }
+		}),
+		env
+	);
+	const otherDeviceBody = (await otherDeviceSessions.json()) as {
+		sessions: Array<{ username: string }>;
+	};
+	assert.equal(otherDeviceBody.sessions[0]?.username, 'Taylor Zhao');
+	assert.equal(profileReads, 1);
+	const updatedOtherDeviceSession = (await env.SESSIONS.get(
+		sessionKey(otherDeviceId, 'other-session'),
+		'json'
+	)) as { displayName: string };
+	assert.equal(updatedOtherDeviceSession.displayName, 'Taylor Zhao');
+
+	const tooLong = await requestProfile('PUT', { displayName: 'x'.repeat(81) });
+	assert.equal(tooLong.status, 400);
+	assert.deepEqual(await tooLong.json(), {
+		error: 'Display name must be 80 characters or fewer.'
+	});
+});
+
+test('profile routes require an active session', async () => {
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/profile'),
+		env
+	);
+	assert.equal(response.status, 401);
+});
+
+async function requestProfile(method: 'GET' | 'PUT', body?: unknown) {
+	return handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/profile', {
+			method,
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`,
+				...(body ? { 'content-type': 'application/json' } : {})
+			},
+			body: body ? JSON.stringify(body) : undefined
+		}),
+		env
+	);
+}
+
+function mockFetch(handler: (request: Request) => Promise<Response> | Response) {
+	globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+		handler(new Request(input, init))) as typeof fetch;
+}

@@ -1,5 +1,9 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page as appPage } from '$app/state';
 	import { createAccountDataController } from '@ez/account';
+	import { AUTH_SESSION_CACHE_KEY, readCachedAuthSession, writeCachedAuthSession } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
 	import { Editor, type EditorState } from '@ez/editor';
@@ -59,7 +63,18 @@
 				if (user) queueMicrotask(requestImmediateSync);
 			}
 		},
-		getErrorMessage: (error, fallback) => (error instanceof Error ? error.message : fallback)
+		getErrorMessage: (error, fallback) => (error instanceof Error ? error.message : fallback),
+		replaceOAuthUrl: (url) => {
+			const nextUrl = new URL(url);
+			// This URL comes from the current app page after removing OAuth callback parameters.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState(`${resolve('/')}${nextUrl.search}${nextUrl.hash}`, appPage.state);
+		},
+		onAuthChanged(user) {
+			if (typeof window !== 'undefined') {
+				writeCachedAuthSession(window.localStorage, user, AUTH_SESSION_CACHE_KEY);
+			}
+		}
 	});
 	let accountState = $state(account.getState());
 
@@ -122,14 +137,14 @@
 		};
 	});
 
-	async function initializeJourney() {
+	function initializeJourney() {
+		const initialUser = readCachedAuthSession(window.localStorage, AUTH_SESSION_CACHE_KEY);
+		const startAccount = () => setTimeout(() => void account.initialize({ initialUser }), 0);
 		if (new URLSearchParams(window.location.search).get('demo') === 'journey') {
-			await seedJourneyDemoData();
+			void seedJourneyDemoData().then(startAccount);
+		} else {
+			startAccount();
 		}
-		const localPage = await JourneyStorage.loadPage(null, null);
-		submittedEntries = localPage.entries.filter((entry) => !entry.deletedAt);
-		nextEntryCursor = localPage.nextCursor;
-		await account.initialize();
 	}
 
 	function applyTheme() {
@@ -325,16 +340,30 @@
 	}
 
 	function scheduleSync() {
-		if (accountState.user && journeyApi) syncController.scheduleDebounced();
+		if (!accountState.user || !journeyApi) return;
+		if (!navigator.onLine) {
+			syncStatus = 'offline';
+			return;
+		}
+		syncController.scheduleDebounced();
 	}
 
 	function requestImmediateSync() {
-		if (accountState.user && journeyApi) syncController.requestImmediate();
+		if (!accountState.user || !journeyApi) return;
+		if (!navigator.onLine) {
+			syncStatus = 'offline';
+			return;
+		}
+		syncController.requestImmediate();
 	}
 
 	async function executeSync() {
 		const userId = accountState.user?.userId;
 		if (!journeyApi || !userId) return;
+		if (!navigator.onLine) {
+			syncStatus = 'offline';
+			return;
+		}
 		syncBusy = true;
 		syncStatus = navigator.onLine ? 'syncing' : 'offline';
 		try {
@@ -482,6 +511,12 @@
 										role="menuitem"
 										disabled={accountState.authBusy || syncBusy}
 										onclick={account.openLoginOrAccountList}>Switch account</button
+									>
+									<button
+										type="button"
+										role="menuitem"
+										disabled={accountState.authBusy || syncBusy}
+										onclick={() => void account.openConnectedAccounts()}>Connected accounts</button
 									>
 									<button
 										type="button"

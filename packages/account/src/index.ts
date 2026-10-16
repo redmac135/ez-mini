@@ -2,7 +2,9 @@ import {
 	isUnauthorizedError,
 	type AuthClient,
 	type AuthSessionResponse,
-	type AuthSessionSummary
+	type AuthSessionSummary,
+	type AuthIdentity,
+	type OAuthProvider
 } from '@ez/auth';
 
 export type LoginStep = 'email' | 'otp';
@@ -51,15 +53,25 @@ export interface AccountControllerState<TData> {
 	otpVerifying: boolean;
 	otpShake: boolean;
 	resendCooldownRemaining: number;
+	oauthBusyProvider: OAuthProvider | null;
+	connectedAccountsOpen: boolean;
+	identities: AuthIdentity[];
+	identitiesLoading: boolean;
+	identityBusyId: string | null;
+	displayName: string;
+	displayNameDraft: string;
+	displayNameSaving: boolean;
 }
 
 export interface AccountControllerOptions<TData> {
 	authClient: AuthClient | null;
 	adapter: AccountDataAdapter<TData>;
+	isOnline?: () => boolean;
 	channelName?: string;
 	tabId?: string;
 	resendCooldownSeconds?: number;
 	getErrorMessage?: (error: unknown, fallback: string) => string;
+	replaceOAuthUrl?: (url: string) => void;
 	onAuthChanged?: (user: AuthSessionSummary | null) => void;
 	onNotice?: (message: string) => void;
 }
@@ -76,6 +88,14 @@ export interface AccountController<TData> {
 	verifyOtpCode(code: string): Promise<void>;
 	resendOtpCode(): Promise<void>;
 	backToEmail(): void;
+	startOAuthSignIn(provider: OAuthProvider): void;
+	openConnectedAccounts(): Promise<void>;
+	closeConnectedAccounts(): void;
+	connectOAuthProvider(provider: OAuthProvider): void;
+	unlinkOAuthIdentity(identityId: string): Promise<void>;
+	saveDisplayName(): Promise<void>;
+	setDisplayNameDraft(value: string): void;
+	cancelDisplayNameEdit(): void;
 	selectAccountSession(sessionId: string): Promise<void>;
 	useAnonymousAccount(): Promise<void>;
 	cancelContextTransition(): Promise<void>;
@@ -90,6 +110,7 @@ const DEFAULT_CHANNEL_NAME = 'auth';
 const DEFAULT_RESEND_COOLDOWN_SECONDS = 30;
 const AUTH_RELAY_SOURCE = 'ez-auth-relay';
 const SESSION_EXPIRED_NOTICE = 'Session expired';
+const OFFLINE_AUTH_MESSAGE = "You're offline. Connect to the internet to continue.";
 
 type AccountBroadcastMessage =
 	| {
@@ -104,6 +125,15 @@ type AccountBroadcastMessage =
 			userId: string;
 			sessionId: string;
 	  };
+
+interface OAuthCallbackResult {
+	message: string;
+	broadcast: boolean;
+	alreadySignedIn: boolean;
+	linked: boolean;
+	showLogin: boolean;
+	linkAttempt: boolean;
+}
 
 export function createAccountDataController<TData>(
 	options: AccountControllerOptions<TData>
@@ -129,7 +159,15 @@ export function createAccountDataController<TData>(
 		loginSubmitting: false,
 		otpVerifying: false,
 		otpShake: false,
-		resendCooldownRemaining: 0
+		resendCooldownRemaining: 0,
+		oauthBusyProvider: null,
+		connectedAccountsOpen: false,
+		identities: [],
+		identitiesLoading: false,
+		identityBusyId: null,
+		displayName: '',
+		displayNameDraft: '',
+		displayNameSaving: false
 	};
 	const subscribers = new Set<(state: AccountControllerState<TData>) => void>();
 	let requestId = 0;
@@ -170,32 +208,90 @@ export function createAccountDataController<TData>(
 		return state;
 	}
 
+	function isOnline() {
+		return options.isOnline?.() ?? (typeof window === 'undefined' || navigator.onLine !== false);
+	}
+
+	function getAuthErrorMessage(error: unknown, fallback: string) {
+		return isOnline() ? getErrorMessage(error, fallback) : OFFLINE_AUTH_MESSAGE;
+	}
+
 	async function initialize(initOptions: { initialUser?: AuthSessionSummary | null } = {}) {
 		openAuthChannel();
+		const oauthResult = consumeOAuthResult();
 		if (initOptions.initialUser !== undefined) {
 			setState({ user: initOptions.initialUser });
 			options.onAuthChanged?.(initOptions.initialUser);
 		}
 
-		if (!options.authClient) {
-			await loadDataForUser(null, { setBusy: false });
+		const nextRequestId = beginRequest();
+		const initialUser = state.user;
+		await loadDataForUser(initialUser, {
+			requestId: nextRequestId,
+			setBusy: false,
+			clearMessage: false
+		});
+
+		if (!options.authClient || !isOnline()) {
+			setState({
+				sessions: initialUser ? [initialUser] : [],
+				authBusy: false,
+				phase: 'ready'
+			});
+			await applyOAuthResult(oauthResult);
 			return;
 		}
 
-		const nextRequestId = beginRequest();
-		setState({ authBusy: true, phase: 'loading-session', authMessage: '' });
 		try {
 			const response = await options.authClient.getSession();
 			if (!isLatest(nextRequestId)) return;
-			await applyAuthResponse(response, { broadcast: false, requestId: nextRequestId });
+			if (initialUser && response.activeSession?.userId === initialUser.userId) {
+				setState({
+					user: response.activeSession,
+					sessions: response.sessions,
+					phase: 'ready',
+					authBusy: false,
+					authMessage: ''
+				});
+				options.onAuthChanged?.(response.activeSession);
+				if (oauthResult?.broadcast) broadcastAuthSessionChanged(response.activeSession);
+			} else {
+				const switchingExistingAccount =
+					initialUser !== null &&
+					response.activeSession !== null &&
+					initialUser.userId !== response.activeSession.userId;
+				await applyAuthResponse(response, {
+					broadcast: oauthResult?.broadcast ?? false,
+					requestId: nextRequestId,
+					setBusy: false,
+					transition: switchingExistingAccount
+				});
+			}
+			await applyOAuthResult(oauthResult);
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
-			setState({
-				authBusy: false,
-				phase: 'error',
-				authMessage: getErrorMessage(error, 'Unable to load session.')
-			});
+			if (initialUser) {
+				setState({ authBusy: false, phase: 'ready', authMessage: '' });
+			} else {
+				setState({
+					authBusy: false,
+					phase: 'error',
+					authMessage: getAuthErrorMessage(error, 'Unable to load session.')
+				});
+			}
+			await applyOAuthResult(oauthResult);
 		}
+	}
+
+	async function applyOAuthResult(oauthResult: OAuthCallbackResult | null) {
+		if (!oauthResult) return;
+		setState({
+			accountModalOpen: oauthResult.alreadySignedIn,
+			loginModalOpen: oauthResult.showLogin,
+			connectedAccountsOpen: oauthResult.linkAttempt,
+			authMessage: oauthResult.message
+		});
+		if (oauthResult.linkAttempt) await openConnectedAccounts(oauthResult.message);
 	}
 
 	function openLoginFlow() {
@@ -205,12 +301,22 @@ export function createAccountDataController<TData>(
 			loginModalOpen: true,
 			loginStep: 'email',
 			otpDraft: '',
-			authMessage: ''
+			authMessage: isOnline() ? '' : OFFLINE_AUTH_MESSAGE
 		});
 	}
 
 	async function openLoginOrAccountList() {
 		if (state.authBusy || state.loginLookup === 'loading') return;
+		if (!isOnline()) {
+			setState({
+				loginModalOpen: true,
+				accountModalOpen: false,
+				loginLookup: 'idle',
+				authBusy: false,
+				authMessage: OFFLINE_AUTH_MESSAGE
+			});
+			return;
+		}
 		if (!options.authClient) {
 			setState({
 				loginModalOpen: true,
@@ -231,7 +337,7 @@ export function createAccountDataController<TData>(
 			authMessage: ''
 		});
 		try {
-			const response = await options.authClient.getSession({ signal: abortController.signal });
+			const response = await options.authClient.getAccounts({ signal: abortController.signal });
 			if (loginLookupAbortController !== abortController || abortController.signal.aborted) return;
 			if (response.sessions.length > 0) {
 				setState({
@@ -247,7 +353,7 @@ export function createAccountDataController<TData>(
 			if (loginLookupAbortController !== abortController || abortController.signal.aborted) return;
 			setState({
 				loginLookup: 'failed',
-				authMessage: getErrorMessage(error, 'Unable to load accounts.')
+				authMessage: getAuthErrorMessage(error, 'Unable to load accounts.')
 			});
 		} finally {
 			if (loginLookupAbortController === abortController) {
@@ -280,6 +386,10 @@ export function createAccountDataController<TData>(
 	}
 
 	async function submitLogin(email = state.emailDraft) {
+		if (!isOnline()) {
+			setState({ loginModalOpen: true, authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
 		if (!options.authClient) {
 			setState({ authMessage: 'Sync is not configured.' });
 			return;
@@ -305,12 +415,16 @@ export function createAccountDataController<TData>(
 		} catch (error) {
 			setState({
 				loginSubmitting: false,
-				authMessage: getErrorMessage(error, 'Unable to send login code.')
+				authMessage: getAuthErrorMessage(error, 'Unable to send login code.')
 			});
 		}
 	}
 
 	async function verifyOtpCode(code: string) {
+		if (!isOnline()) {
+			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
 		if (!options.authClient || state.otpVerifying || code.length !== 8) return;
 
 		const nextRequestId = beginRequest();
@@ -327,18 +441,25 @@ export function createAccountDataController<TData>(
 				otpDraft: ''
 			});
 			await applyAuthResponse(response, { requestId: nextRequestId, transition: true });
+			if (response.alreadySignedIn) {
+				setState({ accountModalOpen: true, authMessage: 'Already signed into this account.' });
+			}
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
 			setState({
 				otpVerifying: false,
 				otpDraft: '',
-				authMessage: getErrorMessage(error, 'Unable to verify code.')
+				authMessage: getAuthErrorMessage(error, 'Unable to verify code.')
 			});
 			triggerOtpShake();
 		}
 	}
 
 	async function resendOtpCode() {
+		if (!isOnline()) {
+			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
 		if (
 			!options.authClient ||
 			state.resendCooldownRemaining > 0 ||
@@ -356,7 +477,7 @@ export function createAccountDataController<TData>(
 		} catch (error) {
 			setState({
 				loginSubmitting: false,
-				authMessage: getErrorMessage(error, 'Unable to resend code.')
+				authMessage: getAuthErrorMessage(error, 'Unable to resend code.')
 			});
 		}
 	}
@@ -365,8 +486,211 @@ export function createAccountDataController<TData>(
 		setState({ loginStep: 'email', otpDraft: '', authMessage: '' });
 	}
 
+	function startOAuthSignIn(provider: OAuthProvider) {
+		startOAuth(provider);
+	}
+
+	async function openConnectedAccounts(message = '') {
+		if (!state.user || state.authBusy || !options.authClient?.getIdentities) return;
+		if (!isOnline()) {
+			setState({
+				connectedAccountsOpen: true,
+				identitiesLoading: false,
+				authMessage: OFFLINE_AUTH_MESSAGE
+			});
+			return;
+		}
+		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: message });
+		try {
+			const [result, profile] = await Promise.all([
+				options.authClient.getIdentities(),
+				options.authClient.getProfile?.()
+			]);
+			const fallbackName = getDefaultDisplayName(result.identities, state.user?.email);
+			const displayName = profile?.displayName || fallbackName;
+			setState({
+				identities: result.identities,
+				identitiesLoading: false,
+				displayName,
+				displayNameDraft: displayName
+			});
+		} catch (error) {
+			setState({
+				identitiesLoading: false,
+				authMessage: getAuthErrorMessage(error, 'Unable to load connected accounts.')
+			});
+		}
+	}
+
+	function getDefaultDisplayName(identities: AuthIdentity[], email?: string | null) {
+		for (const identity of identities) {
+			if (identity.displayName?.trim()) return identity.displayName.trim();
+		}
+		return email?.trim() || '';
+	}
+
+	async function saveDisplayName() {
+		if (!options.authClient?.updateProfile || state.displayNameSaving) return;
+		if (!isOnline()) {
+			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
+		const displayNameDraft = state.displayNameDraft.trim();
+		setState({ displayNameSaving: true, authMessage: '' });
+		try {
+			const profile = await options.authClient.updateProfile(displayNameDraft);
+			const displayName = profile.displayName || state.user?.email || state.user?.userId || '';
+			const user = state.user ? { ...state.user, username: displayName } : null;
+			setState({
+				displayName,
+				displayNameDraft: displayName,
+				displayNameSaving: false,
+				user,
+				sessions: state.sessions.map((session) =>
+					session.userId === user?.userId ? { ...session, username: displayName } : session
+				)
+			});
+			options.onAuthChanged?.(user);
+		} catch (error) {
+			setState({
+				displayNameSaving: false,
+				authMessage: getAuthErrorMessage(error, 'Unable to save display name.')
+			});
+		}
+	}
+
+	function cancelDisplayNameEdit() {
+		setState({ displayNameDraft: state.displayName });
+	}
+
+	function setDisplayNameDraft(value: string) {
+		setState({ displayNameDraft: value });
+	}
+
+	function closeConnectedAccounts() {
+		if (state.identitiesLoading || state.identityBusyId || state.oauthBusyProvider) return;
+		setState({ connectedAccountsOpen: false, authMessage: '' });
+	}
+
+	function connectOAuthProvider(provider: OAuthProvider) {
+		if (!state.user) return;
+		if (!isOnline()) {
+			setState({ oauthBusyProvider: null, authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
+		if (!options.authClient?.beginOAuthLink || typeof window === 'undefined') {
+			setState({ authMessage: 'Provider connection is unavailable.' });
+			return;
+		}
+		const returnUrl = getOAuthReturnUrl();
+		setState({ oauthBusyProvider: provider, authMessage: '' });
+		void options.authClient.beginOAuthLink(provider, returnUrl).then(
+			({ authorizationUrl }) => window.location.assign(authorizationUrl),
+			(error) =>
+				setState({
+					oauthBusyProvider: null,
+					authMessage: getAuthErrorMessage(error, 'Unable to connect this provider.')
+				})
+		);
+	}
+
+	async function unlinkOAuthIdentity(identityId: string) {
+		if (!options.authClient?.unlinkIdentity || state.identityBusyId) return;
+		if (!isOnline()) {
+			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
+		setState({ identityBusyId: identityId, authMessage: '' });
+		try {
+			const result = await options.authClient.unlinkIdentity(identityId);
+			setState({ identities: result.identities, identityBusyId: null });
+		} catch (error) {
+			setState({
+				identityBusyId: null,
+				authMessage: getAuthErrorMessage(error, 'Unable to disconnect this account.')
+			});
+		}
+	}
+
+	function startOAuth(provider: OAuthProvider) {
+		if (!isOnline()) {
+			setState({ oauthBusyProvider: null, authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
+		if (!options.authClient?.getOAuthStartUrl || typeof window === 'undefined') {
+			setState({ authMessage: 'Provider sign-in is unavailable.' });
+			return;
+		}
+		setState({ oauthBusyProvider: provider, authMessage: '' });
+		window.location.assign(options.authClient.getOAuthStartUrl(provider, getOAuthReturnUrl()));
+	}
+
+	function getOAuthReturnUrl() {
+		const returnUrl = new URL(window.location.href);
+		returnUrl.searchParams.delete('oauth');
+		returnUrl.searchParams.delete('oauth_reason');
+		returnUrl.searchParams.delete('oauth_intent');
+		return returnUrl.toString();
+	}
+
+	function consumeOAuthResult() {
+		if (typeof window === 'undefined') return null;
+		const url = new URL(window.location.href);
+		const result = url.searchParams.get('oauth');
+		if (!result) return null;
+		const reason = url.searchParams.get('oauth_reason');
+		const linkAttempt = url.searchParams.get('oauth_intent') === 'link';
+		url.searchParams.delete('oauth');
+		url.searchParams.delete('oauth_reason');
+		url.searchParams.delete('oauth_intent');
+		if (options.replaceOAuthUrl) {
+			options.replaceOAuthUrl(url.toString());
+		} else {
+			window.history.replaceState(window.history.state, '', url.toString());
+		}
+		const messages: Record<string, string> = {
+			already_signed_in: 'Already signed into this account.',
+			cancelled: 'Sign-in was cancelled.',
+			expired: 'That sign-in link expired. Please try again.',
+			session_mismatch: 'Sign-in was started in a different browser session.',
+			session_changed: 'Your active account changed. Please try connecting again.',
+			account_changed: 'The connected identity did not return the active account.',
+			identity_exists: 'This account is linked to another account.',
+			provider_start_failed: 'Unable to start provider sign-in. Please try again.',
+			provider: 'The provider could not complete sign-in.',
+			exchange_failed: 'Unable to complete provider sign-in.'
+		};
+		const alreadySignedIn = result === 'success' && reason === 'already_signed_in';
+		const linked = result === 'success' && reason === 'link';
+		const successfulSignIn =
+			result === 'success' && (reason === 'sign-in' || reason === 'already_signed_in');
+		return {
+			message:
+				result === 'success'
+					? alreadySignedIn
+						? 'Already signed into this account.'
+						: linked
+							? 'Account connected.'
+							: 'Signed in successfully.'
+					: linkAttempt
+						? reason === 'identity_exists'
+							? messages.identity_exists
+							: 'Failed to connect. Please try again.'
+						: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
+			broadcast: successfulSignIn,
+			alreadySignedIn,
+			linked,
+			showLogin: result !== 'success' && !linkAttempt,
+			linkAttempt
+		} satisfies OAuthCallbackResult;
+	}
+
 	async function selectAccountSession(sessionId: string) {
 		if (!options.authClient || state.authBusy || state.accountBusySessionId) return;
+		if (!isOnline()) {
+			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
 		if (state.sessions.find((entry) => entry.sessionId === sessionId)?.active) {
 			setState({ accountModalOpen: false });
 			return;
@@ -383,7 +707,7 @@ export function createAccountDataController<TData>(
 			}
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
-			setState({ authMessage: getErrorMessage(error, 'Unable to switch accounts.') });
+			setState({ authMessage: getAuthErrorMessage(error, 'Unable to switch accounts.') });
 		} finally {
 			if (isLatest(nextRequestId)) {
 				setState({ authBusy: false, accountBusySessionId: null });
@@ -476,6 +800,10 @@ export function createAccountDataController<TData>(
 
 	async function logoutAccountSession(sessionId: string, userId: string) {
 		if (!options.authClient || state.authBusy || state.accountBusySessionId) return;
+		if (!isOnline()) {
+			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			return;
+		}
 
 		const nextRequestId = beginRequest();
 		const previousActiveUserId = state.user?.userId ?? null;
@@ -498,7 +826,7 @@ export function createAccountDataController<TData>(
 			}
 		} catch (error) {
 			if (!isLatest(nextRequestId)) return;
-			setState({ authMessage: getErrorMessage(error, 'Unable to logout.') });
+			setState({ authMessage: getAuthErrorMessage(error, 'Unable to logout.') });
 		} finally {
 			if (isLatest(nextRequestId)) {
 				setState({
@@ -528,7 +856,12 @@ export function createAccountDataController<TData>(
 
 	async function applyAuthResponse(
 		response: AuthSessionResponse,
-		applyOptions: { broadcast?: boolean; requestId?: number; transition?: boolean } = {}
+		applyOptions: {
+			broadcast?: boolean;
+			requestId?: number;
+			transition?: boolean;
+			setBusy?: boolean;
+		} = {}
 	) {
 		if (applyOptions.transition) {
 			await transitionAuthContext(response, applyOptions);
@@ -543,7 +876,7 @@ export function createAccountDataController<TData>(
 		}
 		await loadDataForUser(nextUser, {
 			requestId: applyOptions.requestId,
-			setBusy: !!nextUser
+			setBusy: applyOptions.setBusy ?? !!nextUser
 		});
 	}
 
@@ -663,7 +996,7 @@ export function createAccountDataController<TData>(
 
 	async function loadDataForUser(
 		user: AuthSessionSummary | null,
-		loadOptions: { requestId?: number; setBusy?: boolean } = {}
+		loadOptions: { requestId?: number; setBusy?: boolean; clearMessage?: boolean } = {}
 	) {
 		const nextRequestId = loadOptions.requestId ?? beginRequest();
 		if (loadOptions.setBusy) {
@@ -683,7 +1016,7 @@ export function createAccountDataController<TData>(
 				data,
 				phase: 'ready',
 				authBusy: false,
-				authMessage: ''
+				...(loadOptions.clearMessage === false ? {} : { authMessage: '' })
 			});
 			options.adapter.onLoaded?.({ user, data, pulledRemoteChanges: hasPulledRemoteChanges(data) });
 		} catch (error) {
@@ -936,6 +1269,14 @@ export function createAccountDataController<TData>(
 		verifyOtpCode,
 		resendOtpCode,
 		backToEmail,
+		startOAuthSignIn,
+		openConnectedAccounts,
+		closeConnectedAccounts,
+		connectOAuthProvider,
+		unlinkOAuthIdentity,
+		saveDisplayName,
+		setDisplayNameDraft,
+		cancelDisplayNameEdit,
 		selectAccountSession,
 		useAnonymousAccount,
 		cancelContextTransition,

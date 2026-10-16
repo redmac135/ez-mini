@@ -146,6 +146,9 @@ test('app menu toggles theme and opens the shared login flow', async ({ page }) 
 	await page.route('**/v1/auth/session', (route) =>
 		route.fulfill({ json: { activeSession: null, sessions: [] } })
 	);
+	await page.route('**/v1/auth/accounts', (route) =>
+		route.fulfill({ json: { activeSession: null, sessions: [] } })
+	);
 	await page.evaluate(() => localStorage.setItem('ez-journey-theme', 'light'));
 	await page.reload();
 	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeFocused();

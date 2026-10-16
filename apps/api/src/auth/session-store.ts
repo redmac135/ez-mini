@@ -41,12 +41,17 @@ export async function requireActiveSession(env: Env, context: RequestContext) {
 	return refreshStoredSession(env, session);
 }
 
-export async function refreshStoredSession(env: Env, session: StoredSession) {
+export async function refreshStoredSession(
+	env: Env,
+	session: StoredSession,
+	touchLastUsedAt = true
+) {
 	const nowSeconds = Math.floor(Date.now() / 1000);
 	if (session.expiresAt && session.expiresAt - nowSeconds > 60) {
-		session.lastUsedAt = Date.now();
-		await putSession(env, session);
-		return session;
+		if (!touchLastUsedAt) return session;
+		const touchedSession = { ...session, lastUsedAt: Date.now() };
+		await putSession(env, touchedSession);
+		return touchedSession;
 	}
 
 	const refreshed = await supabaseAuth<SupabaseSessionResponse>(
@@ -61,26 +66,61 @@ export async function refreshStoredSession(env: Env, session: StoredSession) {
 		...session,
 		supabaseAccessToken: refreshed.access_token,
 		supabaseRefreshToken: refreshed.refresh_token,
+		displayName: getPersistedDisplayName(refreshed.user.user_metadata) ?? session.displayName,
 		expiresAt: refreshed.expires_at ?? session.expiresAt,
-		lastUsedAt: Date.now()
+		lastUsedAt: touchLastUsedAt ? Date.now() : session.lastUsedAt
 	};
 	await putSession(env, nextSession);
 	return nextSession;
 }
 
 export async function getSessionResponse(env: Env, context: RequestContext) {
+	let activeSession: StoredSession | null = null;
 	if (context.activeSessionId) {
 		try {
-			await refreshStoredSession(
+			activeSession = await refreshStoredSession(
 				env,
 				await getOwnedSession(env, context.deviceId, context.activeSessionId)
 			);
 		} catch {
+			activeSession = null;
 			context.activeSessionId = null;
 		}
 	}
 
-	const sessions = await listDeviceSessions(env, context.deviceId);
+	const storedSessions = await listDeviceSessions(env, context.deviceId);
+	const sessions = storedSessions.map((session) =>
+		activeSession?.sessionId === session.sessionId ? activeSession : session
+	);
+	return {
+		activeSession:
+			sessions
+				.map((session) => toPublicSession(session, context.activeSessionId))
+				.find((session) => session.sessionId === context.activeSessionId) ?? null,
+		sessions: sessions.map((session) => toPublicSession(session, context.activeSessionId))
+	};
+}
+
+export async function getAccountSessionsResponse(env: Env, context: RequestContext) {
+	const storedSessions = await listDeviceSessions(env, context.deviceId);
+	const sessions = await Promise.all(
+		storedSessions.map(async (storedSession) => {
+			try {
+				const session = await refreshStoredSession(env, storedSession, false);
+				const user = await supabaseAuth<{ user_metadata?: Record<string, unknown> }>(env, '/user', {
+					method: 'GET',
+					accessToken: session.supabaseAccessToken
+				});
+				const displayName = getPersistedDisplayName(user.user_metadata);
+				if (!displayName || displayName === session.displayName) return session;
+				const updatedSession = { ...session, displayName };
+				await putSession(env, updatedSession);
+				return updatedSession;
+			} catch {
+				return storedSession;
+			}
+		})
+	);
 	return {
 		activeSession:
 			sessions
@@ -119,8 +159,24 @@ export async function putSession(env: Env, session: StoredSession) {
 	});
 }
 
+export async function getDeviceUserSessionId(deviceId: string, userId: string) {
+	const digest = await crypto.subtle.digest(
+		'SHA-256',
+		new TextEncoder().encode(JSON.stringify([deviceId, userId]))
+	);
+	const encoded = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, '0')
+	).join('');
+	return `account-${encoded}`;
+}
+
 export async function deleteSession(env: Env, session: StoredSession) {
 	await env.SESSIONS.delete(sessionKey(session.deviceId, session.sessionId));
+}
+
+function getPersistedDisplayName(metadata: Record<string, unknown> | undefined) {
+	const value = metadata?.display_name;
+	return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 export function activateSession(headers: Headers, sessionId: string, env: Env) {
@@ -144,7 +200,7 @@ function toPublicSession(session: StoredSession, activeSessionId: string | null)
 		sessionId: session.sessionId,
 		userId: session.userId,
 		email: session.email,
-		username: session.email ?? session.userId,
+		username: session.displayName || session.email || session.userId,
 		createdAt: session.createdAt,
 		lastUsedAt: session.lastUsedAt,
 		active: session.sessionId === activeSessionId
@@ -162,6 +218,9 @@ function isStoredSession(value: unknown): value is StoredSession {
 		typeof record.deviceId === 'string' &&
 		typeof record.userId === 'string' &&
 		(typeof record.email === 'string' || record.email === null) &&
+		(record.displayName === undefined ||
+			typeof record.displayName === 'string' ||
+			record.displayName === null) &&
 		typeof record.supabaseAccessToken === 'string' &&
 		typeof record.supabaseRefreshToken === 'string' &&
 		(typeof record.expiresAt === 'number' || record.expiresAt === null) &&
