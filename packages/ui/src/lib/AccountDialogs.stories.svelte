@@ -35,6 +35,7 @@
 			resendCooldownRemaining: 0,
 			oauthBusyProvider: null,
 			connectedAccountsOpen: false,
+			connectedAccountsError: '',
 			identities: [],
 			identitiesLoading: false,
 			identityBusyId: null,

@@ -313,8 +313,36 @@ test('connected identity request failures leave the modal open and show a notice
 
 	assert.equal(account.getState().connectedAccountsOpen, true);
 	assert.equal(account.getState().identitiesLoading, false);
+	assert.equal(account.getState().connectedAccountsError, 'Identity service unavailable.');
 	assert.equal(account.getState().authMessage, '');
 	assert.deepEqual(notices, ['Identity service unavailable.']);
+	account.destroy();
+});
+
+test('opening profile offline keeps a retryable in-dialog error', async () => {
+	let online = false;
+	let identityRequests = 0;
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.getIdentities = async () => {
+		identityRequests += 1;
+		return { identities: [] };
+	};
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		isOnline: () => online
+	});
+
+	await account.initialize();
+	await account.openConnectedAccounts();
+	assert.equal(account.getState().connectedAccountsOpen, true);
+	assert.equal(account.getState().connectedAccountsError, "You're offline. Connect to the internet to continue.");
+	assert.equal(identityRequests, 0);
+
+	online = true;
+	await account.openConnectedAccounts();
+	assert.equal(identityRequests, 1);
+	assert.equal(account.getState().connectedAccountsError, '');
 	account.destroy();
 });
 

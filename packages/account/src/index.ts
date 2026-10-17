@@ -55,6 +55,7 @@ export interface AccountControllerState<TData> {
 	resendCooldownRemaining: number;
 	oauthBusyProvider: OAuthProvider | null;
 	connectedAccountsOpen: boolean;
+	connectedAccountsError: string;
 	identities: AuthIdentity[];
 	identitiesLoading: boolean;
 	identityBusyId: string | null;
@@ -162,6 +163,7 @@ export function createAccountDataController<TData>(
 		resendCooldownRemaining: 0,
 		oauthBusyProvider: null,
 		connectedAccountsOpen: false,
+		connectedAccountsError: '',
 		identities: [],
 		identitiesLoading: false,
 		identityBusyId: null,
@@ -511,12 +513,17 @@ export function createAccountDataController<TData>(
 			setState({
 				connectedAccountsOpen: true,
 				identitiesLoading: false,
+				connectedAccountsError: OFFLINE_AUTH_MESSAGE,
 				authMessage: ''
 			});
-			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
-		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: '' });
+		setState({
+			connectedAccountsOpen: true,
+			identitiesLoading: true,
+			connectedAccountsError: '',
+			authMessage: ''
+		});
 		try {
 			const [result, profile] = await Promise.all([
 				options.authClient.getIdentities(),
@@ -531,7 +538,11 @@ export function createAccountDataController<TData>(
 				displayNameDraft: displayName
 			});
 		} catch (error) {
-			setState({ identitiesLoading: false, authMessage: '' });
+			setState({
+				identitiesLoading: false,
+				connectedAccountsError: getAuthErrorMessage(error, 'Unable to load login methods.'),
+				authMessage: ''
+			});
 			options.onNotice?.(getAuthErrorMessage(error, 'Unable to load login methods.'));
 		}
 	}
@@ -576,7 +587,7 @@ export function createAccountDataController<TData>(
 	}
 
 	function closeConnectedAccounts() {
-		setState({ connectedAccountsOpen: false, authMessage: '' });
+		setState({ connectedAccountsOpen: false, connectedAccountsError: '', authMessage: '' });
 	}
 
 	function connectOAuthProvider(provider: OAuthProvider) {

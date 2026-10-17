@@ -38,6 +38,7 @@
 		resendCooldownRemaining: number;
 		oauthBusyProvider: OAuthProvider | null;
 		connectedAccountsOpen: boolean;
+		connectedAccountsError: string;
 		identities: AuthIdentity[];
 		identitiesLoading: boolean;
 		identityBusyId: string | null;
@@ -58,6 +59,7 @@
 		backToEmail(): void;
 		startOAuthSignIn(provider: OAuthProvider): void;
 		closeConnectedAccounts(): void;
+		openConnectedAccounts(): Promise<void>;
 		connectOAuthProvider(provider: OAuthProvider): void;
 		unlinkOAuthIdentity(identityId: string): Promise<void>;
 		saveDisplayName(): Promise<void>;
@@ -163,12 +165,14 @@
 	<ConnectedAccountsModal
 		identities={state.identities}
 		loading={state.identitiesLoading}
+		loadError={state.connectedAccountsError}
 		busyProvider={state.oauthBusyProvider}
 		busyIdentityId={state.identityBusyId}
 		displayName={state.displayName}
 		displayNameDraft={state.displayNameDraft}
 		displayNameSaving={state.displayNameSaving}
 		onClose={controller.closeConnectedAccounts}
+		onRetry={() => void controller.openConnectedAccounts()}
 		onConnect={controller.connectOAuthProvider}
 		onUnlink={(identityId) => void controller.unlinkOAuthIdentity(identityId)}
 		onDisplayNameInput={controller.setDisplayNameDraft}

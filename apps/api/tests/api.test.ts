@@ -103,6 +103,7 @@ test('session lists device accounts with usernames and active state', async () =
 		userId: 'user-a',
 		email: 'a@example.com',
 		username: 'account-a',
+		displayName: 'Account A',
 		lastUsedAt: 1
 	});
 	await putStoredSession({
@@ -111,6 +112,7 @@ test('session lists device accounts with usernames and active state', async () =
 		userId: 'user-b',
 		email: 'b@example.com',
 		username: 'account-b',
+		displayName: 'Account B',
 		lastUsedAt: 2
 	});
 
@@ -143,17 +145,42 @@ test('session lists device accounts with usernames and active state', async () =
 			{
 				sessionId: 'session-a',
 				username: 'account-a',
-				displayName: 'a@example.com',
+				displayName: 'Account A',
 				active: true
 			},
 			{
 				sessionId: 'session-b',
 				username: 'account-b',
-				displayName: 'b@example.com',
+				displayName: 'Account B',
 				active: false
 			}
 		]
 	);
+});
+
+test('session startup repairs legacy names from the original provider identity', async () => {
+	const deviceId = 'legacy-name-device';
+	await putStoredSession({ deviceId, sessionId: 'legacy', userId: 'legacy-user' });
+	mockFetch(async (request) => {
+		assert.equal(new URL(request.url).pathname, '/auth/v1/user');
+		return Response.json({
+			user_metadata: {},
+			identities: [{ identity_data: { user_name: 'original-handle' } }]
+		});
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=legacy` }
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: { username: string; displayName: string };
+	};
+
+	assert.equal(body.activeSession.username, 'original-handle');
+	assert.equal(body.activeSession.displayName, 'original-handle');
 });
 
 test('session startup uses cached inactive accounts while account listing refreshes shared names', async () => {
@@ -212,7 +239,7 @@ test('session startup uses cached inactive accounts while account listing refres
 		supabaseRefreshToken: string;
 	};
 	assert.equal(startup.status, 200);
-	assert.deepEqual(upstreamRequests, []);
+	assert.deepEqual(upstreamRequests, ['GET /auth/v1/user']);
 	assert.equal(cachedInactive.supabaseRefreshToken, 'refresh-inactive');
 	assert.deepEqual(
 		startupBody.sessions.map(({ sessionId, username }) => ({ sessionId, username })),
@@ -945,6 +972,7 @@ async function putStoredSession(
 		userId?: string;
 		email?: string;
 		username?: string;
+		displayName?: string;
 		lastUsedAt?: number;
 		expiresAt?: number | null;
 	} = { deviceId: 'device-a', sessionId: 'session-a' }
@@ -958,6 +986,7 @@ async function putStoredSession(
 			userId: options.userId ?? 'user-a',
 			email: options.email ?? 'a@example.com',
 			...(options.username ? { username: options.username } : {}),
+			...(options.displayName ? { displayName: options.displayName } : {}),
 			supabaseAccessToken: `access-${sessionId}`,
 			supabaseRefreshToken: `refresh-${sessionId}`,
 			expiresAt: options.expiresAt ?? Math.floor(Date.now() / 1000) + 3600,

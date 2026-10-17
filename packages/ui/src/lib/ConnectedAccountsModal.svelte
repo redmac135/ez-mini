@@ -13,12 +13,14 @@
 
 	export let identities: AuthIdentity[] = [];
 	export let loading = false;
+	export let loadError = '';
 	export let busyProvider: OAuthProvider | null = null;
 	export let busyIdentityId: string | null = null;
 	export let displayName = '';
 	export let displayNameDraft = '';
 	export let displayNameSaving = false;
 	export let onClose: () => void = () => {};
+	export let onRetry: () => void = () => {};
 	export let onConnect: (provider: OAuthProvider) => void = () => {};
 	export let onUnlink: (identityId: string) => void = () => {};
 	export let onDisplayNameInput: (value: string) => void = () => {};
@@ -43,6 +45,12 @@
 <Modal title="Profile" {onClose}>
 	{#if loading}
 		<p class="status" role="status">Loading login methods…</p>
+	{/if}
+	{#if loadError}
+		<div class="load-error" role="alert">
+			<p>{loadError}</p>
+			<Button size="sm" onclick={onRetry}>Retry</Button>
+		</div>
 	{/if}
 	<section class="profile-section" aria-labelledby="display-name-heading">
 		<h3 id="display-name-heading">Display name</h3>
@@ -144,6 +152,18 @@
 		margin: 0 0 var(--space-2);
 		font-size: var(--font-size-xs);
 		color: var(--color-muted);
+	}
+	.load-error {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
+		color: var(--color-danger);
+		font-size: var(--font-size-sm);
+	}
+	.load-error p {
+		margin: 0;
 	}
 	.profile-section {
 		display: flex;

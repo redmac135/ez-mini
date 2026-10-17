@@ -92,7 +92,9 @@ function readCustomDisplayName(metadata: Record<string, unknown> | undefined) {
 }
 
 export function getInitialUsername(user: SupabaseUserProfile) {
-	for (const identity of user.identities ?? []) {
+	for (const identity of [...(user.identities ?? [])].sort((left, right) =>
+		(left.created_at ?? '').localeCompare(right.created_at ?? '')
+	)) {
 		const data = identity.identity_data ?? {};
 		for (const key of ['user_name', 'preferred_username', 'login', 'full_name', 'name']) {
 			const value = data[key];
