@@ -160,7 +160,12 @@ test('session lists device accounts with usernames and active state', async () =
 
 test('session startup serves legacy account names from cached data without network access', async () => {
 	const deviceId = 'legacy-name-device';
-	await putStoredSession({ deviceId, sessionId: 'legacy', userId: 'legacy-user' });
+	await putStoredSession({
+		deviceId,
+		sessionId: 'legacy',
+		userId: 'legacy-user',
+		username: 'legacy-provider-name'
+	});
 	let networkRequests = 0;
 	mockFetch(async () => {
 		networkRequests += 1;
