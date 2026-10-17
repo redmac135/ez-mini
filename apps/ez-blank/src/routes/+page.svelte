@@ -1323,7 +1323,7 @@
 							<button type="button" disabled={authBusy || syncBusy} on:click={logoutCurrentAccount}>
 								Logout
 							</button>
-							<div class="menu-stat">{authUser.username}</div>
+							<div class="menu-stat">{accountState.displayName}</div>
 						{:else}
 							<button type="button" disabled={authBusy} on:click={openLoginOrAccountList}>
 								Login

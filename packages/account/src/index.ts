@@ -220,7 +220,11 @@ export function createAccountDataController<TData>(
 		openAuthChannel();
 		const oauthResult = consumeOAuthResult();
 		if (initOptions.initialUser !== undefined) {
-			setState({ user: initOptions.initialUser });
+			setState({
+				user: initOptions.initialUser,
+				displayName: initOptions.initialUser?.displayName ?? '',
+				displayNameDraft: initOptions.initialUser?.displayName ?? ''
+			});
 			options.onAuthChanged?.(initOptions.initialUser);
 		}
 
@@ -248,6 +252,8 @@ export function createAccountDataController<TData>(
 			if (initialUser && response.activeSession?.userId === initialUser.userId) {
 				setState({
 					user: response.activeSession,
+					displayName: response.activeSession.displayName ?? '',
+					displayNameDraft: response.activeSession.displayName ?? '',
 					sessions: response.sessions,
 					phase: 'ready',
 					authBusy: false,
@@ -516,8 +522,8 @@ export function createAccountDataController<TData>(
 				options.authClient.getIdentities(),
 				options.authClient.getProfile?.()
 			]);
-			const fallbackName = getDefaultDisplayName(result.identities, state.user?.email);
-			const displayName = profile?.displayName || fallbackName;
+			const displayName =
+				profile?.displayName || state.displayName || state.user?.displayName || '';
 			setState({
 				identities: result.identities,
 				identitiesLoading: false,
@@ -528,13 +534,6 @@ export function createAccountDataController<TData>(
 			setState({ identitiesLoading: false, authMessage: '' });
 			options.onNotice?.(getAuthErrorMessage(error, 'Unable to load login methods.'));
 		}
-	}
-
-	function getDefaultDisplayName(identities: AuthIdentity[], email?: string | null) {
-		for (const identity of identities) {
-			if (identity.displayName?.trim()) return identity.displayName.trim();
-		}
-		return email?.trim() || '';
 	}
 
 	async function saveDisplayName() {
@@ -548,7 +547,7 @@ export function createAccountDataController<TData>(
 		try {
 			const profile = await options.authClient.updateProfile(displayNameDraft);
 			const displayName = profile.displayName || state.user?.email || state.user?.userId || '';
-			const user = state.user ? { ...state.user, username: displayName } : null;
+			const user = state.user ? { ...state.user, displayName } : null;
 			setState({
 				displayName,
 				displayNameDraft: displayName,
@@ -557,7 +556,7 @@ export function createAccountDataController<TData>(
 				authMessage: '',
 				user,
 				sessions: state.sessions.map((session) =>
-					session.userId === user?.userId ? { ...session, username: displayName } : session
+					session.userId === user?.userId ? { ...session, displayName } : session
 				)
 			});
 			options.onAuthChanged?.(user);
@@ -876,7 +875,13 @@ export function createAccountDataController<TData>(
 		}
 
 		const nextUser = response.activeSession ?? null;
-		setState({ sessions: response.sessions, user: nextUser, authMessage: '' });
+		setState({
+			sessions: response.sessions,
+			user: nextUser,
+			displayName: nextUser?.displayName ?? '',
+			displayNameDraft: nextUser?.displayName ?? '',
+			authMessage: ''
+		});
 		options.onAuthChanged?.(nextUser);
 		if (applyOptions.broadcast !== false) {
 			broadcastAuthSessionChanged(nextUser);
@@ -1009,7 +1014,12 @@ export function createAccountDataController<TData>(
 		if (loadOptions.setBusy) {
 			setState({ authBusy: true });
 		}
-		setState({ user, phase: 'loading-data' });
+		setState({
+			user,
+			displayName: user?.displayName ?? '',
+			displayNameDraft: user?.displayName ?? '',
+			phase: 'loading-data'
+		});
 		options.onAuthChanged?.(user);
 		resubscribeToDataChanges(user);
 

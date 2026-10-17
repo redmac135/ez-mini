@@ -279,6 +279,7 @@ test('loads connected identities and refreshes them after disconnecting one', as
 	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
 
 	await account.initialize();
+	assert.equal(account.getState().displayName, userA.displayName);
 	await account.openConnectedAccounts();
 	assert.equal(account.getState().connectedAccountsOpen, true);
 	assert.equal(account.getState().identitiesLoading, false);
@@ -290,6 +291,7 @@ test('loads connected identities and refreshes them after disconnecting one', as
 	await account.unlinkOAuthIdentity('github-identity');
 	assert.equal(unlinkIdentityId, 'github-identity');
 	assert.deepEqual(account.getState().identities, [remainingIdentity]);
+	assert.equal(account.getState().displayName, userA.displayName);
 	assert.equal(account.getState().identityBusyId, null);
 	account.destroy();
 });
@@ -316,7 +318,7 @@ test('connected identity request failures leave the modal open and show a notice
 	account.destroy();
 });
 
-test('display name defaults to provider username, supports cancel, and saves account-wide profile state', async () => {
+test('display name loads from cached session and saves without changing auth username', async () => {
 	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
 	auth.getIdentities = async () => ({
 		identities: [
@@ -343,6 +345,7 @@ test('display name defaults to provider username, supports cancel, and saves acc
 	});
 
 	await account.initialize();
+	assert.equal(account.getState().displayName, userA.displayName);
 	await account.openConnectedAccounts();
 	assert.equal(account.getState().displayName, 'taylor-dev');
 	assert.equal(account.getState().displayNameDraft, 'taylor-dev');
@@ -355,8 +358,10 @@ test('display name defaults to provider username, supports cancel, and saves acc
 	await account.saveDisplayName();
 	assert.equal(savedName, 'Taylor');
 	assert.equal(account.getState().displayName, 'Taylor');
-	assert.equal(account.getState().user?.username, 'Taylor');
-	assert.equal(account.getState().sessions[0]?.username, 'Taylor');
+	assert.equal(account.getState().user?.username, userA.username);
+	assert.equal(account.getState().user?.displayName, 'Taylor');
+	assert.equal(account.getState().sessions[0]?.username, userA.username);
+	assert.equal(account.getState().sessions[0]?.displayName, 'Taylor');
 	assert.equal(account.getState().connectedAccountsOpen, false);
 	assert.deepEqual(notices, ['Profile saved']);
 	account.destroy();
@@ -916,6 +921,7 @@ function createSession(sessionId: string, userId: string, active: boolean): Auth
 		userId,
 		email: `${userId}@example.com`,
 		username: userId,
+		displayName: userId,
 		createdAt: 1,
 		lastUsedAt: 2,
 		active

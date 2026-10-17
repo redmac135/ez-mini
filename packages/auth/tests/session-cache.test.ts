@@ -14,6 +14,7 @@ const session: AuthSessionSummary = {
 	userId: 'user-a',
 	email: 'user-a@example.com',
 	username: 'User A',
+	displayName: 'User A',
 	createdAt: 1,
 	lastUsedAt: 2,
 	active: true
