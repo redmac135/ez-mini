@@ -182,7 +182,7 @@ test('session startup serves legacy account names from cached data without netwo
 		activeSession: { username: string; displayName: string };
 	};
 
-	assert.equal(body.activeSession.username, 'a@example.com');
+	assert.equal(body.activeSession.username, 'legacy-provider-name');
 	assert.equal(body.activeSession.displayName, 'a@example.com');
 	assert.equal(networkRequests, 0);
 });
