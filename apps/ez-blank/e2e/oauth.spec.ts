@@ -126,7 +126,7 @@ test('cancelled OAuth linking keeps profile open and shows a retryable toast', a
 
 	const profile = page.getByRole('dialog', { name: 'Profile' });
 	await expect(profile).toBeVisible();
-	await expect(page.getByText('Failed to connect. Please try again.')).toBeVisible();
+	await expect(page.getByText('Failed to connect.')).toBeVisible();
 	await expect(profile.getByRole('alert')).toHaveCount(0);
 	const toastLayer = page.locator('.toast-stack');
 	const toastZIndex = await toastLayer.evaluate((element) =>
@@ -339,6 +339,11 @@ test('profile settings save the display name and cancel closes without saving', 
 	let dialog = page.getByRole('dialog', { name: 'Profile' });
 	const displayName = dialog.getByRole('textbox', { name: 'Display name' });
 	await expect(displayName).toHaveValue('taylor-dev');
+	await displayName.fill('');
+	await expect(displayName).toHaveAttribute('aria-invalid', 'true');
+	await expect(displayName).toHaveCSS('border-color', 'rgb(180, 35, 24)');
+	await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled();
+	await displayName.fill('taylor-dev');
 	const dialogBounds = await dialog.boundingBox();
 	const inputBounds = await displayName.boundingBox();
 	expect(dialogBounds).not.toBeNull();

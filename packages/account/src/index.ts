@@ -682,7 +682,7 @@ export function createAccountDataController<TData>(
 					: linkAttempt
 						? reason === 'identity_exists'
 							? messages.identity_exists
-							: 'Failed to connect. Please try again.'
+							: 'Failed to connect.'
 						: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,

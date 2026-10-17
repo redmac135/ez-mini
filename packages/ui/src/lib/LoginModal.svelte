@@ -177,6 +177,8 @@
 		opacity: 0.6;
 	}
 	.provider-button svg {
+		display: block;
+		flex: 0 0 1rem;
 		width: 1rem;
 		height: 1rem;
 		fill: currentColor;

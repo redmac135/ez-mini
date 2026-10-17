@@ -15,4 +15,5 @@ export { default as OtpInput } from './OtpInput.svelte';
 export { default as Sidebar } from './Sidebar.svelte';
 export { default as TextInput } from './TextInput.svelte';
 export { default as ToastStack } from './ToastStack.svelte';
+export { createToastController, type ToastNotice } from './toast-controller.ts';
 export { default as Workspace } from './Workspace.svelte';

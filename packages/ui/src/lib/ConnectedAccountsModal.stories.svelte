@@ -46,6 +46,8 @@
 	play={async ({ canvas, userEvent }) => {
 		const input = canvas.getByRole('textbox', { name: 'Display name' });
 		await userEvent.clear(input);
+		await expect(input).toHaveAttribute('aria-invalid', 'true');
+		await expect(canvas.getByRole('button', { name: 'Save' })).toBeDisabled();
 		await userEvent.type(input, 'Taylor');
 		await expect(canvas.getByRole('button', { name: 'Save' })).toBeEnabled();
 	}}

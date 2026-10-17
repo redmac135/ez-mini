@@ -49,6 +49,8 @@
 		<input
 			id="account-display-name"
 			aria-labelledby="display-name-heading"
+			aria-invalid={!displayNameDraft.trim()}
+			class:invalid={!displayNameDraft.trim()}
 			value={displayNameDraft}
 			maxlength="80"
 			autocomplete="nickname"
@@ -168,6 +170,9 @@
 	.profile-section input:focus-visible {
 		outline: 2px solid var(--color-fg);
 		outline-offset: 2px;
+	}
+	.profile-section input.invalid {
+		border-color: var(--color-danger);
 	}
 	.methods-section {
 		display: flex;

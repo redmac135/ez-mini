@@ -6,7 +6,6 @@
 	import { AUTH_SESSION_CACHE_KEY, readCachedAuthSession, writeCachedAuthSession } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
 	import { Editor, type EditorState } from '@ez/editor';
 	import {
 		AccountDialogs,
@@ -19,7 +18,8 @@
 		Modal,
 		Navbar,
 		Workspace,
-		ToastStack
+		ToastStack,
+		createToastController
 	} from '@ez/ui';
 	import { auth, journeyApi } from '$lib/api';
 	import JourneyEntryEditor from '../lib/JourneyEntryEditor.svelte';
@@ -96,9 +96,8 @@
 	let entryEditorClosing = $state(false);
 	let discardEntryConfirmationOpen = $state(false);
 	let menuOpen = $state(false);
-	let toastNotices: Array<{ id: number; message: string }> = [];
-	let nextToastId = 1;
-	const toastTimeouts = new SvelteMap<number, number>();
+	let toastNotices = $state<Array<{ id: number; message: string }>>([]);
+	const toastController = createToastController((notices) => (toastNotices = notices));
 	let theme = $state<'light' | 'dark'>('light');
 	let pageScrolled = $state(false);
 	let submittedEntries = $state<StoredJourneyEntry[]>([]);
@@ -452,20 +451,11 @@
 	}
 
 	function showStatusNotice(message: string) {
-		if (typeof window === 'undefined') return;
-		const id = nextToastId++;
-		toastNotices = [{ id, message }, ...toastNotices];
-		toastTimeouts.set(
-			id,
-			window.setTimeout(() => dismissToast(id), 4000)
-		);
+		toastController.show(message);
 	}
 
 	function dismissToast(id: number) {
-		const timeout = toastTimeouts.get(id);
-		if (timeout !== undefined) window.clearTimeout(timeout);
-		toastTimeouts.delete(id);
-		toastNotices = toastNotices.filter((toast) => toast.id !== id);
+		toastController.dismiss(id);
 	}
 </script>
 

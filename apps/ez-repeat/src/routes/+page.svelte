@@ -11,7 +11,6 @@
 	} from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
 	import {
 		AccountLoading,
 		AccountDialogs,
@@ -22,7 +21,8 @@
 		Icon,
 		Navbar,
 		ToastStack,
-		Workspace
+		Workspace,
+		createToastController
 	} from '@ez/ui';
 	import { auth, repeatApi } from '$lib/api';
 	import {
@@ -117,8 +117,7 @@
 	let syncBusy = false;
 	let appSyncStatus: AppSyncStatus = 'synced';
 	let toastNotices: Array<{ id: number; message: string }> = [];
-	let nextToastId = 1;
-	const toastTimeouts = new SvelteMap<number, number>();
+	const toastController = createToastController((notices) => (toastNotices = notices));
 
 	const EDIT_SYNC_DEBOUNCE_MS = 3000;
 	const syncController = createSyncController({
@@ -316,34 +315,15 @@
 	}
 
 	function showStatusNotice(message: string) {
-		if (typeof window === 'undefined') return;
-
-		const id = nextToastId++;
-		toastNotices = [{ id, message }, ...toastNotices];
-		toastTimeouts.set(
-			id,
-			window.setTimeout(() => {
-				dismissToast(id);
-			}, 4000)
-		);
+		toastController.show(message);
 	}
 
 	function dismissToast(id: number) {
-		const timeout = toastTimeouts.get(id);
-		if (timeout) {
-			window.clearTimeout(timeout);
-			toastTimeouts.delete(id);
-		}
-
-		toastNotices = toastNotices.filter((toast) => toast.id !== id);
+		toastController.dismiss(id);
 	}
 
 	function clearAllToasts() {
-		for (const timeout of toastTimeouts.values()) {
-			window.clearTimeout(timeout);
-		}
-		toastTimeouts.clear();
-		toastNotices = [];
+		toastController.clear();
 	}
 
 	function showQueuedAppUpdatedNotice() {
