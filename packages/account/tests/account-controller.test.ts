@@ -336,7 +336,10 @@ test('opening profile offline keeps a retryable in-dialog error', async () => {
 	await account.initialize({ initialUser: userA });
 	await account.openConnectedAccounts();
 	assert.equal(account.getState().connectedAccountsOpen, true);
-	assert.equal(account.getState().connectedAccountsError, "You're offline. Connect to the internet to continue.");
+	assert.equal(
+		account.getState().connectedAccountsError,
+		"You're offline. Connect to the internet to continue."
+	);
 	assert.equal(identityRequests, 0);
 
 	online = true;

@@ -107,7 +107,7 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 		storedSessions.map(async (storedSession) => {
 			try {
 				const session = await refreshStoredSession(env, storedSession, false);
-			return await refreshDisplayName(env, session);
+				return await refreshDisplayName(env, session);
 			} catch {
 				return storedSession;
 			}
@@ -225,7 +225,9 @@ function isStoredSession(value: unknown): value is StoredSession {
 		typeof record.deviceId === 'string' &&
 		typeof record.userId === 'string' &&
 		(typeof record.email === 'string' || record.email === null) &&
-		(record.username === undefined || typeof record.username === 'string' || record.username === null) &&
+		(record.username === undefined ||
+			typeof record.username === 'string' ||
+			record.username === null) &&
 		(record.displayName === undefined ||
 			typeof record.displayName === 'string' ||
 			record.displayName === null) &&
