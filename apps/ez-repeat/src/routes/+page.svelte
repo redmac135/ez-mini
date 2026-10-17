@@ -438,7 +438,7 @@
 								disabled={accountState.authBusy || syncBusy}
 								on:click={() => void account.openConnectedAccounts()}
 							>
-								Connected accounts
+								Profile
 							</button>
 							<button
 								type="button"
@@ -447,7 +447,7 @@
 							>
 								Logout
 							</button>
-							<div class="menu-stat">{accountState.user.email ?? accountState.user.userId}</div>
+							<div class="menu-stat">{accountState.displayName}</div>
 						{:else}
 							<button
 								type="button"

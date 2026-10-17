@@ -6,6 +6,7 @@
 	import { AUTH_SESSION_CACHE_KEY, readCachedAuthSession, writeCachedAuthSession } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { Editor, type EditorState } from '@ez/editor';
 	import {
 		AccountDialogs,
@@ -17,7 +18,8 @@
 		Icon,
 		Modal,
 		Navbar,
-		Workspace
+		Workspace,
+		ToastStack
 	} from '@ez/ui';
 	import { auth, journeyApi } from '$lib/api';
 	import JourneyEntryEditor from '../lib/JourneyEntryEditor.svelte';
@@ -64,6 +66,9 @@
 			}
 		},
 		getErrorMessage: (error, fallback) => (error instanceof Error ? error.message : fallback),
+		onNotice(message) {
+			showStatusNotice(message);
+		},
 		replaceOAuthUrl: (url) => {
 			const nextUrl = new URL(url);
 			// This URL comes from the current app page after removing OAuth callback parameters.
@@ -91,6 +96,9 @@
 	let entryEditorClosing = $state(false);
 	let discardEntryConfirmationOpen = $state(false);
 	let menuOpen = $state(false);
+	let toastNotices: Array<{ id: number; message: string }> = [];
+	let nextToastId = 1;
+	const toastTimeouts = new SvelteMap<number, number>();
 	let theme = $state<'light' | 'dark'>('light');
 	let pageScrolled = $state(false);
 	let submittedEntries = $state<StoredJourneyEntry[]>([]);
@@ -442,6 +450,20 @@
 			anonymousImportBusy = false;
 		}
 	}
+
+	function showStatusNotice(message: string) {
+		if (typeof window === 'undefined') return;
+		const id = nextToastId++;
+		toastNotices = [{ id, message }, ...toastNotices];
+		toastTimeouts.set(id, window.setTimeout(() => dismissToast(id), 4000));
+	}
+
+	function dismissToast(id: number) {
+		const timeout = toastTimeouts.get(id);
+		if (timeout !== undefined) window.clearTimeout(timeout);
+		toastTimeouts.delete(id);
+		toastNotices = toastNotices.filter((toast) => toast.id !== id);
+	}
 </script>
 
 <svelte:head>
@@ -516,7 +538,7 @@
 										type="button"
 										role="menuitem"
 										disabled={accountState.authBusy || syncBusy}
-										onclick={() => void account.openConnectedAccounts()}>Connected accounts</button
+										onclick={() => void account.openConnectedAccounts()}>Profile</button
 									>
 									<button
 										type="button"
@@ -524,7 +546,7 @@
 										disabled={accountState.authBusy || syncBusy}
 										onclick={() => void account.logoutCurrentAccount()}>Log out</button
 									>
-									<div class="menu-stat">{accountState.user.email ?? accountState.user.userId}</div>
+									<div class="menu-stat">{accountState.displayName}</div>
 								{:else}
 									<button
 										type="button"
@@ -598,6 +620,7 @@
 	{/if}
 
 	<AccountDialogs controller={account} {syncBusy} />
+	<ToastStack notices={toastNotices} onDismiss={dismissToast} />
 	{#if discardEntryConfirmationOpen}
 		<ConfirmModal
 			title="Discard changes?"
