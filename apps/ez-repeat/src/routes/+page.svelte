@@ -1,6 +1,14 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page as appPage } from '$app/state';
 	import { createAccountDataController } from '@ez/account';
-	import { isUnauthorizedError } from '@ez/auth';
+	import {
+		AUTH_SESSION_CACHE_KEY,
+		isUnauthorizedError,
+		readCachedAuthSession,
+		writeCachedAuthSession
+	} from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -80,8 +88,17 @@
 			}
 		},
 		getErrorMessage,
+		replaceOAuthUrl: (url) => {
+			const nextUrl = new URL(url);
+			// This URL comes from the current app page after removing OAuth callback parameters.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState(`${resolve('/')}${nextUrl.search}${nextUrl.hash}`, appPage.state);
+		},
 		onNotice(message) {
 			showStatusNotice(message);
+		},
+		onAuthChanged(user) {
+			writeCachedAuthSession(window.localStorage, user, AUTH_SESSION_CACHE_KEY);
 		}
 	});
 
@@ -110,7 +127,8 @@
 	});
 
 	onMount(() => {
-		void initializeApp();
+		const initialUser = readCachedAuthSession(window.localStorage, AUTH_SESSION_CACHE_KEY);
+		setTimeout(() => void account.initialize({ initialUser }), 0);
 		showQueuedAppUpdatedNotice();
 		const unsubscribeStorage = repeat.subscribeToExternalChanges();
 
@@ -145,10 +163,6 @@
 
 	$: applyTheme(view?.themeMode ?? 'light');
 	$: syncStatusLabel = getSyncStatusLabel(appSyncStatus);
-
-	async function initializeApp() {
-		await account.initialize();
-	}
 
 	function applyTheme(themeMode: ThemeMode) {
 		if (typeof document === 'undefined') {
@@ -215,18 +229,29 @@
 	}
 
 	function scheduleSync() {
-		if (accountState.user) {
-			syncController.scheduleDebounced();
+		if (!accountState.user) return;
+		if (!isBrowserOnline()) {
+			appSyncStatus = 'offline';
+			return;
 		}
+		syncController.scheduleDebounced();
 	}
 
 	function requestImmediateSync(options: { showSuccessNotice?: boolean } = {}) {
 		if (!accountState.user) return;
+		if (!isBrowserOnline()) {
+			appSyncStatus = 'offline';
+			return;
+		}
 		syncController.requestImmediate({ showSuccessNotice: options.showSuccessNotice ?? false });
 	}
 
 	async function executeSync(options: { showSuccessNotice: boolean }) {
 		if (!repeatApi || !accountState.user) {
+			return;
+		}
+		if (!isBrowserOnline()) {
+			appSyncStatus = 'offline';
 			return;
 		}
 
@@ -367,7 +392,7 @@
 		</button>
 	{/if}
 
-	<Navbar visible={view?.loaded ?? false}>
+	<Navbar visible>
 		{#if view?.loaded && !view.isToday && !drawerOpen}
 			<div class="nav-left">
 				<Button size="sm" onclick={repeat.selectToday}>today</Button>
@@ -407,6 +432,13 @@
 								on:click={account.openLoginOrAccountList}
 							>
 								Switch Account
+							</button>
+							<button
+								type="button"
+								disabled={accountState.authBusy || syncBusy}
+								on:click={() => void account.openConnectedAccounts()}
+							>
+								Connected accounts
 							</button>
 							<button
 								type="button"

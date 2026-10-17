@@ -1,7 +1,9 @@
 export interface Env {
 	SESSIONS: KVNamespace;
+	IDENTITY_UNLINKER: DurableObjectNamespace;
 	SUPABASE_URL: string;
 	SUPABASE_PUBLISHABLE_KEY: string;
+	API_PUBLIC_URL?: string;
 	CORS_ORIGINS?: string;
 	COOKIE_DOMAIN?: string;
 }
@@ -11,6 +13,7 @@ export interface StoredSession {
 	deviceId: string;
 	userId: string;
 	email: string | null;
+	displayName?: string | null;
 	supabaseAccessToken: string;
 	supabaseRefreshToken: string;
 	expiresAt: number | null;
@@ -41,7 +44,35 @@ export interface SupabaseSessionResponse {
 	user: {
 		id: string;
 		email?: string;
+		user_metadata?: Record<string, unknown>;
+		identities?: SupabaseIdentity[];
 	};
+}
+
+export interface SupabaseIdentity {
+	identity_id: string;
+	provider: string;
+	identity_data?: Record<string, unknown>;
+	created_at?: string;
+	updated_at?: string;
+}
+
+export interface SupabaseUserProfile {
+	id: string;
+	email?: string;
+	user_metadata?: Record<string, unknown>;
+	identities?: SupabaseIdentity[];
+}
+
+export interface OAuthFlow {
+	flowId: string;
+	deviceId: string;
+	provider: 'github' | 'azure';
+	intent: 'sign-in' | 'link';
+	codeVerifier: string;
+	returnTo: string;
+	sessionId: string | null;
+	createdAt: number;
 }
 
 export interface RemotePageRow {

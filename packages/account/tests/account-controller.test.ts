@@ -21,14 +21,78 @@ test('initializes anonymous data without an auth client', async () => {
 test('initializes authenticated data from the active session', async () => {
 	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
 	const adapter = createDataAdapter();
-	const account = createAccountDataController({ authClient: auth, adapter });
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		isOnline: () => true,
+		channelName: 'account-controller-init-active'
+	});
 
 	await account.initialize();
 
 	assert.equal(account.getState().user?.userId, 'user-a');
 	assert.equal(account.getState().data, 'account:user-a');
-	assert.deepEqual(adapter.loads, ['account:user-a']);
+	assert.deepEqual(adapter.loads, ['anonymous', 'account:user-a']);
 	account.destroy();
+});
+
+test('confirms a different existing account discovered during initialization', async () => {
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({ activeSession: activeB, sessions: [userA, activeB] });
+	let finishAccountLoad!: (value: string) => void;
+	const adapter = createDataAdapter();
+	adapter.loadAccount = (user) => {
+		if (user.userId === 'user-b') {
+			return new Promise((resolve) => {
+				finishAccountLoad = resolve;
+			});
+		}
+		return Promise.resolve(`account:${user.userId}`);
+	};
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		channelName: 'account-controller-init-transition'
+	});
+	const initialization = account.initialize({ initialUser: userA });
+
+	await waitFor(() => account.getState().contextTransition !== null);
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().contextTransition?.targetUser?.userId, 'user-b');
+
+	finishAccountLoad('account:user-b');
+	await initialization;
+	assert.equal(account.getState().user?.userId, 'user-b');
+	account.destroy();
+});
+
+test('shows the account ownership error after a rejected OAuth link', async () => {
+	const originalWindow = globalThis.window;
+	Object.defineProperty(globalThis, 'window', {
+		configurable: true,
+		value: {
+			location: {
+				href: 'https://app.example.test/?oauth=error&oauth_reason=identity_exists&oauth_intent=link'
+			},
+			history: { state: null, replaceState() {} },
+			addEventListener() {},
+			removeEventListener() {}
+		}
+	});
+	const account = createAccountDataController({
+		authClient: createAuthClient({ activeSession: userA, sessions: [userA] }),
+		adapter: createDataAdapter(),
+		channelName: 'account-controller-oauth-link-conflict'
+	});
+
+	try {
+		await account.initialize({ initialUser: userA });
+		assert.equal(account.getState().connectedAccountsOpen, true);
+		assert.equal(account.getState().authMessage, 'This account is linked to another account.');
+	} finally {
+		account.destroy();
+		Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+	}
 });
 
 test('opens login flow and surfaces login request failures', async () => {
@@ -61,14 +125,255 @@ test('opens login flow after an empty saved-session lookup', async () => {
 	account.destroy();
 });
 
+test('opens the login modal immediately while offline without looking up accounts', async () => {
+	const auth = createAuthClient({ activeSession: null, sessions: [] });
+	let lookupCount = 0;
+	const getAccounts = auth.getAccounts;
+	if (getAccounts) {
+		auth.getAccounts = async (...args) => {
+			lookupCount += 1;
+			return getAccounts(...args);
+		};
+	}
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		isOnline: () => false
+	});
+
+	await account.openLoginOrAccountList();
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(
+		account.getState().authMessage,
+		"You're offline. Connect to the internet to continue."
+	);
+	assert.equal(lookupCount, 0);
+	account.destroy();
+});
+
+test('keeps the offline login message when local startup hydration finishes afterward', async () => {
+	let finishLocalLoad!: (value: string) => void;
+	const adapter = createDataAdapter();
+	adapter.loadAnonymous = () =>
+		new Promise((resolve) => {
+			finishLocalLoad = resolve;
+		});
+	const account = createAccountDataController({
+		authClient: createAuthClient({ activeSession: null, sessions: [] }),
+		adapter,
+		isOnline: () => false
+	});
+	const initialization = account.initialize();
+
+	await account.openLoginOrAccountList();
+	finishLocalLoad('anonymous');
+	await initialization;
+
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(
+		account.getState().authMessage,
+		"You're offline. Connect to the internet to continue."
+	);
+	account.destroy();
+});
+
+test('offline OAuth sign-in leaves the login modal open without starting provider auth', async () => {
+	const auth = createAuthClient({ activeSession: null, sessions: [] });
+	let startCount = 0;
+	auth.getOAuthStartUrl = async () => {
+		startCount += 1;
+		return 'https://provider.example/oauth';
+	};
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		isOnline: () => false
+	});
+
+	account.openLoginFlow();
+	account.startOAuthSignIn('github');
+
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(
+		account.getState().authMessage,
+		"You're offline. Connect to the internet to continue."
+	);
+	assert.equal(startCount, 0);
+	account.destroy();
+});
+
+test('offline startup loads cached account data without requesting a remote session', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	let sessionLookupCount = 0;
+	auth.getSession = async () => {
+		sessionLookupCount += 1;
+		throw new Error('Network unavailable.');
+	};
+	const adapter = createDataAdapter();
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		isOnline: () => false
+	});
+
+	await account.initialize({ initialUser: userA });
+
+	assert.equal(sessionLookupCount, 0);
+	assert.deepEqual(adapter.loads, ['account:user-a']);
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().phase, 'ready');
+	assert.equal(account.getState().authBusy, false);
+	account.destroy();
+});
+
+test('pending startup session lookup does not block login interactions', async () => {
+	let resolveSession!: (response: AuthSessionResponse) => void;
+	const auth = createAuthClient({ activeSession: null, sessions: [] });
+	auth.getSession = () =>
+		new Promise((resolve) => {
+			resolveSession = resolve;
+		});
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+	const initialization = account.initialize();
+	await waitFor(() => resolveSession !== undefined);
+
+	assert.equal(account.getState().authBusy, false);
+	account.openLoginFlow();
+	assert.equal(account.getState().loginModalOpen, true);
+	assert.equal(account.getState().authBusy, false);
+
+	resolveSession({ activeSession: null, sessions: [] });
+	await initialization;
+	account.destroy();
+});
+
+test('loads connected identities and refreshes them after disconnecting one', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	const remainingIdentity = {
+		id: 'email-identity',
+		provider: 'email',
+		displayName: 'user-a',
+		email: 'user-a@example.com',
+		createdAt: null
+	};
+	let unlinkIdentityId = '';
+	auth.getIdentities = async () => ({
+		identities: [
+			remainingIdentity,
+			{
+				id: 'github-identity',
+				provider: 'github',
+				displayName: 'user-a',
+				email: 'user-a@example.com',
+				createdAt: null
+			}
+		]
+	});
+	auth.unlinkIdentity = async (identityId) => {
+		unlinkIdentityId = identityId;
+		return { identities: [remainingIdentity] };
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.initialize();
+	await account.openConnectedAccounts();
+	assert.equal(account.getState().connectedAccountsOpen, true);
+	assert.equal(account.getState().identitiesLoading, false);
+	assert.deepEqual(
+		account.getState().identities.map(({ provider }) => provider),
+		['email', 'github']
+	);
+
+	await account.unlinkOAuthIdentity('github-identity');
+	assert.equal(unlinkIdentityId, 'github-identity');
+	assert.deepEqual(account.getState().identities, [remainingIdentity]);
+	assert.equal(account.getState().identityBusyId, null);
+	account.destroy();
+});
+
+test('connected identity request failures leave the modal open with a readable message', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.getIdentities = async () => {
+		throw new Error('Identity service unavailable.');
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.initialize();
+	await account.openConnectedAccounts();
+
+	assert.equal(account.getState().connectedAccountsOpen, true);
+	assert.equal(account.getState().identitiesLoading, false);
+	assert.equal(account.getState().authMessage, 'Identity service unavailable.');
+	account.destroy();
+});
+
+test('display name defaults to provider username, supports cancel, and saves account-wide profile state', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.getIdentities = async () => ({
+		identities: [
+			{
+				id: 'github-identity',
+				provider: 'github',
+				displayName: 'taylor-dev',
+				email: 'user-a@example.com',
+				createdAt: null
+			}
+		]
+	});
+	auth.getProfile = async () => ({ displayName: 'taylor-dev', customDisplayName: null });
+	let savedName = '';
+	auth.updateProfile = async (displayName) => {
+		savedName = displayName;
+		return { displayName, customDisplayName: displayName };
+	};
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.initialize();
+	await account.openConnectedAccounts();
+	assert.equal(account.getState().displayName, 'taylor-dev');
+	assert.equal(account.getState().displayNameDraft, 'taylor-dev');
+
+	account.setDisplayNameDraft('Discard this');
+	account.cancelDisplayNameEdit();
+	assert.equal(account.getState().displayNameDraft, 'taylor-dev');
+
+	account.setDisplayNameDraft('Taylor');
+	await account.saveDisplayName();
+	assert.equal(savedName, 'Taylor');
+	assert.equal(account.getState().displayName, 'Taylor');
+	assert.equal(account.getState().user?.username, 'Taylor');
+	assert.equal(account.getState().sessions[0]?.username, 'Taylor');
+	account.destroy();
+});
+
+test('signing in with the current account reuses the account list as a confirmation popup', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.verify = async () => ({
+		activeSession: userA,
+		sessions: [userA],
+		alreadySignedIn: true
+	});
+	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+
+	await account.initialize();
+	account.openLoginFlow();
+	await account.submitLogin('user-a@example.com');
+	await account.verifyOtpCode('12345678');
+
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().accountModalOpen, true);
+	assert.equal(account.getState().authMessage, 'Already signed into this account.');
+	account.destroy();
+});
+
 test('shows lookup errors and retries the same login flow', async () => {
 	let calls = 0;
 	const auth = createAuthClient({ activeSession: null, sessions: [] });
-	const getSession = auth.getSession;
-	auth.getSession = async (options) => {
+	const getAccounts = auth.getAccounts;
+	auth.getAccounts = async (options) => {
 		calls += 1;
 		if (calls === 1) throw new Error('Network unavailable');
-		return getSession(options);
+		return getAccounts(options);
 	};
 	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
 
@@ -87,7 +392,7 @@ test('shows lookup errors and retries the same login flow', async () => {
 test('closing the login dialog aborts a pending session lookup', async () => {
 	let lookupSignal: AbortSignal | undefined;
 	const auth = createAuthClient({ activeSession: null, sessions: [] });
-	auth.getSession = (options) => {
+	auth.getAccounts = (options) => {
 		lookupSignal = options?.signal;
 		return new Promise((_resolve, reject) => {
 			lookupSignal?.addEventListener('abort', () =>
@@ -386,7 +691,7 @@ test('ignores repeated email submissions while the first request is pending', as
 	account.destroy();
 });
 
-test('initial cached user is exposed without starting a duplicate data load', async () => {
+test('initial cached user data is loaded before applying a different server session', async () => {
 	const adapter = createDataAdapter();
 	const activeB = { ...userB, active: true };
 	const auth = createAuthClient({
@@ -399,7 +704,7 @@ test('initial cached user is exposed without starting a duplicate data load', as
 
 	assert.equal(account.getState().user?.userId, 'user-b');
 	assert.equal(account.getState().data, 'account:user-b');
-	assert.deepEqual(adapter.loads, ['account:user-b']);
+	assert.deepEqual(adapter.loads, ['account:user-a', 'account:user-b']);
 	account.destroy();
 });
 
@@ -545,6 +850,12 @@ function createAuthClient(options: {
 			);
 		},
 		async getSession() {
+			return {
+				activeSession: options.activeSession,
+				sessions: options.sessions
+			};
+		},
+		async getAccounts() {
 			return {
 				activeSession: options.activeSession,
 				sessions: options.sessions

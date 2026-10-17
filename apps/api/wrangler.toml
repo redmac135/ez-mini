@@ -7,17 +7,31 @@ preview_urls = false
 [vars]
 SUPABASE_URL = "https://nvotqrfyxscapwbqbblv.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RHdoQj-QOBHxKzucL97MMQ_fzxrTl1n"
+API_PUBLIC_URL = "https://mini.api.ethanzhao.ca"
 CORS_ORIGINS = "https://blank.ethanzhao.ca,https://action.ethanzhao.ca,https://repeat.ethanzhao.ca,https://journey.ethanzhao.ca"
+
+[[durable_objects.bindings]]
+name = "IDENTITY_UNLINKER"
+class_name = "IdentityUnlinkCoordinator"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["IdentityUnlinkCoordinator"]
 
 [env.development.vars]
 SUPABASE_URL = "https://nvotqrfyxscapwbqbblv.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RHdoQj-QOBHxKzucL97MMQ_fzxrTl1n"
+API_PUBLIC_URL = "http://localhost:1350"
 CORS_ORIGINS = "http://localhost:1351,http://127.0.0.1:1351,http://localhost:1352,http://127.0.0.1:1352,http://localhost:1353,http://127.0.0.1:1353"
 
 [[env.development.kv_namespaces]]
 binding = "SESSIONS"
 id = "7adae932d172450a87b4157b40a58c5f"
 preview_id = "0a2b6ee740ed46bcae3beb226d77cc3e"
+
+[[env.development.durable_objects.bindings]]
+name = "IDENTITY_UNLINKER"
+class_name = "IdentityUnlinkCoordinator"
 
 [[routes]]
 pattern = "mini.api.ethanzhao.ca"

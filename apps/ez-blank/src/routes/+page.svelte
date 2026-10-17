@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page as appPage } from '$app/state';
 	import type { AuthSessionSummary } from '@ez/auth';
 	import { createAccountDataController } from '@ez/account';
 	import { onDestroy, onMount, tick } from 'svelte';
@@ -75,7 +78,6 @@
 	import {
 		clonePageForUser,
 		createPage,
-		createSession,
 		markPageDeleted,
 		ensureValidActivePage,
 		getRemoteActivePageUpdateTarget,
@@ -169,11 +171,18 @@
 			loadAnonymous: () => loadBlankAccountData(null),
 			loadAccount: (user, options) => loadBlankAccountData(user, options),
 			deleteAccountData: (userId) => deleteLocalUserData(userId),
-			onLoaded({ data }) {
+			onLoaded({ user, data }) {
 				applyLoadedBlankAccountData(data);
+				if (user) requestImmediateSync();
 			}
 		},
 		getErrorMessage,
+		replaceOAuthUrl: (url) => {
+			const nextUrl = new URL(url);
+			// This URL comes from the current app page after removing OAuth callback parameters.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState(`${resolve('/')}${nextUrl.search}${nextUrl.hash}`, appPage.state);
+		},
 		onNotice(message) {
 			showStatusNotice(message);
 		},
@@ -792,15 +801,10 @@
 
 		document.addEventListener('visibilitychange', handleDocumentVisibilityChange);
 
-		void (async () => {
-			const cachedAuthSession = readCachedAuthSession();
-			await hydrateInitialLocalState(cachedAuthSession);
-			previousActiveText = getActivePage(session).content;
-			applyTheme(preferences.themeMode);
-			showQueuedAppUpdatedNotice();
-			setupNotesChannel();
-			void account.initialize({ initialUser: cachedAuthSession });
-		})();
+		const cachedAuthSession = readCachedAuthSession();
+		showQueuedAppUpdatedNotice();
+		setupNotesChannel();
+		setTimeout(() => void account.initialize({ initialUser: cachedAuthSession }), 0);
 
 		window.addEventListener(APP_UPDATED_NOTICE_EVENT, handleAppUpdatedNotice);
 
@@ -843,7 +847,19 @@
 			},
 			pagesApi,
 			isOnline: isBrowserOnline(),
-			signal: options.signal
+			signal: options.signal,
+			onLocalStateLoaded({
+				session: localSession,
+				preferences: localPreferences,
+				appSyncStatus: localSyncStatus
+			}) {
+				const hydrated = applyHydratedSession(localSession);
+				session = mergeEditorSelections(hydrated.session, session);
+				loaded = hydrated.loaded;
+				preferences = localPreferences;
+				appSyncStatus = localSyncStatus;
+				applyTheme(localPreferences.themeMode);
+			}
 		});
 	}
 
@@ -866,35 +882,6 @@
 	async function loadPreferences(userId = getScopedUserId()) {
 		const loadedPreferences = await EditorStorage.loadPreferences(userId);
 		return normalizePreferences(loadedPreferences);
-	}
-
-	async function hydrateInitialLocalState(nextUser: AuthSessionSummary | null) {
-		authUser = nextUser;
-
-		if (!nextUser) {
-			const [anonymousSession, anonymousPreferences] = await Promise.all([
-				EditorStorage.loadUserState(ANONYMOUS_USERID),
-				loadPreferences(ANONYMOUS_USERID)
-			]);
-			const hydratedState = applyHydratedSession(
-				anonymousSession ?? createSession(ANONYMOUS_USERID)
-			);
-			session = hydratedState.session;
-			loaded = hydratedState.loaded;
-			preferences = anonymousPreferences;
-			appSyncStatus = getSettledAppSyncStatus(session);
-			return;
-		}
-
-		const [userLocal, userPreferences] = await Promise.all([
-			EditorStorage.loadUserState(nextUser.userId),
-			loadPreferences(nextUser.userId)
-		]);
-		const hydratedState = applyHydratedSession(userLocal ?? createSession(nextUser.userId));
-		session = hydratedState.session;
-		loaded = hydratedState.loaded;
-		preferences = userPreferences;
-		appSyncStatus = getSettledAppSyncStatus(session);
 	}
 
 	async function savePreferences(nextPreferences: EditorPreferences) {
@@ -1131,6 +1118,10 @@
 		if (!authUser || !loaded) {
 			return;
 		}
+		if (!isBrowserOnline()) {
+			appSyncStatus = 'offline';
+			return;
+		}
 
 		syncController.scheduleDebounced();
 	}
@@ -1139,12 +1130,20 @@
 		if (!authUser || !loaded || authBusy) {
 			return;
 		}
+		if (!isBrowserOnline()) {
+			appSyncStatus = 'offline';
+			return;
+		}
 
 		syncController.requestImmediate({ showSuccessNotice: options.showSuccessNotice ?? false });
 	}
 
 	async function executeSync(options: { showSuccessNotice: boolean }) {
 		if (!authUser || !loaded || authBusy) {
+			return;
+		}
+		if (!isBrowserOnline()) {
+			appSyncStatus = 'offline';
 			return;
 		}
 
@@ -1291,7 +1290,7 @@
 			{/if}
 		</div>
 
-		<Navbar visible={loaded && chromeVisible && !drawerOpen}>
+		<Navbar visible={chromeVisible && !drawerOpen}>
 			<div class="settings-control">
 				<button
 					bind:this={settingsButton}
@@ -1333,6 +1332,13 @@
 							</button>
 							<button type="button" disabled={authBusy || syncBusy} on:click={switchAccount}>
 								Switch Account
+							</button>
+							<button
+								type="button"
+								disabled={authBusy || syncBusy}
+								on:click={() => void account.openConnectedAccounts()}
+							>
+								Connected accounts
 							</button>
 							<button type="button" disabled={authBusy || syncBusy} on:click={logoutCurrentAccount}>
 								Logout

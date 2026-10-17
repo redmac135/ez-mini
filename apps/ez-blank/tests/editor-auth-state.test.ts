@@ -101,6 +101,32 @@ test('editor auth state loads anonymous state without touching remote pages', as
 	assert.deepEqual(remoteCalls, []);
 });
 
+test('startup auth state publishes local data and leaves remote sync for the background controller', async () => {
+	let remoteCalls = 0;
+	let localStateLoaded = false;
+	const localSession = createSession(user.userId);
+	const result = await loadEditorAuthState({
+		user,
+		loader: buildLoader({ userLocal: localSession }),
+		pagesApi: {
+			...buildPagesApi([], null),
+			async listPages() {
+				remoteCalls += 1;
+				return [];
+			}
+		},
+		isOnline: true,
+		onLocalStateLoaded(state) {
+			localStateLoaded = state.session === localSession;
+		}
+	});
+
+	assert.equal(localStateLoaded, true);
+	assert.equal(result.session, localSession);
+	assert.equal(result.pulledRemoteChanges, false);
+	assert.equal(remoteCalls, 0);
+});
+
 test('editor auth state syncs signed-in pages, applies remote active page, and prompts for anonymous content', async () => {
 	const remotePage = {
 		id: 'remote-page',
@@ -133,7 +159,8 @@ test('editor auth state syncs signed-in pages, applies remote active page, and p
 		user,
 		loader: buildLoader({ userLocal, anonymousSession }),
 		pagesApi: buildPagesApi([remotePage], 'remote-page'),
-		isOnline: true
+		isOnline: true,
+		signal: new AbortController().signal
 	});
 
 	assert.equal(result.session.activePageId, 'remote-page');

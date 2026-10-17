@@ -2,10 +2,12 @@ import { readJson } from '../http/json.ts';
 import { ApiError } from '../http/errors.ts';
 import { supabaseAuth } from '../supabase/client.ts';
 import type { Env, RequestContext, StoredSession, SupabaseSessionResponse } from '../types.ts';
+import { persistInitialDisplayName } from './profile.ts';
 import {
 	activateSession,
 	clearActiveSession,
 	deleteSession,
+	getDeviceUserSessionId,
 	getOwnedSession,
 	getSessionResponse,
 	listDeviceSessions,
@@ -47,16 +49,31 @@ export async function verifyOtp(request: Request, env: Env, context: RequestCont
 			type: 'email'
 		}
 	});
+	const displayName = await persistInitialDisplayName(
+		env,
+		authSession.access_token,
+		authSession.user
+	);
 	const now = Date.now();
+	const existingSessions = await listDeviceSessions(env, context.deviceId);
+	const existingSession =
+		existingSessions.find(
+			(session) =>
+				session.userId === authSession.user.id && session.sessionId === context.activeSessionId
+		) ?? existingSessions.find((session) => session.userId === authSession.user.id);
+	const alreadySignedIn = existingSession !== undefined;
 	const storedSession: StoredSession = {
-		sessionId: crypto.randomUUID(),
+		sessionId:
+			existingSession?.sessionId ??
+			(await getDeviceUserSessionId(context.deviceId, authSession.user.id)),
 		deviceId: context.deviceId,
 		userId: authSession.user.id,
 		email: authSession.user.email ?? email,
+		displayName,
 		supabaseAccessToken: authSession.access_token,
 		supabaseRefreshToken: authSession.refresh_token,
 		expiresAt: authSession.expires_at ?? null,
-		createdAt: now,
+		createdAt: existingSession?.createdAt ?? now,
 		lastUsedAt: now
 	};
 
@@ -64,7 +81,8 @@ export async function verifyOtp(request: Request, env: Env, context: RequestCont
 	context.activeSessionId = storedSession.sessionId;
 	activateSession(context.headers, storedSession.sessionId, env);
 
-	return getSessionResponse(env, context);
+	const response = await getSessionResponse(env, context);
+	return alreadySignedIn ? { ...response, alreadySignedIn: true } : response;
 }
 
 export async function switchSession(

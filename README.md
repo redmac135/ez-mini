@@ -2,6 +2,8 @@
 
 Minimal app monorepo for small, focused tools.
 
+Blank, Repeat, and Journey share email, GitHub, and Microsoft sign-in through the API. Their account settings manage connected sign-in methods and the account-wide display name, which defaults to a connected username or email; device sessions are shared across those apps in the same browser profile.
+
 ## Principles
 
 - Local-first app behavior: notes are saved locally before remote sync.
@@ -60,7 +62,7 @@ pnpm test:e2e
 
 Storybook groups the system by layer: `Foundations` shows the shared design tokens, `Components` covers `@ez/ui`, and `Apps` documents app-owned components from `ez-blank`, `ez-repeat`, and `ez-journey`. `Apps/Layouts` composes those components as they appear in each app. The interaction stories run in Chromium through Vitest; they use an executable found on `PATH` when available, or Playwright's managed Chromium otherwise. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to select a specific browser executable.
 
-`pnpm test` runs the unit tests. `pnpm test-storybook` runs Storybook interaction tests, and `pnpm test:e2e` runs ez-blank and ez-journey browser regression tests. GitHub Actions runs all three for pull requests and pushes to `dev` or `prod`, along with `pnpm check`, `pnpm lint`, `pnpm build`, and `pnpm build-storybook`. Pushes to `prod` also deploy all apps to Cloudflare after those checks pass.
+`pnpm test` runs the unit tests. `pnpm test-storybook` runs Storybook interaction tests, and `pnpm test:e2e` runs ez-blank and ez-journey browser regression tests. GitHub Actions runs all three for pull requests and pushes to `dev` or `prod`, along with `pnpm check`, `pnpm lint`, `pnpm build`, and `pnpm build-storybook`. Pull requests targeting `prod` must come from the repository's `dev` branch. Pushes to `prod` also deploy all apps to Cloudflare after those checks pass.
 
 ## Design Tokens
 

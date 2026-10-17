@@ -78,6 +78,17 @@ export async function loadEditorAuthState(options: {
 		preferences: userPreferences,
 		appSyncStatus: getSettledAppSyncStatus(baseSession, options.isOnline)
 	});
+	if (!options.isOnline || !options.signal) {
+		return {
+			user: options.user,
+			session: baseSession,
+			preferences: userPreferences,
+			appSyncStatus: getSettledAppSyncStatus(baseSession, options.isOnline),
+			pendingAnonymousImportSession: hasAnonymousData && !alreadyPrompted ? anonymousSession : null,
+			importPromptOpen: hasAnonymousData && !alreadyPrompted,
+			pulledRemoteChanges: false
+		};
+	}
 
 	const syncResult = await syncUserPages(
 		options.pagesApi,

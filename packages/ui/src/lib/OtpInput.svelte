@@ -14,63 +14,13 @@
 		onComplete?: (value: string) => void;
 	} = $props();
 
-	let inputs = $state<Array<HTMLInputElement | null>>(
-		Array.from({ length: OTP_LENGTH }, () => null)
-	);
-
+	let focused = $state(false);
 	let digits = $derived(Array.from({ length: OTP_LENGTH }, (_, index) => value[index] ?? ''));
 
-	function handleInput(index: number, event: Event) {
+	function handleInput(event: Event) {
 		const target = event.currentTarget as HTMLInputElement;
-		const nextDigit = target.value.replace(/\D/g, '').slice(-1);
-		const nextDigits = [...digits];
-		nextDigits[index] = nextDigit;
-		updateValue(nextDigits.join(''));
-
-		if (nextDigit && index < OTP_LENGTH - 1) {
-			inputs[index + 1]?.focus();
-			inputs[index + 1]?.select();
-		}
-	}
-
-	function handleKeydown(index: number, event: KeyboardEvent) {
-		const target = event.currentTarget as HTMLInputElement;
-
-		if (event.key === 'Backspace' && !target.value && index > 0) {
-			event.preventDefault();
-			const previous = inputs[index - 1];
-			previous?.focus();
-			previous?.select();
-			return;
-		}
-
-		if (event.key === 'ArrowLeft' && index > 0) {
-			event.preventDefault();
-			inputs[index - 1]?.focus();
-			inputs[index - 1]?.select();
-		}
-
-		if (event.key === 'ArrowRight' && index < OTP_LENGTH - 1) {
-			event.preventDefault();
-			inputs[index + 1]?.focus();
-			inputs[index + 1]?.select();
-		}
-	}
-
-	function handlePaste(event: ClipboardEvent) {
-		event.preventDefault();
-		const pasted =
-			event.clipboardData?.getData('text')?.replace(/\D/g, '').slice(0, OTP_LENGTH) ?? '';
-		if (!pasted) return;
-
-		updateValue(pasted);
-
-		const focusIndex = Math.min(pasted.length, OTP_LENGTH) - 1;
-		inputs[Math.max(focusIndex, 0)]?.focus();
-		inputs[Math.max(focusIndex, 0)]?.select();
-	}
-
-	function updateValue(nextValue: string) {
+		const nextValue = target.value.replace(/\D/g, '').slice(0, OTP_LENGTH);
+		target.value = nextValue;
 		value = nextValue;
 		onChange?.(nextValue);
 
@@ -80,43 +30,54 @@
 	}
 </script>
 
-<div class:shake class="otp-input" onpaste={handlePaste}>
-	{#each digits as digit, index (index)}
-		<input
-			bind:this={inputs[index]}
-			id={`otp-digit-${index + 1}`}
-			name={`otp-digit-${index + 1}`}
-			type="text"
-			inputmode="numeric"
-			autocomplete="one-time-code"
-			pattern="[0-9]*"
-			maxlength="1"
-			class="otp-digit"
-			value={digit}
-			{disabled}
-			aria-label={`Digit ${index + 1}`}
-			oninput={(event) => handleInput(index, event)}
-			onkeydown={(event) => handleKeydown(index, event)}
-		/>
-	{/each}
+<div class:shake class:focused class:disabled class="otp-input">
+	<div class="otp-digits" aria-hidden="true">
+		{#each digits as digit, index (index)}
+			<span
+				class:active={focused && value.length < OTP_LENGTH && index === value.length}
+				class="otp-digit"
+			>
+				{digit}
+			</span>
+		{/each}
+	</div>
+	<input
+		class="otp-field"
+		type="text"
+		inputmode="numeric"
+		autocomplete="one-time-code"
+		pattern="[0-9]*"
+		autocapitalize="off"
+		spellcheck="false"
+		aria-label="8-digit verification code"
+		{value}
+		{disabled}
+		oninput={handleInput}
+		onfocus={() => (focused = true)}
+		onblur={() => (focused = false)}
+	/>
 </div>
 
 <style>
 	.otp-input {
-		display: flex;
-		flex-wrap: nowrap;
-		justify-content: center;
+		position: relative;
+		width: 100%;
+		max-width: 28rem;
+		margin-inline: auto;
+	}
+
+	.otp-digits {
+		display: grid;
+		grid-template-columns: repeat(8, minmax(0, 1fr));
 		gap: var(--space-1);
 		width: 100%;
-		max-width: 100%;
-		overflow-x: hidden;
 	}
 
 	.otp-digit {
-		width: min(2.35rem, calc((100vw - 4rem) / 8));
 		min-width: 0;
-		flex: 0 1 auto;
 		aspect-ratio: 1;
+		display: grid;
+		place-items: center;
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-2);
 		background-color: transparent;
@@ -128,17 +89,41 @@
 		transition: var(--theme-transition);
 	}
 
-	.otp-digit:focus {
-		outline: none;
+	.otp-digit.active {
 		border-color: var(--color-fg);
 	}
 
-	.otp-digit:disabled {
-		opacity: 0.55;
+	.otp-field {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		width: 100%;
+		height: 100%;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-2);
+		background: transparent;
+		color: transparent;
+		caret-color: transparent;
+		font-size: 16px;
+		opacity: 0;
+		cursor: text;
+	}
+
+	.otp-field:disabled {
+		cursor: default;
 	}
 
 	.otp-input.shake {
 		animation: otp-shake var(--duration-shake) var(--ease-standard);
+	}
+
+	.otp-input.focused .otp-digit {
+		transition: none;
+	}
+
+	.otp-input.disabled .otp-digit {
+		opacity: 0.55;
 	}
 
 	@keyframes otp-shake {

@@ -8,6 +8,7 @@
 <script lang="ts">
 	let verifiedCode = $state('');
 	let submittedEmail = $state('');
+	let selectedProvider = $state('');
 </script>
 
 <Story
@@ -28,13 +29,56 @@
 </Story>
 
 <Story
-	name="Completes verification when all digits are entered"
+	name="Starts GitHub sign-in"
+	args={{ step: 'email', email: '' }}
+	play={async ({ canvas, userEvent }) => {
+		await userEvent.click(canvas.getByRole('button', { name: 'GitHub' }));
+		await expect(canvas.getByText('Starting GitHub sign-in')).toBeVisible();
+	}}
+>
+	{#snippet template(args)}
+		<LoginModal
+			{...args}
+			onClose={() => {}}
+			onSubmitEmail={() => {}}
+			onOAuthSignIn={(provider) => (selectedProvider = provider)}
+		/>
+		<p aria-live="polite">
+			{selectedProvider
+				? `Starting ${selectedProvider === 'azure' ? 'Microsoft' : 'GitHub'} sign-in`
+				: 'No provider selected'}
+		</p>
+	{/snippet}
+</Story>
+
+<Story name="Microsoft sign-in in progress" args={{ step: 'email', oauthBusyProvider: 'azure' }}>
+	{#snippet template(args)}
+		<LoginModal {...args} onClose={() => {}} onSubmitEmail={() => {}} />
+	{/snippet}
+</Story>
+
+<Story
+	name="Offline sign-in keeps a retryable message"
+	args={{ step: 'email', message: "You're offline. Connect to the internet to continue." }}
+>
+	{#snippet template(args)}
+		<LoginModal {...args} onClose={() => {}} onSubmitEmail={() => {}} onOAuthSignIn={() => {}} />
+	{/snippet}
+</Story>
+
+<Story
+	name="Accepts verification code autofill and paste"
 	args={{ step: 'otp', email: 'reader@example.com', otp: '' }}
 	play={async ({ canvas, userEvent }) => {
-		for (const [index, digit] of [...'12345678'].entries()) {
-			await userEvent.type(canvas.getByLabelText(`Digit ${index + 1}`), digit);
-		}
-		await expect(canvas.getByText('Verified code: 12345678')).toBeInTheDocument();
+		const codeInput = canvas.getByLabelText('8-digit verification code');
+		codeInput.value = '12345678';
+		codeInput.dispatchEvent(
+			new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText' })
+		);
+		await expect(await canvas.findByText('Verified code: 12345678')).toBeInTheDocument();
+		await userEvent.clear(codeInput);
+		await userEvent.paste('87654321');
+		await expect(canvas.getByText('Verified code: 87654321')).toBeInTheDocument();
 	}}
 >
 	{#snippet template(args)}

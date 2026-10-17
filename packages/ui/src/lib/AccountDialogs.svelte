@@ -1,8 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import AccountModal from './AccountModal.svelte';
+	import ConnectedAccountsModal from './ConnectedAccountsModal.svelte';
 	import LoginModal from './LoginModal.svelte';
 	import Modal from './Modal.svelte';
+	type OAuthProvider = 'github' | 'azure';
+	type AuthIdentity = {
+		id: string;
+		provider: string;
+		displayName: string | null;
+		email: string | null;
+		createdAt: string | null;
+	};
 
 	interface AccountDialogSession {
 		sessionId: string;
@@ -27,6 +36,14 @@
 		otpVerifying: boolean;
 		otpShake: boolean;
 		resendCooldownRemaining: number;
+		oauthBusyProvider: OAuthProvider | null;
+		connectedAccountsOpen: boolean;
+		identities: AuthIdentity[];
+		identitiesLoading: boolean;
+		identityBusyId: string | null;
+		displayName: string;
+		displayNameDraft: string;
+		displayNameSaving: boolean;
 	}
 
 	interface AccountDialogController {
@@ -39,6 +56,13 @@
 		verifyOtpCode(code: string): Promise<void>;
 		resendOtpCode(): Promise<void>;
 		backToEmail(): void;
+		startOAuthSignIn(provider: OAuthProvider): void;
+		closeConnectedAccounts(): void;
+		connectOAuthProvider(provider: OAuthProvider): void;
+		unlinkOAuthIdentity(identityId: string): Promise<void>;
+		saveDisplayName(): Promise<void>;
+		setDisplayNameDraft(value: string): void;
+		cancelDisplayNameEdit(): void;
 		selectAccountSession(sessionId: string): Promise<void>;
 		useAnonymousAccount(): Promise<void>;
 		logoutAccountSession(sessionId: string, userId: string): Promise<void>;
@@ -123,14 +147,35 @@
 				otpVerifying={state.otpVerifying}
 				otpShake={state.otpShake}
 				resendCooldownRemaining={state.resendCooldownRemaining}
+				oauthBusyProvider={state.oauthBusyProvider}
 				onClose={controller.closeLoginModal}
 				onSubmitEmail={(email) => void controller.submitLogin(email)}
 				onVerifyOtp={(code) => void controller.verifyOtpCode(code)}
 				onResendOtp={() => void controller.resendOtpCode()}
 				onBackToEmail={controller.backToEmail}
+				onOAuthSignIn={controller.startOAuthSignIn}
 			/>
 		{/if}
 	</Modal>
+{/if}
+
+{#if state?.connectedAccountsOpen}
+	<ConnectedAccountsModal
+		identities={state.identities}
+		loading={state.identitiesLoading}
+		busyProvider={state.oauthBusyProvider}
+		busyIdentityId={state.identityBusyId}
+		displayName={state.displayName}
+		displayNameDraft={state.displayNameDraft}
+		displayNameSaving={state.displayNameSaving}
+		message={state.authMessage}
+		onClose={controller.closeConnectedAccounts}
+		onConnect={controller.connectOAuthProvider}
+		onUnlink={(identityId) => void controller.unlinkOAuthIdentity(identityId)}
+		onDisplayNameInput={controller.setDisplayNameDraft}
+		onSaveDisplayName={controller.saveDisplayName}
+		onCancelDisplayName={controller.cancelDisplayNameEdit}
+	/>
 {/if}
 
 <style>
