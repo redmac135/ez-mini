@@ -65,13 +65,8 @@ export function normalizeCachedAuthSession(value: unknown): AuthSessionSummary |
 		userId: record.userId,
 		email: record.email,
 		username:
-			typeof record.displayName === 'string' && typeof record.username === 'string'
-				? record.username
-				: (record.email ?? record.userId),
-		displayName:
-			typeof record.displayName === 'string'
-				? record.displayName
-				: (record.email ?? record.userId),
+			typeof record.username === 'string' ? record.username : (record.email ?? record.userId),
+		...(typeof record.displayName === 'string' ? { displayName: record.displayName } : {}),
 		createdAt: record.createdAt,
 		lastUsedAt: record.lastUsedAt,
 		active: record.active
