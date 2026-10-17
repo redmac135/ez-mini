@@ -1338,12 +1338,12 @@
 								disabled={authBusy || syncBusy}
 								on:click={() => void account.openConnectedAccounts()}
 							>
-								Connected accounts
+								Profile
 							</button>
 							<button type="button" disabled={authBusy || syncBusy} on:click={logoutCurrentAccount}>
 								Logout
 							</button>
-							<div class="menu-stat">{authUser.email ?? authUser.userId}</div>
+							<div class="menu-stat">{authUser.username || authUser.email || authUser.userId}</div>
 						{:else}
 							<button type="button" disabled={authBusy} on:click={openLoginOrAccountList}>
 								Login

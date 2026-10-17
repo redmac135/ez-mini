@@ -119,7 +119,7 @@
 </Story>
 
 <Story
-	name="Connected accounts dialog"
+	name="Profile and login methods dialog"
 	args={{
 		controller: createController({
 			connectedAccountsOpen: true,

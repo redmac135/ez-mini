@@ -18,7 +18,6 @@
 	export let displayName = '';
 	export let displayNameDraft = '';
 	export let displayNameSaving = false;
-	export let message = '';
 	export let onClose: () => void = () => {};
 	export let onConnect: (provider: OAuthProvider) => void = () => {};
 	export let onUnlink: (identityId: string) => void = () => {};
@@ -36,78 +35,79 @@
 	function getProviderName(provider: string) {
 		if (provider === 'azure') return 'Microsoft';
 		if (provider === 'email') return 'Email';
+		if (provider === 'github') return 'GitHub';
 		return provider.slice(0, 1).toUpperCase() + provider.slice(1);
 	}
 </script>
 
-<Modal title="Connected accounts" {onClose}>
-	<p class="intro">
-		Manage the sign-in methods connected to this account. Changes apply anywhere you use this
-		account.
-	</p>
+<Modal title="Profile" {onClose}>
 	{#if loading}
-		<p class="status" role="status">Loading connected accounts…</p>
-	{:else if identities.length === 0}
-		<p class="status">No sign-in methods were returned.</p>
-	{:else}
-		<ul class="identity-list">
-			{#each identities as identity (identity.id)}
-				<li>
-					<div class="identity-copy">
-						<strong>{getProviderName(identity.provider)}</strong>
-						<span>{identity.displayName ?? identity.email ?? 'Connected'}</span>
-					</div>
-					<Button
-						size="sm"
-						variant="danger"
-						disabled={identities.length < 2 || busyIdentityId !== null || busyProvider !== null}
-						onclick={() => (pendingUnlink = identity)}
-					>
-						{busyIdentityId === identity.id ? 'Disconnecting…' : 'Disconnect'}
-					</Button>
-				</li>
-			{/each}
-		</ul>
-		{#if identities.length < 2}
-			<p class="hint">Connect another sign-in method before disconnecting this one.</p>
-		{/if}
+		<p class="status" role="status">Loading login methods…</p>
 	{/if}
-	{#if message}<p class="message" role="alert">{message}</p>{/if}
 	<section class="profile-section" aria-labelledby="display-name-heading">
-		<h3 id="display-name-heading">Profile</h3>
-		<label for="account-display-name">Display name</label>
+		<h3 id="display-name-heading">Display name</h3>
 		<input
 			id="account-display-name"
+			aria-labelledby="display-name-heading"
 			value={displayNameDraft}
 			maxlength="80"
 			autocomplete="nickname"
 			disabled={loading || displayNameSaving}
 			oninput={(event) => onDisplayNameInput(event.currentTarget.value)}
 		/>
-		<p class="hint">Used across your apps. Defaults to a connected username or your email.</p>
+	</section>
+	<section class="methods-section" aria-labelledby="login-methods-heading">
+		<h3 id="login-methods-heading">Login methods</h3>
+		{#if identities.length > 0}
+			<ul class="identity-list">
+				{#each identities as identity (identity.id)}
+					<li>
+						<div class="identity-copy">
+							<strong>{getProviderName(identity.provider)}</strong>
+							<span>{identity.displayName ?? identity.email ?? 'Connected'}</span>
+						</div>
+						<Button
+							size="sm"
+							variant={identities.length < 2 ? 'ghost' : 'danger'}
+							disabled={identities.length < 2 || busyIdentityId !== null || busyProvider !== null}
+							onclick={() => (pendingUnlink = identity)}
+						>
+							{busyIdentityId === identity.id ? 'Disconnecting…' : 'Disconnect'}
+						</Button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 	</section>
 	<div class="connect-actions">
 		{#if !hasGithub}
-			<Button
+			<button
+				type="button"
+				class="connect-link"
 				disabled={loading || busyProvider !== null || busyIdentityId !== null}
 				onclick={() => onConnect('github')}
 			>
-				{busyProvider === 'github' ? 'Connecting…' : 'Connect GitHub'}
-			</Button>
+				{busyProvider === 'github' ? 'Connecting…' : '+ GitHub'}
+			</button>
 		{/if}
 		{#if !hasMicrosoft}
-			<Button
+			<button
+				type="button"
+				class="connect-link"
 				disabled={loading || busyProvider !== null || busyIdentityId !== null}
 				onclick={() => onConnect('azure')}
 			>
-				{busyProvider === 'azure' ? 'Connecting…' : 'Connect Microsoft'}
-			</Button>
+				{busyProvider === 'azure' ? 'Connecting…' : '+ Microsoft'}
+			</button>
 		{/if}
 	</div>
 	<svelte:fragment slot="actions">
 		<Button
-			disabled={loading || displayNameSaving || busyIdentityId !== null || busyProvider !== null}
-			onclick={onCancelDisplayName}>Cancel</Button
+			disabled={displayNameSaving || busyIdentityId !== null || busyProvider !== null}
+			onclick={() => {
+				onCancelDisplayName();
+				onClose();
+			}}>Cancel</Button
 		>
 		<Button
 			variant="primary"
@@ -125,7 +125,7 @@
 {#if pendingUnlink}
 	<ConfirmModal
 		title={`Disconnect ${getProviderName(pendingUnlink.provider)}?`}
-		message="This sign-in method will be removed from this account everywhere. You can still sign in with another connected method."
+		message="This login method will be removed from this account everywhere. You can still sign in with another login method."
 		actionLabel="Disconnect"
 		danger
 		onCancel={() => (pendingUnlink = null)}
@@ -138,29 +138,23 @@
 {/if}
 
 <style>
-	.intro {
-		margin: 0 0 var(--space-3);
-	}
-	.status,
-	.message,
-	.hint {
-		margin: var(--space-2) 0;
-	}
-	.message {
-		color: var(--color-danger);
+	.status {
+		margin: 0 0 var(--space-2);
+		font-size: var(--font-size-xs);
+		color: var(--color-muted);
 	}
 	.profile-section {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
-		margin-top: var(--space-4);
+		margin-bottom: var(--space-4);
 	}
-	.profile-section h3 {
-		margin: 0 0 var(--space-1);
-		font-size: var(--font-size-md);
-	}
-	.profile-section label {
+	.profile-section h3,
+	.methods-section h3 {
+		margin: 0;
 		font-size: var(--font-size-sm);
+		font-weight: var(--font-weight-normal);
+		color: var(--color-fg);
 	}
 	.profile-section input {
 		width: 100%;
@@ -175,8 +169,10 @@
 		outline: 2px solid var(--color-fg);
 		outline-offset: 2px;
 	}
-	.hint {
-		font-size: var(--font-size-xs);
+	.methods-section {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
 	}
 	.identity-list {
 		list-style: none;
@@ -212,8 +208,27 @@
 	}
 	.connect-actions {
 		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		margin-top: var(--space-3);
+		flex-direction: column;
+		align-items: flex-start;
+		gap: var(--space-1);
+		margin-top: var(--space-2);
+	}
+	.connect-link {
+		border: 0;
+		padding: 0;
+		background: transparent;
+		color: var(--color-muted);
+		font: inherit;
+		font-size: var(--font-size-sm);
+		text-align: left;
+		cursor: pointer;
+	}
+	.connect-link:hover:not(:disabled) {
+		color: var(--color-fg);
+		text-decoration: underline;
+	}
+	.connect-link:disabled {
+		cursor: default;
+		opacity: 0.55;
 	}
 </style>

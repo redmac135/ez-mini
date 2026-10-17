@@ -285,13 +285,22 @@ export function createAccountDataController<TData>(
 
 	async function applyOAuthResult(oauthResult: OAuthCallbackResult | null) {
 		if (!oauthResult) return;
+		if (oauthResult.linkAttempt) {
+			setState({
+				accountModalOpen: false,
+				loginModalOpen: false,
+				connectedAccountsOpen: true,
+				authMessage: ''
+			});
+			options.onNotice?.(oauthResult.message);
+			await openConnectedAccounts();
+			return;
+		}
 		setState({
 			accountModalOpen: oauthResult.alreadySignedIn,
 			loginModalOpen: oauthResult.showLogin,
-			connectedAccountsOpen: oauthResult.linkAttempt,
 			authMessage: oauthResult.message
 		});
-		if (oauthResult.linkAttempt) await openConnectedAccounts(oauthResult.message);
 	}
 
 	function openLoginFlow() {
@@ -490,17 +499,18 @@ export function createAccountDataController<TData>(
 		startOAuth(provider);
 	}
 
-	async function openConnectedAccounts(message = '') {
+	async function openConnectedAccounts() {
 		if (!state.user || state.authBusy || !options.authClient?.getIdentities) return;
 		if (!isOnline()) {
 			setState({
 				connectedAccountsOpen: true,
 				identitiesLoading: false,
-				authMessage: OFFLINE_AUTH_MESSAGE
+				authMessage: ''
 			});
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
-		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: message });
+		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: '' });
 		try {
 			const [result, profile] = await Promise.all([
 				options.authClient.getIdentities(),
@@ -515,10 +525,8 @@ export function createAccountDataController<TData>(
 				displayNameDraft: displayName
 			});
 		} catch (error) {
-			setState({
-				identitiesLoading: false,
-				authMessage: getAuthErrorMessage(error, 'Unable to load connected accounts.')
-			});
+			setState({ identitiesLoading: false, authMessage: '' });
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to load login methods.'));
 		}
 	}
 
@@ -532,7 +540,7 @@ export function createAccountDataController<TData>(
 	async function saveDisplayName() {
 		if (!options.authClient?.updateProfile || state.displayNameSaving) return;
 		if (!isOnline()) {
-			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		const displayNameDraft = state.displayNameDraft.trim();
@@ -545,17 +553,18 @@ export function createAccountDataController<TData>(
 				displayName,
 				displayNameDraft: displayName,
 				displayNameSaving: false,
+				connectedAccountsOpen: false,
+				authMessage: '',
 				user,
 				sessions: state.sessions.map((session) =>
 					session.userId === user?.userId ? { ...session, username: displayName } : session
 				)
 			});
 			options.onAuthChanged?.(user);
+			options.onNotice?.('Profile saved');
 		} catch (error) {
-			setState({
-				displayNameSaving: false,
-				authMessage: getAuthErrorMessage(error, 'Unable to save display name.')
-			});
+			setState({ displayNameSaving: false, authMessage: '' });
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to save profile.'));
 		}
 	}
 
@@ -568,47 +577,45 @@ export function createAccountDataController<TData>(
 	}
 
 	function closeConnectedAccounts() {
-		if (state.identitiesLoading || state.identityBusyId || state.oauthBusyProvider) return;
 		setState({ connectedAccountsOpen: false, authMessage: '' });
 	}
 
 	function connectOAuthProvider(provider: OAuthProvider) {
 		if (!state.user) return;
 		if (!isOnline()) {
-			setState({ oauthBusyProvider: null, authMessage: OFFLINE_AUTH_MESSAGE });
+			setState({ oauthBusyProvider: null, authMessage: '' });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		if (!options.authClient?.beginOAuthLink || typeof window === 'undefined') {
-			setState({ authMessage: 'Provider connection is unavailable.' });
+			options.onNotice?.('Provider connection is unavailable.');
 			return;
 		}
 		const returnUrl = getOAuthReturnUrl();
 		setState({ oauthBusyProvider: provider, authMessage: '' });
 		void options.authClient.beginOAuthLink(provider, returnUrl).then(
 			({ authorizationUrl }) => window.location.assign(authorizationUrl),
-			(error) =>
-				setState({
-					oauthBusyProvider: null,
-					authMessage: getAuthErrorMessage(error, 'Unable to connect this provider.')
-				})
+			(error) => {
+				setState({ oauthBusyProvider: null, authMessage: '' });
+				options.onNotice?.(getAuthErrorMessage(error, 'Unable to connect this provider.'));
+			}
 		);
 	}
 
 	async function unlinkOAuthIdentity(identityId: string) {
 		if (!options.authClient?.unlinkIdentity || state.identityBusyId) return;
 		if (!isOnline()) {
-			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		setState({ identityBusyId: identityId, authMessage: '' });
 		try {
 			const result = await options.authClient.unlinkIdentity(identityId);
-			setState({ identities: result.identities, identityBusyId: null });
+			setState({ identities: result.identities, identityBusyId: null, authMessage: '' });
+			options.onNotice?.('Login method removed');
 		} catch (error) {
-			setState({
-				identityBusyId: null,
-				authMessage: getAuthErrorMessage(error, 'Unable to disconnect this account.')
-			});
+			setState({ identityBusyId: null, authMessage: '' });
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to remove login method.'));
 		}
 	}
 

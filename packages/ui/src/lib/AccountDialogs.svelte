@@ -168,7 +168,6 @@
 		displayName={state.displayName}
 		displayNameDraft={state.displayNameDraft}
 		displayNameSaving={state.displayNameSaving}
-		message={state.authMessage}
 		onClose={controller.closeConnectedAccounts}
 		onConnect={controller.connectOAuthProvider}
 		onUnlink={(identityId) => void controller.unlinkOAuthIdentity(identityId)}

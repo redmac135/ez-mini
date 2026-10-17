@@ -79,16 +79,19 @@ test('shows the account ownership error after a rejected OAuth link', async () =
 			removeEventListener() {}
 		}
 	});
+	const notices: string[] = [];
 	const account = createAccountDataController({
 		authClient: createAuthClient({ activeSession: userA, sessions: [userA] }),
 		adapter: createDataAdapter(),
+		onNotice: (message) => notices.push(message),
 		channelName: 'account-controller-oauth-link-conflict'
 	});
 
 	try {
 		await account.initialize({ initialUser: userA });
 		assert.equal(account.getState().connectedAccountsOpen, true);
-		assert.equal(account.getState().authMessage, 'This account is linked to another account.');
+		assert.equal(account.getState().authMessage, '');
+		assert.deepEqual(notices, ['This account is linked to another account.']);
 	} finally {
 		account.destroy();
 		Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
@@ -291,19 +294,25 @@ test('loads connected identities and refreshes them after disconnecting one', as
 	account.destroy();
 });
 
-test('connected identity request failures leave the modal open with a readable message', async () => {
+test('connected identity request failures leave the modal open and show a notice', async () => {
 	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
 	auth.getIdentities = async () => {
 		throw new Error('Identity service unavailable.');
 	};
-	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+	const notices: string[] = [];
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		onNotice: (message) => notices.push(message)
+	});
 
 	await account.initialize();
 	await account.openConnectedAccounts();
 
 	assert.equal(account.getState().connectedAccountsOpen, true);
 	assert.equal(account.getState().identitiesLoading, false);
-	assert.equal(account.getState().authMessage, 'Identity service unavailable.');
+	assert.equal(account.getState().authMessage, '');
+	assert.deepEqual(notices, ['Identity service unavailable.']);
 	account.destroy();
 });
 
@@ -326,7 +335,12 @@ test('display name defaults to provider username, supports cancel, and saves acc
 		savedName = displayName;
 		return { displayName, customDisplayName: displayName };
 	};
-	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+	const notices: string[] = [];
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		onNotice: (message) => notices.push(message)
+	});
 
 	await account.initialize();
 	await account.openConnectedAccounts();
@@ -343,6 +357,8 @@ test('display name defaults to provider username, supports cancel, and saves acc
 	assert.equal(account.getState().displayName, 'Taylor');
 	assert.equal(account.getState().user?.username, 'Taylor');
 	assert.equal(account.getState().sessions[0]?.username, 'Taylor');
+	assert.equal(account.getState().connectedAccountsOpen, false);
+	assert.deepEqual(notices, ['Profile saved']);
 	account.destroy();
 });
 
