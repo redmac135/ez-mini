@@ -455,7 +455,10 @@
 		if (typeof window === 'undefined') return;
 		const id = nextToastId++;
 		toastNotices = [{ id, message }, ...toastNotices];
-		toastTimeouts.set(id, window.setTimeout(() => dismissToast(id), 4000));
+		toastTimeouts.set(
+			id,
+			window.setTimeout(() => dismissToast(id), 4000)
+		);
 	}
 
 	function dismissToast(id: number) {
