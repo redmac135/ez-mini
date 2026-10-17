@@ -82,11 +82,6 @@ export async function getSessionResponse(env: Env, context: RequestContext) {
 				env,
 				await getOwnedSession(env, context.deviceId, context.activeSessionId)
 			);
-			try {
-				activeSession = await restoreSessionNames(env, activeSession);
-			} catch (error) {
-				void error;
-			}
 		} catch {
 			activeSession = null;
 			context.activeSessionId = null;
@@ -112,7 +107,7 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 		storedSessions.map(async (storedSession) => {
 			try {
 				const session = await refreshStoredSession(env, storedSession, false);
-				return await restoreSessionNames(env, session, true);
+			return await refreshDisplayName(env, session);
 			} catch {
 				return storedSession;
 			}
@@ -127,39 +122,18 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 	};
 }
 
-async function restoreSessionNames(env: Env, session: StoredSession, refreshProfile = false) {
-	if (!refreshProfile && session.username && session.displayName) return session;
+async function refreshDisplayName(env: Env, session: StoredSession) {
 	const user = await supabaseAuth<{
 		user_metadata?: Record<string, unknown>;
-		identities?: Array<{
-			identity_data?: Record<string, unknown>;
-			created_at?: string;
-		}>;
 	}>(env, '/user', {
 		method: 'GET',
 		accessToken: session.supabaseAccessToken
 	});
-	const username =
-		session.username || getProviderUsername(user?.identities) || session.email || session.userId;
-	const displayName = getPersistedDisplayName(user?.user_metadata) || session.displayName || username;
-	if (username === session.username && displayName === session.displayName) return session;
-	const updatedSession = { ...session, username, displayName };
+	const displayName = getPersistedDisplayName(user?.user_metadata) || session.displayName;
+	if (displayName === session.displayName) return session;
+	const updatedSession = { ...session, displayName };
 	await putSession(env, updatedSession);
 	return updatedSession;
-}
-
-function getProviderUsername(
-	identities: Array<{ identity_data?: Record<string, unknown>; created_at?: string }> = []
-) {
-	for (const identity of [...identities].sort((left, right) =>
-		(left.created_at ?? '').localeCompare(right.created_at ?? '')
-	)) {
-		for (const key of ['user_name', 'preferred_username', 'login', 'full_name', 'name']) {
-			const value = identity.identity_data?.[key];
-			if (typeof value === 'string' && value.trim()) return value.trim();
-		}
-	}
-	return null;
 }
 
 export async function listDeviceSessions(env: Env, deviceId: string) {

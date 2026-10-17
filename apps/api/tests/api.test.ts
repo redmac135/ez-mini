@@ -158,15 +158,13 @@ test('session lists device accounts with usernames and active state', async () =
 	);
 });
 
-test('session startup repairs legacy names from the original provider identity', async () => {
+test('session startup serves legacy account names from cached data without network access', async () => {
 	const deviceId = 'legacy-name-device';
 	await putStoredSession({ deviceId, sessionId: 'legacy', userId: 'legacy-user' });
-	mockFetch(async (request) => {
-		assert.equal(new URL(request.url).pathname, '/auth/v1/user');
-		return Response.json({
-			user_metadata: {},
-			identities: [{ identity_data: { user_name: 'original-handle' } }]
-		});
+	let networkRequests = 0;
+	mockFetch(async () => {
+		networkRequests += 1;
+		throw new Error('Session startup should use cached account data.');
 	});
 
 	const response = await handleRequest(
@@ -179,8 +177,9 @@ test('session startup repairs legacy names from the original provider identity',
 		activeSession: { username: string; displayName: string };
 	};
 
-	assert.equal(body.activeSession.username, 'original-handle');
-	assert.equal(body.activeSession.displayName, 'original-handle');
+	assert.equal(body.activeSession.username, 'a@example.com');
+	assert.equal(body.activeSession.displayName, 'a@example.com');
+	assert.equal(networkRequests, 0);
 });
 
 test('session startup uses cached inactive accounts while account listing refreshes shared names', async () => {
@@ -239,7 +238,7 @@ test('session startup uses cached inactive accounts while account listing refres
 		supabaseRefreshToken: string;
 	};
 	assert.equal(startup.status, 200);
-	assert.deepEqual(upstreamRequests, ['GET /auth/v1/user']);
+	assert.deepEqual(upstreamRequests, []);
 	assert.equal(cachedInactive.supabaseRefreshToken, 'refresh-inactive');
 	assert.deepEqual(
 		startupBody.sessions.map(({ sessionId, username }) => ({ sessionId, username })),
