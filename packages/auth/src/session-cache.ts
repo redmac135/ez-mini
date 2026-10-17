@@ -60,13 +60,19 @@ export function normalizeCachedAuthSession(value: unknown): AuthSessionSummary |
 	) {
 		return null;
 	}
+	// Before displayName was stored separately, username could contain a user-edited
+	// profile label. It cannot safely be treated as the account's assigned username.
+	const fallbackUsername = record.email ?? record.userId;
+	const displayName = typeof record.displayName === 'string' ? record.displayName : fallbackUsername;
 	return {
 		sessionId: record.sessionId,
 		userId: record.userId,
 		email: record.email,
 		username:
-			typeof record.username === 'string' ? record.username : (record.email ?? record.userId),
-		...(typeof record.displayName === 'string' ? { displayName: record.displayName } : {}),
+			typeof record.displayName === 'string' && typeof record.username === 'string'
+				? record.username
+				: fallbackUsername,
+		displayName,
 		createdAt: record.createdAt,
 		lastUsedAt: record.lastUsedAt,
 		active: record.active
