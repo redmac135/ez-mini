@@ -2,7 +2,7 @@ import { readJson } from '../http/json.ts';
 import { ApiError } from '../http/errors.ts';
 import { supabaseAuth } from '../supabase/client.ts';
 import type { Env, RequestContext, StoredSession, SupabaseSessionResponse } from '../types.ts';
-import { persistInitialDisplayName } from './profile.ts';
+import { getInitialUsername, persistInitialDisplayName } from './profile.ts';
 import {
 	activateSession,
 	clearActiveSession,
@@ -69,6 +69,7 @@ export async function verifyOtp(request: Request, env: Env, context: RequestCont
 		deviceId: context.deviceId,
 		userId: authSession.user.id,
 		email: authSession.user.email ?? email,
+		username: existingSession?.username ?? getInitialUsername(authSession.user),
 		displayName,
 		supabaseAccessToken: authSession.access_token,
 		supabaseRefreshToken: authSession.refresh_token,

@@ -9,7 +9,7 @@ import type {
 	SupabaseSessionResponse
 } from '../types.ts';
 import { supabaseAuth } from '../supabase/client.ts';
-import { persistInitialDisplayName } from './profile.ts';
+import { getInitialUsername, persistInitialDisplayName } from './profile.ts';
 import {
 	activateSession,
 	getDeviceUserSessionId,
@@ -244,6 +244,7 @@ export async function completeOAuth(
 				deviceId: context.deviceId,
 				userId: authSession.user.id,
 				email: authSession.user.email ?? null,
+				username: existing?.username ?? getInitialUsername(authSession.user),
 				displayName,
 				supabaseAccessToken: authSession.access_token,
 				supabaseRefreshToken: authSession.refresh_token,

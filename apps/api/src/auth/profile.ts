@@ -91,7 +91,7 @@ function readCustomDisplayName(metadata: Record<string, unknown> | undefined) {
 	return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function getDefaultDisplayName(user: SupabaseUserProfile) {
+export function getInitialUsername(user: SupabaseUserProfile) {
 	for (const identity of user.identities ?? []) {
 		const data = identity.identity_data ?? {};
 		for (const key of ['user_name', 'preferred_username', 'login', 'full_name', 'name']) {
@@ -100,4 +100,8 @@ function getDefaultDisplayName(user: SupabaseUserProfile) {
 		}
 	}
 	return user.email?.trim() || user.id;
+}
+
+function getDefaultDisplayName(user: SupabaseUserProfile) {
+	return getInitialUsername(user);
 }

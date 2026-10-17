@@ -102,6 +102,7 @@ test('session lists device accounts with usernames and active state', async () =
 		sessionId: 'session-a',
 		userId: 'user-a',
 		email: 'a@example.com',
+		username: 'account-a',
 		lastUsedAt: 1
 	});
 	await putStoredSession({
@@ -109,6 +110,7 @@ test('session lists device accounts with usernames and active state', async () =
 		sessionId: 'session-b',
 		userId: 'user-b',
 		email: 'b@example.com',
+		username: 'account-b',
 		lastUsedAt: 2
 	});
 
@@ -119,8 +121,13 @@ test('session lists device accounts with usernames and active state', async () =
 		env
 	);
 	const body = (await response.json()) as {
-		activeSession: { sessionId: string; username: string };
-		sessions: Array<{ sessionId: string; username: string; active: boolean }>;
+		activeSession: { sessionId: string; username: string; displayName: string };
+		sessions: Array<{
+			sessionId: string;
+			username: string;
+			displayName: string;
+			active: boolean;
+		}>;
 	};
 
 	assert.equal(response.status, 200);
@@ -129,11 +136,22 @@ test('session lists device accounts with usernames and active state', async () =
 		body.sessions.map((session) => ({
 			sessionId: session.sessionId,
 			username: session.username,
+			displayName: session.displayName,
 			active: session.active
 		})),
 		[
-			{ sessionId: 'session-a', username: 'a@example.com', active: true },
-			{ sessionId: 'session-b', username: 'b@example.com', active: false }
+			{
+				sessionId: 'session-a',
+				username: 'account-a',
+				displayName: 'a@example.com',
+				active: true
+			},
+			{
+				sessionId: 'session-b',
+				username: 'account-b',
+				displayName: 'b@example.com',
+				active: false
+			}
 		]
 	);
 });
@@ -188,7 +206,7 @@ test('session startup uses cached inactive accounts while account listing refres
 		);
 	const startup = await sessionRequest('session');
 	const startupBody = (await startup.json()) as {
-		sessions: Array<{ sessionId: string; username: string }>;
+		sessions: Array<{ sessionId: string; username: string; displayName: string }>;
 	};
 	const cachedInactive = (await env.SESSIONS.get(sessionKey(deviceId, 'inactive'), 'json')) as {
 		supabaseRefreshToken: string;
@@ -206,7 +224,7 @@ test('session startup uses cached inactive accounts while account listing refres
 
 	const accounts = await sessionRequest('accounts');
 	const accountBody = (await accounts.json()) as {
-		sessions: Array<{ sessionId: string; username: string }>;
+		sessions: Array<{ sessionId: string; username: string; displayName: string }>;
 	};
 	assert.equal(accounts.status, 200);
 	assert.deepEqual(
@@ -214,10 +232,14 @@ test('session startup uses cached inactive accounts while account listing refres
 		['GET /auth/v1/user', 'GET /auth/v1/user', 'POST /auth/v1/token'].sort()
 	);
 	assert.deepEqual(
-		accountBody.sessions.map(({ sessionId, username }) => ({ sessionId, username })),
+		accountBody.sessions.map(({ sessionId, username, displayName }) => ({
+			sessionId,
+			username,
+			displayName
+		})),
 		[
-			{ sessionId: 'active', username: 'Shared active-user' },
-			{ sessionId: 'inactive', username: 'Shared inactive-user' }
+			{ sessionId: 'active', username: 'a@example.com', displayName: 'Shared active-user' },
+			{ sessionId: 'inactive', username: 'a@example.com', displayName: 'Shared inactive-user' }
 		]
 	);
 	const refreshedInactive = (await env.SESSIONS.get(sessionKey(deviceId, 'inactive'), 'json')) as {
@@ -922,6 +944,7 @@ async function putStoredSession(
 		sessionId: string;
 		userId?: string;
 		email?: string;
+		username?: string;
 		lastUsedAt?: number;
 		expiresAt?: number | null;
 	} = { deviceId: 'device-a', sessionId: 'session-a' }
@@ -934,6 +957,7 @@ async function putStoredSession(
 			deviceId: options.deviceId,
 			userId: options.userId ?? 'user-a',
 			email: options.email ?? 'a@example.com',
+			...(options.username ? { username: options.username } : {}),
 			supabaseAccessToken: `access-${sessionId}`,
 			supabaseRefreshToken: `refresh-${sessionId}`,
 			expiresAt: options.expiresAt ?? Math.floor(Date.now() / 1000) + 3600,

@@ -200,7 +200,7 @@ function toPublicSession(session: StoredSession, activeSessionId: string | null)
 		sessionId: session.sessionId,
 		userId: session.userId,
 		email: session.email,
-		username: session.displayName || session.email || session.userId,
+		username: session.username || session.email || session.userId,
 		displayName: session.displayName || session.email || session.userId,
 		createdAt: session.createdAt,
 		lastUsedAt: session.lastUsedAt,
@@ -219,6 +219,7 @@ function isStoredSession(value: unknown): value is StoredSession {
 		typeof record.deviceId === 'string' &&
 		typeof record.userId === 'string' &&
 		(typeof record.email === 'string' || record.email === null) &&
+		(record.username === undefined || typeof record.username === 'string' || record.username === null) &&
 		(record.displayName === undefined ||
 			typeof record.displayName === 'string' ||
 			record.displayName === null) &&

@@ -261,12 +261,14 @@ test('OAuth sign-in persists the provider default and concurrent callbacks share
 	);
 	const sessions = await env.SESSIONS.list({ prefix: `device:${deviceId}:session:` });
 	const stored = (await env.SESSIONS.get(sessions.keys[0]?.name ?? '', 'json')) as {
+		username: string;
 		displayName: string;
 	};
 
 	assert.ok(callbacks.every((response) => response.status === 302));
 	assert.ok(displayNameWrites.includes('shared-handle'));
 	assert.equal(sessions.keys.length, 1);
+	assert.equal(stored.username, 'shared-handle');
 	assert.equal(stored.displayName, 'shared-handle');
 });
 
