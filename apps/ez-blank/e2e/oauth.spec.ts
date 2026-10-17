@@ -216,9 +216,7 @@ test('adding an existing account confirms it, and adding another account keeps b
 		.click();
 	await page.getByLabel('Email').fill('taylor@example.com');
 	await page.getByRole('button', { name: 'Send Email' }).click();
-	for (let index = 0; index < 8; index += 1) {
-		await page.getByLabel(`Digit ${index + 1}`).fill(String(index + 1));
-	}
+	await page.getByLabel('8-digit verification code').fill('12345678');
 	const alreadySignedIn = page.getByRole('dialog', { name: 'Accounts' });
 	await expect(alreadySignedIn.getByText('Already signed into this account.')).toBeVisible();
 	await page
@@ -227,9 +225,7 @@ test('adding an existing account confirms it, and adding another account keeps b
 		.click();
 	await page.getByLabel('Email').fill('b@example.com');
 	await page.getByRole('button', { name: 'Send Email' }).click();
-	for (let index = 0; index < 8; index += 1) {
-		await page.getByLabel(`Digit ${index + 1}`).fill(String(index + 1));
-	}
+	await page.getByLabel('8-digit verification code').fill('12345678');
 
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
 	await page.getByRole('button', { name: 'Switch Account' }).click();
