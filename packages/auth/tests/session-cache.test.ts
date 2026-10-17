@@ -40,6 +40,20 @@ test('auth session cache clears only when the cached account matches', () => {
 	assert.equal(readCachedAuthSession(storage), null);
 });
 
+test('legacy cached username is discarded when migrating ambiguous profile labels', () => {
+	const storage = createMemoryStorage();
+	const legacySession = { ...session };
+	delete legacySession.displayName;
+	storage.setItem(
+		AUTH_SESSION_CACHE_KEY,
+		JSON.stringify({ ...legacySession, username: 'Custom profile name' })
+	);
+
+	const migratedSession = readCachedAuthSession(storage);
+	assert.equal(migratedSession?.username, 'user-a@example.com');
+	assert.equal(migratedSession?.displayName, 'user-a@example.com');
+});
+
 function createMemoryStorage(): AuthSessionCacheStorage & { values: Map<string, string> } {
 	const values = new Map<string, string>();
 	return {
