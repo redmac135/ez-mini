@@ -40,7 +40,7 @@ test('auth session cache clears only when the cached account matches', () => {
 	assert.equal(readCachedAuthSession(storage), null);
 });
 
-test('legacy cached username remains the assigned account username', () => {
+test('legacy cached profile labels migrate to the email fallback', () => {
 	const storage = createMemoryStorage();
 	const legacySession = { ...session };
 	delete legacySession.displayName;
@@ -50,8 +50,8 @@ test('legacy cached username remains the assigned account username', () => {
 	);
 
 	const migratedSession = readCachedAuthSession(storage);
-	assert.equal(migratedSession?.username, 'Custom profile name');
-	assert.equal(migratedSession?.displayName, undefined);
+	assert.equal(migratedSession?.username, 'user-a@example.com');
+	assert.equal(migratedSession?.displayName, 'user-a@example.com');
 });
 
 function createMemoryStorage(): AuthSessionCacheStorage & { values: Map<string, string> } {
