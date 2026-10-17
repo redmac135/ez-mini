@@ -60,12 +60,16 @@ export function normalizeCachedAuthSession(value: unknown): AuthSessionSummary |
 	) {
 		return null;
 	}
+	const fallbackName = record.email ?? record.userId;
+	const hasDisplayName = typeof record.displayName === 'string';
+	const displayName = typeof record.displayName === 'string' ? record.displayName : fallbackName;
 	return {
 		sessionId: record.sessionId,
 		userId: record.userId,
 		email: record.email,
 		username:
-			typeof record.username === 'string' ? record.username : (record.email ?? record.userId),
+			hasDisplayName && typeof record.username === 'string' ? record.username : fallbackName,
+		displayName,
 		createdAt: record.createdAt,
 		lastUsedAt: record.lastUsedAt,
 		active: record.active

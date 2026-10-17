@@ -13,6 +13,7 @@ export interface StoredSession {
 	deviceId: string;
 	userId: string;
 	email: string | null;
+	username?: string | null;
 	displayName?: string | null;
 	supabaseAccessToken: string;
 	supabaseRefreshToken: string;
@@ -26,6 +27,7 @@ export interface PublicSession {
 	userId: string;
 	email: string | null;
 	username: string;
+	displayName: string;
 	createdAt: number;
 	lastUsedAt: number;
 	active: boolean;

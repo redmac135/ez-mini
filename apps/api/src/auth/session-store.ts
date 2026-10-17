@@ -107,15 +107,7 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 		storedSessions.map(async (storedSession) => {
 			try {
 				const session = await refreshStoredSession(env, storedSession, false);
-				const user = await supabaseAuth<{ user_metadata?: Record<string, unknown> }>(env, '/user', {
-					method: 'GET',
-					accessToken: session.supabaseAccessToken
-				});
-				const displayName = getPersistedDisplayName(user.user_metadata);
-				if (!displayName || displayName === session.displayName) return session;
-				const updatedSession = { ...session, displayName };
-				await putSession(env, updatedSession);
-				return updatedSession;
+				return await refreshDisplayName(env, session);
 			} catch {
 				return storedSession;
 			}
@@ -128,6 +120,20 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 				.find((session) => session.sessionId === context.activeSessionId) ?? null,
 		sessions: sessions.map((session) => toPublicSession(session, context.activeSessionId))
 	};
+}
+
+async function refreshDisplayName(env: Env, session: StoredSession) {
+	const user = await supabaseAuth<{
+		user_metadata?: Record<string, unknown>;
+	}>(env, '/user', {
+		method: 'GET',
+		accessToken: session.supabaseAccessToken
+	});
+	const displayName = getPersistedDisplayName(user?.user_metadata) || session.displayName;
+	if (displayName === session.displayName) return session;
+	const updatedSession = { ...session, displayName };
+	await putSession(env, updatedSession);
+	return updatedSession;
 }
 
 export async function listDeviceSessions(env: Env, deviceId: string) {
@@ -200,7 +206,8 @@ function toPublicSession(session: StoredSession, activeSessionId: string | null)
 		sessionId: session.sessionId,
 		userId: session.userId,
 		email: session.email,
-		username: session.displayName || session.email || session.userId,
+		username: session.username || session.email || session.userId,
+		displayName: session.displayName || session.email || session.userId,
 		createdAt: session.createdAt,
 		lastUsedAt: session.lastUsedAt,
 		active: session.sessionId === activeSessionId
@@ -218,6 +225,9 @@ function isStoredSession(value: unknown): value is StoredSession {
 		typeof record.deviceId === 'string' &&
 		typeof record.userId === 'string' &&
 		(typeof record.email === 'string' || record.email === null) &&
+		(record.username === undefined ||
+			typeof record.username === 'string' ||
+			record.username === null) &&
 		(record.displayName === undefined ||
 			typeof record.displayName === 'string' ||
 			record.displayName === null) &&

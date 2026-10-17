@@ -3,3 +3,9 @@
 @import './radius.css';
 @import './animation.css';
 @import './typography.css';
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}

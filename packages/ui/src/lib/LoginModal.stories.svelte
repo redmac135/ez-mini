@@ -32,7 +32,11 @@
 	name="Starts GitHub sign-in"
 	args={{ step: 'email', email: '' }}
 	play={async ({ canvas, userEvent }) => {
-		await userEvent.click(canvas.getByRole('button', { name: 'GitHub' }));
+		const button = canvas.getByRole('button', { name: 'GitHub' });
+		const logo = button.querySelector('svg');
+		expect(logo).not.toBeNull();
+		expect(logo!.getBoundingClientRect().width).toBe(logo!.getBoundingClientRect().height);
+		await userEvent.click(button);
 		await expect(canvas.getByText('Starting GitHub sign-in')).toBeVisible();
 	}}
 >

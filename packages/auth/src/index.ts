@@ -3,6 +3,7 @@ export interface AuthSessionSummary {
 	userId: string;
 	email: string | null;
 	username: string;
+	displayName?: string;
 	createdAt: number;
 	lastUsedAt: number;
 	active: boolean;

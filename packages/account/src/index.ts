@@ -55,6 +55,7 @@ export interface AccountControllerState<TData> {
 	resendCooldownRemaining: number;
 	oauthBusyProvider: OAuthProvider | null;
 	connectedAccountsOpen: boolean;
+	connectedAccountsError: string;
 	identities: AuthIdentity[];
 	identitiesLoading: boolean;
 	identityBusyId: string | null;
@@ -162,6 +163,7 @@ export function createAccountDataController<TData>(
 		resendCooldownRemaining: 0,
 		oauthBusyProvider: null,
 		connectedAccountsOpen: false,
+		connectedAccountsError: '',
 		identities: [],
 		identitiesLoading: false,
 		identityBusyId: null,
@@ -220,7 +222,11 @@ export function createAccountDataController<TData>(
 		openAuthChannel();
 		const oauthResult = consumeOAuthResult();
 		if (initOptions.initialUser !== undefined) {
-			setState({ user: initOptions.initialUser });
+			setState({
+				user: initOptions.initialUser,
+				displayName: initOptions.initialUser?.displayName ?? '',
+				displayNameDraft: initOptions.initialUser?.displayName ?? ''
+			});
 			options.onAuthChanged?.(initOptions.initialUser);
 		}
 
@@ -248,6 +254,8 @@ export function createAccountDataController<TData>(
 			if (initialUser && response.activeSession?.userId === initialUser.userId) {
 				setState({
 					user: response.activeSession,
+					displayName: response.activeSession.displayName ?? '',
+					displayNameDraft: response.activeSession.displayName ?? '',
 					sessions: response.sessions,
 					phase: 'ready',
 					authBusy: false,
@@ -285,13 +293,22 @@ export function createAccountDataController<TData>(
 
 	async function applyOAuthResult(oauthResult: OAuthCallbackResult | null) {
 		if (!oauthResult) return;
+		if (oauthResult.linkAttempt) {
+			setState({
+				accountModalOpen: false,
+				loginModalOpen: false,
+				connectedAccountsOpen: true,
+				authMessage: ''
+			});
+			options.onNotice?.(oauthResult.message);
+			await openConnectedAccounts();
+			return;
+		}
 		setState({
 			accountModalOpen: oauthResult.alreadySignedIn,
 			loginModalOpen: oauthResult.showLogin,
-			connectedAccountsOpen: oauthResult.linkAttempt,
 			authMessage: oauthResult.message
 		});
-		if (oauthResult.linkAttempt) await openConnectedAccounts(oauthResult.message);
 	}
 
 	function openLoginFlow() {
@@ -490,24 +507,30 @@ export function createAccountDataController<TData>(
 		startOAuth(provider);
 	}
 
-	async function openConnectedAccounts(message = '') {
+	async function openConnectedAccounts() {
 		if (!state.user || state.authBusy || !options.authClient?.getIdentities) return;
 		if (!isOnline()) {
 			setState({
 				connectedAccountsOpen: true,
 				identitiesLoading: false,
-				authMessage: OFFLINE_AUTH_MESSAGE
+				connectedAccountsError: OFFLINE_AUTH_MESSAGE,
+				authMessage: ''
 			});
 			return;
 		}
-		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: message });
+		setState({
+			connectedAccountsOpen: true,
+			identitiesLoading: true,
+			connectedAccountsError: '',
+			authMessage: ''
+		});
 		try {
 			const [result, profile] = await Promise.all([
 				options.authClient.getIdentities(),
 				options.authClient.getProfile?.()
 			]);
-			const fallbackName = getDefaultDisplayName(result.identities, state.user?.email);
-			const displayName = profile?.displayName || fallbackName;
+			const displayName =
+				profile?.displayName || state.displayName || state.user?.displayName || '';
 			setState({
 				identities: result.identities,
 				identitiesLoading: false,
@@ -517,22 +540,17 @@ export function createAccountDataController<TData>(
 		} catch (error) {
 			setState({
 				identitiesLoading: false,
-				authMessage: getAuthErrorMessage(error, 'Unable to load connected accounts.')
+				connectedAccountsError: getAuthErrorMessage(error, 'Unable to load login methods.'),
+				authMessage: ''
 			});
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to load login methods.'));
 		}
-	}
-
-	function getDefaultDisplayName(identities: AuthIdentity[], email?: string | null) {
-		for (const identity of identities) {
-			if (identity.displayName?.trim()) return identity.displayName.trim();
-		}
-		return email?.trim() || '';
 	}
 
 	async function saveDisplayName() {
 		if (!options.authClient?.updateProfile || state.displayNameSaving) return;
 		if (!isOnline()) {
-			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		const displayNameDraft = state.displayNameDraft.trim();
@@ -540,22 +558,23 @@ export function createAccountDataController<TData>(
 		try {
 			const profile = await options.authClient.updateProfile(displayNameDraft);
 			const displayName = profile.displayName || state.user?.email || state.user?.userId || '';
-			const user = state.user ? { ...state.user, username: displayName } : null;
+			const user = state.user ? { ...state.user, displayName } : null;
 			setState({
 				displayName,
 				displayNameDraft: displayName,
 				displayNameSaving: false,
+				connectedAccountsOpen: false,
+				authMessage: '',
 				user,
 				sessions: state.sessions.map((session) =>
-					session.userId === user?.userId ? { ...session, username: displayName } : session
+					session.userId === user?.userId ? { ...session, displayName } : session
 				)
 			});
 			options.onAuthChanged?.(user);
+			options.onNotice?.('Profile saved');
 		} catch (error) {
-			setState({
-				displayNameSaving: false,
-				authMessage: getAuthErrorMessage(error, 'Unable to save display name.')
-			});
+			setState({ displayNameSaving: false, authMessage: '' });
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to save profile.'));
 		}
 	}
 
@@ -568,47 +587,45 @@ export function createAccountDataController<TData>(
 	}
 
 	function closeConnectedAccounts() {
-		if (state.identitiesLoading || state.identityBusyId || state.oauthBusyProvider) return;
-		setState({ connectedAccountsOpen: false, authMessage: '' });
+		setState({ connectedAccountsOpen: false, connectedAccountsError: '', authMessage: '' });
 	}
 
 	function connectOAuthProvider(provider: OAuthProvider) {
 		if (!state.user) return;
 		if (!isOnline()) {
-			setState({ oauthBusyProvider: null, authMessage: OFFLINE_AUTH_MESSAGE });
+			setState({ oauthBusyProvider: null, authMessage: '' });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		if (!options.authClient?.beginOAuthLink || typeof window === 'undefined') {
-			setState({ authMessage: 'Provider connection is unavailable.' });
+			options.onNotice?.('Provider connection is unavailable.');
 			return;
 		}
 		const returnUrl = getOAuthReturnUrl();
 		setState({ oauthBusyProvider: provider, authMessage: '' });
 		void options.authClient.beginOAuthLink(provider, returnUrl).then(
 			({ authorizationUrl }) => window.location.assign(authorizationUrl),
-			(error) =>
-				setState({
-					oauthBusyProvider: null,
-					authMessage: getAuthErrorMessage(error, 'Unable to connect this provider.')
-				})
+			(error) => {
+				setState({ oauthBusyProvider: null, authMessage: '' });
+				options.onNotice?.(getAuthErrorMessage(error, 'Unable to connect this provider.'));
+			}
 		);
 	}
 
 	async function unlinkOAuthIdentity(identityId: string) {
 		if (!options.authClient?.unlinkIdentity || state.identityBusyId) return;
 		if (!isOnline()) {
-			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		setState({ identityBusyId: identityId, authMessage: '' });
 		try {
 			const result = await options.authClient.unlinkIdentity(identityId);
-			setState({ identities: result.identities, identityBusyId: null });
+			setState({ identities: result.identities, identityBusyId: null, authMessage: '' });
+			options.onNotice?.('Login method removed');
 		} catch (error) {
-			setState({
-				identityBusyId: null,
-				authMessage: getAuthErrorMessage(error, 'Unable to disconnect this account.')
-			});
+			setState({ identityBusyId: null, authMessage: '' });
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to remove login method.'));
 		}
 	}
 
@@ -675,7 +692,7 @@ export function createAccountDataController<TData>(
 					: linkAttempt
 						? reason === 'identity_exists'
 							? messages.identity_exists
-							: 'Failed to connect. Please try again.'
+							: 'Failed to connect.'
 						: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,
@@ -869,7 +886,13 @@ export function createAccountDataController<TData>(
 		}
 
 		const nextUser = response.activeSession ?? null;
-		setState({ sessions: response.sessions, user: nextUser, authMessage: '' });
+		setState({
+			sessions: response.sessions,
+			user: nextUser,
+			displayName: nextUser?.displayName ?? '',
+			displayNameDraft: nextUser?.displayName ?? '',
+			authMessage: ''
+		});
 		options.onAuthChanged?.(nextUser);
 		if (applyOptions.broadcast !== false) {
 			broadcastAuthSessionChanged(nextUser);
@@ -1002,7 +1025,12 @@ export function createAccountDataController<TData>(
 		if (loadOptions.setBusy) {
 			setState({ authBusy: true });
 		}
-		setState({ user, phase: 'loading-data' });
+		setState({
+			user,
+			displayName: user?.displayName ?? '',
+			displayNameDraft: user?.displayName ?? '',
+			phase: 'loading-data'
+		});
 		options.onAuthChanged?.(user);
 		resubscribeToDataChanges(user);
 

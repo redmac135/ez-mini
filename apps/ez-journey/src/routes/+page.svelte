@@ -17,7 +17,9 @@
 		Icon,
 		Modal,
 		Navbar,
-		Workspace
+		Workspace,
+		ToastStack,
+		createToastController
 	} from '@ez/ui';
 	import { auth, journeyApi } from '$lib/api';
 	import JourneyEntryEditor from '../lib/JourneyEntryEditor.svelte';
@@ -64,6 +66,9 @@
 			}
 		},
 		getErrorMessage: (error, fallback) => (error instanceof Error ? error.message : fallback),
+		onNotice(message) {
+			showStatusNotice(message);
+		},
 		replaceOAuthUrl: (url) => {
 			const nextUrl = new URL(url);
 			// This URL comes from the current app page after removing OAuth callback parameters.
@@ -91,6 +96,8 @@
 	let entryEditorClosing = $state(false);
 	let discardEntryConfirmationOpen = $state(false);
 	let menuOpen = $state(false);
+	let toastNotices = $state<Array<{ id: number; message: string }>>([]);
+	const toastController = createToastController((notices) => (toastNotices = notices));
 	let theme = $state<'light' | 'dark'>('light');
 	let pageScrolled = $state(false);
 	let submittedEntries = $state<StoredJourneyEntry[]>([]);
@@ -442,6 +449,14 @@
 			anonymousImportBusy = false;
 		}
 	}
+
+	function showStatusNotice(message: string) {
+		toastController.show(message);
+	}
+
+	function dismissToast(id: number) {
+		toastController.dismiss(id);
+	}
 </script>
 
 <svelte:head>
@@ -516,7 +531,7 @@
 										type="button"
 										role="menuitem"
 										disabled={accountState.authBusy || syncBusy}
-										onclick={() => void account.openConnectedAccounts()}>Connected accounts</button
+										onclick={() => void account.openConnectedAccounts()}>Profile</button
 									>
 									<button
 										type="button"
@@ -524,7 +539,7 @@
 										disabled={accountState.authBusy || syncBusy}
 										onclick={() => void account.logoutCurrentAccount()}>Log out</button
 									>
-									<div class="menu-stat">{accountState.user.email ?? accountState.user.userId}</div>
+									<div class="menu-stat">{accountState.displayName}</div>
 								{:else}
 									<button
 										type="button"
@@ -598,6 +613,7 @@
 	{/if}
 
 	<AccountDialogs controller={account} {syncBusy} />
+	<ToastStack notices={toastNotices} onDismiss={dismissToast} />
 	{#if discardEntryConfirmationOpen}
 		<ConfirmModal
 			title="Discard changes?"

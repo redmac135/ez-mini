@@ -4,7 +4,7 @@
 	import ConnectedAccountsModal from './ConnectedAccountsModal.svelte';
 
 	const { Story } = defineMeta({
-		title: 'Components/Patterns/Connected Accounts Modal',
+		title: 'Components/Patterns/Profile and Login Methods',
 		component: ConnectedAccountsModal
 	});
 
@@ -31,7 +31,10 @@
 	let profileDraft = $state('taylor-dev');
 </script>
 
-<Story name="Email and GitHub connected" args={{ identities }}>
+<Story
+	name="Email and GitHub connected"
+	args={{ identities, displayName: 'taylor-dev', displayNameDraft: 'taylor-dev' }}
+>
 	{#snippet template(args)}
 		<ConnectedAccountsModal {...args} onClose={() => {}} />
 	{/snippet}
@@ -43,6 +46,8 @@
 	play={async ({ canvas, userEvent }) => {
 		const input = canvas.getByRole('textbox', { name: 'Display name' });
 		await userEvent.clear(input);
+		await expect(input).toHaveAttribute('aria-invalid', 'true');
+		await expect(canvas.getByRole('button', { name: 'Save' })).toBeDisabled();
 		await userEvent.type(input, 'Taylor');
 		await expect(canvas.getByRole('button', { name: 'Save' })).toBeEnabled();
 	}}
@@ -61,10 +66,10 @@
 </Story>
 
 <Story
-	name="Connect Microsoft"
+	name="Add Microsoft login method"
 	args={{ identities }}
 	play={async ({ canvas, userEvent }) => {
-		await userEvent.click(canvas.getByRole('button', { name: 'Connect Microsoft' }));
+		await userEvent.click(canvas.getByRole('button', { name: '+ Microsoft' }));
 		await expect(canvas.getByText('Connecting Microsoft')).toBeVisible();
 	}}
 >
@@ -90,13 +95,17 @@
 </Story>
 
 <Story
-	name="Last sign-in method cannot be disconnected"
+	name="Only login method"
 	args={{ identities: [identities[0]] }}
 	play={async ({ canvas }) => {
 		await expect(canvas.getByRole('button', { name: 'Disconnect' })).toBeDisabled();
-		await expect(
-			canvas.getByText('Connect another sign-in method before disconnecting this one.')
-		).toBeVisible();
+		const github = canvas.getByRole('button', { name: '+ GitHub' });
+		const microsoft = canvas.getByRole('button', { name: '+ Microsoft' });
+		await expect(github).toBeVisible();
+		await expect(microsoft).toBeVisible();
+		const githubBounds = github.getBoundingClientRect();
+		const microsoftBounds = microsoft.getBoundingClientRect();
+		expect(microsoftBounds.top).toBeGreaterThan(githubBounds.top);
 	}}
 >
 	{#snippet template(args)}<ConnectedAccountsModal {...args} onClose={() => {}} />{/snippet}
