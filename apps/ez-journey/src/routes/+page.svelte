@@ -37,6 +37,7 @@
 	import { JourneyStorage, type EntryCursor, type EntryPage } from '../lib/journey/storage';
 	import { seedJourneyDemoData } from '../lib/journey/demo-data';
 	import { syncJourneyEntries } from '../lib/journey/sync';
+	import { loadEntriesThroughDate, searchJourneyEntries } from '../lib/journey/navigation';
 
 	const EMPTY_STATE: EditorState = { text: '', selectionStart: 0, selectionEnd: 0 };
 	const VISIBLE_EDITOR_LINES = 3;
@@ -114,6 +115,7 @@
 	let calendarOpen = $state(false);
 	let searchOpen = $state(false);
 	let searchQuery = $state('');
+	let searchEntries = $state<StoredJourneyEntry[]>([]);
 	let selectedDate = $state(new Date().toLocaleDateString('en-CA'));
 	let searchInput = $state<HTMLInputElement>();
 	let toastNotices = $state<Array<{ id: number; message: string }>>([]);
@@ -123,6 +125,7 @@
 	let submittedEntries = $state<StoredJourneyEntry[]>([]);
 	let nextEntryCursor = $state<EntryCursor | null>(null);
 	let loadingOlderEntries = $state(false);
+	let olderEntriesLoad: Promise<void> | null = null;
 	let timelineScroll: HTMLDivElement;
 	let loadSentinel: HTMLDivElement;
 	let syncBusy = $state(false);
@@ -437,19 +440,25 @@
 		syncStatus = 'offline';
 	}
 
-	async function loadMoreEntries() {
+	function loadMoreEntries(): Promise<void> {
+		if (olderEntriesLoad) return olderEntriesLoad;
 		const cursor = nextEntryCursor;
-		if (!cursor || loadingOlderEntries) return;
+		if (!cursor) return Promise.resolve();
 		const userId = accountState.user?.userId ?? null;
 		loadingOlderEntries = true;
-		try {
-			const page = await JourneyStorage.loadPage(userId, cursor);
-			if ((accountState.user?.userId ?? null) !== userId || nextEntryCursor !== cursor) return;
-			submittedEntries = [...submittedEntries, ...page.entries.filter((entry) => !entry.deletedAt)];
-			nextEntryCursor = page.nextCursor;
-		} finally {
-			loadingOlderEntries = false;
-		}
+		const load = (async () => {
+			try {
+				const page = await JourneyStorage.loadPage(userId, cursor);
+				if ((accountState.user?.userId ?? null) !== userId || nextEntryCursor !== cursor) return;
+				submittedEntries = [...submittedEntries, ...page.entries.filter((entry) => !entry.deletedAt)];
+				nextEntryCursor = page.nextCursor;
+			} finally {
+				loadingOlderEntries = false;
+				olderEntriesLoad = null;
+			}
+		})();
+		olderEntriesLoad = load;
+		return load;
 	}
 
 	function handleTimelineScroll() {
@@ -490,23 +499,13 @@
 		selectedDate = date;
 		calendarOpen = false;
 		const userId = accountState.user?.userId ?? null;
-		while (nextEntryCursor && !loadingOlderEntries) {
-			const oldest = submittedEntries.at(-1)?.createdAt.slice(0, 10);
-			if (oldest && oldest <= date) break;
-			const cursor = nextEntryCursor;
-			loadingOlderEntries = true;
-			try {
-				const page = await JourneyStorage.loadPage(userId, cursor);
-				if ((accountState.user?.userId ?? null) !== userId || nextEntryCursor !== cursor) return;
-				submittedEntries = [
-					...submittedEntries,
-					...page.entries.filter((entry) => !entry.deletedAt)
-				];
-				nextEntryCursor = page.nextCursor;
-			} finally {
-				loadingOlderEntries = false;
-			}
-		}
+		await loadEntriesThroughDate(
+			date,
+			() => submittedEntries.at(-1)?.createdAt.slice(0, 10),
+			() => Boolean(nextEntryCursor),
+			loadMoreEntries
+		);
+		if ((accountState.user?.userId ?? null) !== userId) return;
 		requestAnimationFrame(() => {
 			const groups = [...timelineScroll.querySelectorAll<HTMLElement>('.day-group')];
 			const target =
@@ -563,6 +562,12 @@
 							ariaLabel="Search Journey entries"
 							onclick={() => {
 								searchOpen = true;
+								const userId = accountState.user?.userId ?? null;
+								void JourneyStorage.loadEntries(userId).then((entries) => {
+									if ((accountState.user?.userId ?? null) === userId) searchEntries = entries;
+				}, () => {
+					if ((accountState.user?.userId ?? null) === userId) searchEntries = submittedEntries;
+				});
 								requestAnimationFrame(() => searchInput?.focus());
 							}}
 						>
@@ -673,10 +678,7 @@
 						if (event.key === 'Escape') searchOpen = false;
 					}}
 				/>
-				{#each submittedEntries
-					.filter((entry) => !entry.deletedAt && searchQuery.trim() && entry.text
-								.toLowerCase()
-								.includes(searchQuery.toLowerCase()))
+				{#each searchJourneyEntries(searchEntries, searchQuery)
 					.slice(0, 8) as entry (entry.id)}<button
 						class="search-result"
 						onclick={() => {

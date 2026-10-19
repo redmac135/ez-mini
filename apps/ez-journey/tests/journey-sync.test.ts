@@ -7,6 +7,7 @@ import {
 	type RemoteJourneyEntry
 } from '../src/lib/journey/sync';
 import type { StoredJourneyEntry } from '../src/lib/journey';
+import { loadEntriesThroughDate, searchJourneyEntries } from '../src/lib/journey/navigation';
 
 const timestamp = (day: number) => `2026-01-${String(day).padStart(2, '0')}T00:00:00.000Z`;
 
@@ -226,4 +227,55 @@ test('local timeline pages use a stable newest-first cursor without duplicates',
 		['entry-1']
 	);
 	assert.equal(third.nextCursor, null);
+});
+
+test('Journey search includes saved entries outside the current timeline page', async () => {
+	await JourneyStorage.saveEntries([
+		entry('older-entry', 'A moment from months ago', 1),
+		entry('newer-entry', 'A recent moment', 30)
+	]);
+	const timelinePage = await JourneyStorage.loadPage('user-a', null, 1);
+	const allSavedEntries = await JourneyStorage.loadEntries('user-a');
+
+	assert.deepEqual(
+		searchJourneyEntries(allSavedEntries, 'months ago').map(({ id }) => id),
+		['older-entry']
+	);
+	assert.deepEqual(searchJourneyEntries(timelinePage.entries, 'months ago'), []);
+});
+
+test('date navigation waits for an in-flight page before deciding to fetch more', async () => {
+	let entries = [entry('newest', 'Newest', 30)];
+	let hasMore = true;
+	let started!: () => void;
+	let release!: () => void;
+	const pageStarted = new Promise<void>((resolve) => (started = resolve));
+	const pageGate = new Promise<void>((resolve) => (release = resolve));
+	const inFlightPage = (async () => {
+		started();
+		await pageGate;
+		entries = [...entries, entry('middle', 'Middle', 20)];
+	})();
+	let additionalLoads = 0;
+	const loadNextPage = () => {
+		if (inFlightPage) return inFlightPage;
+		additionalLoads += 1;
+		return Promise.resolve();
+	};
+	await pageStarted;
+	const navigation = loadEntriesThroughDate(
+		'2026-01-25',
+		() => entries.at(-1)?.createdAt.slice(0, 10),
+		() => hasMore,
+		loadNextPage
+	);
+	let completed = false;
+	void navigation.then(() => (completed = true));
+	await Promise.resolve();
+	assert.equal(completed, false);
+	release();
+	await navigation;
+	assert.equal(entries.at(-1)?.createdAt.slice(0, 10), '2026-01-20');
+	assert.equal(additionalLoads, 0);
+	hasMore = false;
 });
