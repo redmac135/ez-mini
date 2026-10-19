@@ -1,6 +1,7 @@
 <script lang="ts">
 	import JourneyEntryCard from './JourneyEntryCard.svelte';
 	import type { JourneyEntry } from './journey';
+	import { journeyDateKey } from './journey/navigation';
 
 	let {
 		label,
@@ -15,9 +16,7 @@
 
 <section
 	class="day-group"
-	data-date={entries[0]
-		? `${new Date(entries[0].createdAt).getFullYear()}-${String(new Date(entries[0].createdAt).getMonth() + 1).padStart(2, '0')}-${String(new Date(entries[0].createdAt).getDate()).padStart(2, '0')}`
-		: ''}
+	data-date={entries[0] ? journeyDateKey(new Date(entries[0].createdAt)) : ''}
 	aria-label={label}
 >
 	<h2 class="day-heading"><span class="day-dot" aria-hidden="true"></span>{label}</h2>

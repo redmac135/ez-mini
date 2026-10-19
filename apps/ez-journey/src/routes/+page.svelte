@@ -37,7 +37,13 @@
 	import { JourneyStorage, type EntryCursor, type EntryPage } from '../lib/journey/storage';
 	import { seedJourneyDemoData } from '../lib/journey/demo-data';
 	import { syncJourneyEntries } from '../lib/journey/sync';
-	import { loadEntriesThroughDate, searchJourneyEntries } from '../lib/journey/navigation';
+	import {
+		journeyDateKey,
+		journeyEntryDateKey,
+		loadEntriesThroughDate,
+		nextLocalDayStart,
+		searchJourneyEntries
+	} from '../lib/journey/navigation';
 
 	const EMPTY_STATE: EditorState = { text: '', selectionStart: 0, selectionEnd: 0 };
 	const VISIBLE_EDITOR_LINES = 3;
@@ -115,8 +121,8 @@
 	let calendarOpen = $state(false);
 	let searchOpen = $state(false);
 	let searchQuery = $state('');
-	let searchEntries = $state<StoredJourneyEntry[]>([]);
-	let selectedDate = $state(new Date().toLocaleDateString('en-CA'));
+	let savedEntries = $state<StoredJourneyEntry[]>([]);
+	let selectedDate = $state(journeyDateKey(new Date()));
 	let searchInput = $state<HTMLInputElement>();
 	let toastNotices = $state<Array<{ id: number; message: string }>>([]);
 	const toastController = createToastController((notices) => (toastNotices = notices));
@@ -440,6 +446,16 @@
 		syncStatus = 'offline';
 	}
 
+	async function refreshSavedEntries() {
+		const userId = accountState.user?.userId ?? null;
+		try {
+			const entries = await JourneyStorage.loadEntries(userId);
+			if ((accountState.user?.userId ?? null) === userId) savedEntries = entries;
+		} catch {
+			if ((accountState.user?.userId ?? null) === userId) savedEntries = submittedEntries;
+		}
+	}
+
 	function loadMoreEntries(): Promise<void> {
 		if (olderEntriesLoad) return olderEntriesLoad;
 		const cursor = nextEntryCursor;
@@ -451,6 +467,35 @@
 				const page = await JourneyStorage.loadPage(userId, cursor);
 				if ((accountState.user?.userId ?? null) !== userId || nextEntryCursor !== cursor) return;
 				submittedEntries = [...submittedEntries, ...page.entries.filter((entry) => !entry.deletedAt)];
+				nextEntryCursor = page.nextCursor;
+			} finally {
+				loadingOlderEntries = false;
+				olderEntriesLoad = null;
+			}
+		})();
+		olderEntriesLoad = load;
+		return load;
+	}
+
+	function loadEntriesAtDate(date: string, userId: string | null): Promise<void> {
+		if (olderEntriesLoad) return olderEntriesLoad;
+		loadingOlderEntries = true;
+		const load = (async () => {
+			try {
+				let page = await JourneyStorage.loadPage(userId, {
+					createdAt: nextLocalDayStart(date),
+					id: ''
+				});
+				while (page.entries.every((entry) => entry.deletedAt) && page.nextCursor) {
+					if ((accountState.user?.userId ?? null) !== userId) return;
+					page = await JourneyStorage.loadPage(userId, page.nextCursor);
+				}
+				if ((accountState.user?.userId ?? null) !== userId) return;
+				const combined = new Map(submittedEntries.map((entry) => [entry.id, entry]));
+				for (const entry of page.entries) if (!entry.deletedAt) combined.set(entry.id, entry);
+				submittedEntries = [...combined.values()].sort(
+					(a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+				);
 				nextEntryCursor = page.nextCursor;
 			} finally {
 				loadingOlderEntries = false;
@@ -499,11 +544,17 @@
 		selectedDate = date;
 		calendarOpen = false;
 		const userId = accountState.user?.userId ?? null;
+		if (olderEntriesLoad) await olderEntriesLoad;
+		if ((accountState.user?.userId ?? null) !== userId) return;
 		await loadEntriesThroughDate(
 			date,
-			() => submittedEntries.at(-1)?.createdAt.slice(0, 10),
+			() => {
+				const oldest = submittedEntries.at(-1);
+				return oldest ? journeyEntryDateKey(oldest.createdAt) : undefined;
+			},
 			() => Boolean(nextEntryCursor),
-			loadMoreEntries
+			loadMoreEntries,
+			(targetDate) => loadEntriesAtDate(targetDate, userId)
 		);
 		if ((accountState.user?.userId ?? null) !== userId) return;
 		requestAnimationFrame(() => {
@@ -562,12 +613,7 @@
 							ariaLabel="Search Journey entries"
 							onclick={() => {
 								searchOpen = true;
-								const userId = accountState.user?.userId ?? null;
-								void JourneyStorage.loadEntries(userId).then((entries) => {
-									if ((accountState.user?.userId ?? null) === userId) searchEntries = entries;
-				}, () => {
-					if ((accountState.user?.userId ?? null) === userId) searchEntries = submittedEntries;
-				});
+								void refreshSavedEntries();
 								requestAnimationFrame(() => searchInput?.focus());
 							}}
 						>
@@ -594,6 +640,7 @@
 							ariaExpanded={calendarOpen}
 							onclick={() => {
 								calendarOpen = !calendarOpen;
+								if (calendarOpen) void refreshSavedEntries();
 								menuOpen = false;
 							}}><Icon name="calendar-days" /></Button
 						>
@@ -656,7 +703,7 @@
 	</Navbar>
 	{#if calendarOpen}<JourneyCalendar
 			{selectedDate}
-			entries={submittedEntries.filter((entry) => !entry.deletedAt)}
+			entries={savedEntries.filter((entry) => !entry.deletedAt)}
 			onSelect={selectJournalDate}
 			onClose={() => (calendarOpen = false)}
 		/>{/if}
@@ -678,7 +725,7 @@
 						if (event.key === 'Escape') searchOpen = false;
 					}}
 				/>
-				{#each searchJourneyEntries(searchEntries, searchQuery)
+				{#each searchJourneyEntries(savedEntries, searchQuery)
 					.slice(0, 8) as entry (entry.id)}<button
 						class="search-result"
 						onclick={() => {

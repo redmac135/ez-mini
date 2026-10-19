@@ -7,7 +7,13 @@ import {
 	type RemoteJourneyEntry
 } from '../src/lib/journey/sync';
 import type { StoredJourneyEntry } from '../src/lib/journey';
-import { loadEntriesThroughDate, searchJourneyEntries } from '../src/lib/journey/navigation';
+import {
+	journeyDateKey,
+	journeyEntryDateKey,
+	loadEntriesThroughDate,
+	nextLocalDayStart,
+	searchJourneyEntries
+} from '../src/lib/journey/navigation';
 
 const timestamp = (day: number) => `2026-01-${String(day).padStart(2, '0')}T00:00:00.000Z`;
 
@@ -246,7 +252,7 @@ test('Journey search includes saved entries outside the current timeline page', 
 
 test('date navigation waits for an in-flight page before deciding to fetch more', async () => {
 	let entries = [entry('newest', 'Newest', 30)];
-	let hasMore = true;
+	const hasMore = true;
 	let started!: () => void;
 	let release!: () => void;
 	const pageStarted = new Promise<void>((resolve) => (started = resolve));
@@ -256,9 +262,14 @@ test('date navigation waits for an in-flight page before deciding to fetch more'
 		await pageGate;
 		entries = [...entries, entry('middle', 'Middle', 20)];
 	})();
+	let pendingPage: Promise<void> | null = inFlightPage;
 	let additionalLoads = 0;
 	const loadNextPage = () => {
-		if (inFlightPage) return inFlightPage;
+		if (pendingPage) {
+			const page = pendingPage;
+			pendingPage = null;
+			return page;
+		}
 		additionalLoads += 1;
 		return Promise.resolve();
 	};
@@ -277,5 +288,57 @@ test('date navigation waits for an in-flight page before deciding to fetch more'
 	await navigation;
 	assert.equal(entries.at(-1)?.createdAt.slice(0, 10), '2026-01-20');
 	assert.equal(additionalLoads, 0);
-	hasMore = false;
+});
+
+test('distant date navigation loads from a date anchor instead of paging through history', async () => {
+	let pageLoads = 0;
+	const anchors: string[] = [];
+	await loadEntriesThroughDate(
+		'2020-01-15',
+		() => '2026-01-30',
+		() => true,
+		async () => {
+			pageLoads += 1;
+		},
+		async (date) => {
+			anchors.push(date);
+		}
+	);
+
+	assert.equal(pageLoads, 0);
+	assert.deepEqual(anchors, ['2020-01-15']);
+});
+
+test('date anchored storage pages include entries on or before the selected local day', async () => {
+	await JourneyStorage.saveEntries([
+		entry('before-date', 'Before', 10),
+		entry('after-date', 'After', 20)
+	]);
+	const page = await JourneyStorage.loadPage('user-a', {
+		createdAt: nextLocalDayStart('2026-01-15'),
+		id: ''
+	});
+
+	assert.deepEqual(page.entries.map(({ id }) => id), ['before-date']);
+});
+
+test('calendar date keys cover saved entries and use local timeline dates', async () => {
+	await JourneyStorage.saveEntries([
+		entry('older-marker', 'Older saved entry', 1),
+		entry('newer-marker', 'Newer saved entry', 30)
+	]);
+	const savedEntries = await JourneyStorage.loadEntries('user-a');
+	assert.equal(new Set(savedEntries.map(({ createdAt }) => journeyEntryDateKey(createdAt))).size, 2);
+
+	const previousTimeZone = process.env.TZ;
+	process.env.TZ = 'Pacific/Auckland';
+	try {
+		const timestamp = '2026-01-01T20:30:00.000Z';
+		const localDate = new Date(timestamp);
+		assert.equal(journeyEntryDateKey(timestamp), journeyDateKey(localDate));
+		assert.equal(journeyEntryDateKey(timestamp), '2026-01-02');
+	} finally {
+		if (previousTimeZone === undefined) delete process.env.TZ;
+		else process.env.TZ = previousTimeZone;
+	}
 });

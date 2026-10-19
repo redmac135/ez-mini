@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Icon } from '@ez/ui';
 	import type { JourneyEntry } from './journey';
+	import { journeyDateKey } from './journey/navigation';
 	let {
 		selectedDate,
 		entries,
@@ -42,10 +43,10 @@
 		});
 	});
 	const entryDays = $derived(
-		new Set(entries.map((entry) => new Date(entry.createdAt).toLocaleDateString('en-CA')))
+		new Set(entries.map((entry) => journeyDateKey(new Date(entry.createdAt))))
 	);
 	function key(date: Date) {
-		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+		return journeyDateKey(date);
 	}
 	function move(amount: number) {
 		shown = new Date(
@@ -91,7 +92,7 @@
 				{#each days as item (key(item.date))}<button
 						class:outside={!item.current}
 						class:selected={key(item.date) === selectedDate}
-						class:today={key(item.date) === new Date().toLocaleDateString('en-CA')}
+						class:today={key(item.date) === journeyDateKey(new Date())}
 						aria-label={key(item.date)}
 						onclick={() => onSelect(key(item.date))}
 						>{item.date.getDate()}{#if entryDays.has(key(item.date))}<i></i>{/if}</button
