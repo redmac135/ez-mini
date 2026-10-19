@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 
 export default defineConfig({
 	test: {
@@ -16,7 +17,11 @@ export default defineConfig({
 					browser: {
 						enabled: true,
 						connectTimeout: 120_000,
-						provider: playwright(),
+						provider: playwright(
+							chromiumExecutablePath
+								? { launchOptions: { executablePath: chromiumExecutablePath } }
+								: {}
+						),
 						headless: true,
 						instances: [{ browser: 'chromium' }]
 					}

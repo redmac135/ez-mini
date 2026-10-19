@@ -2,7 +2,7 @@
 
 Minimal app monorepo for small, focused tools.
 
-Blank, Repeat, and Journey share email, GitHub, and Microsoft sign-in through the API. Their account settings manage connected sign-in methods and the account-wide display name, which defaults to a connected username or email; device sessions are shared across those apps in the same browser profile.
+Blank, Repeat, and Journey share email, GitHub, and Microsoft sign-in through the API. Their Profile settings let you edit the account-wide display name and manage login methods; the saved display name appears at the bottom of the account menu and defaults to a connected username or email. Device sessions are shared across those apps in the same browser profile.
 
 ## Principles
 

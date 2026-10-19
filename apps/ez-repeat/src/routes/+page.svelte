@@ -3,15 +3,9 @@
 	import { resolve } from '$app/paths';
 	import { page as appPage } from '$app/state';
 	import { createAccountDataController } from '@ez/account';
-	import {
-		AUTH_SESSION_CACHE_KEY,
-		isUnauthorizedError,
-		readCachedAuthSession,
-		writeCachedAuthSession
-	} from '@ez/auth';
+	import { AUTH_SESSION_CACHE_KEY, readCachedAuthSession, writeCachedAuthSession } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
-	import { SvelteMap } from 'svelte/reactivity';
 	import {
 		AccountLoading,
 		AccountDialogs,
@@ -22,7 +16,8 @@
 		Icon,
 		Navbar,
 		ToastStack,
-		Workspace
+		Workspace,
+		createToastController
 	} from '@ez/ui';
 	import { auth, repeatApi } from '$lib/api';
 	import {
@@ -50,26 +45,23 @@
 			},
 			async loadAccount(user, options = {}) {
 				await repeat.setUserId(user.userId);
-				// Initial session loading keeps the pre-transition behavior: load local data,
-				// then sync in the background from onLoaded. Explicit account transitions
-				// pass a signal and keep the blocking sync behind the loading screen.
-				if (!options.signal) {
+				if (!options.signal || repeat.hasLocalContext()) {
 					appSyncStatus = getSettledAppSyncStatus();
 					return null;
 				}
-				if (repeatApi && isBrowserOnline()) {
-					appSyncStatus = 'syncing';
-					try {
-						await syncRepeatData(repeatApi, user.userId, options.signal);
-						if (options.signal?.aborted) return null;
-						await repeat.refresh();
-						appSyncStatus = getSettledAppSyncStatus();
-					} catch (error) {
-						if (options.signal.aborted || isUnauthorizedError(error)) throw error;
-						appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
-					}
-				} else {
+				if (!repeatApi || !isBrowserOnline()) {
+					appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
+					throw new Error('Account data is not available offline.');
+				}
+				appSyncStatus = 'syncing';
+				try {
+					await syncRepeatData(repeatApi, user.userId, options.signal);
+					if (options.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+					await repeat.refresh();
 					appSyncStatus = getSettledAppSyncStatus();
+				} catch (error) {
+					appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
+					throw error;
 				}
 				skipNextLoadedSync = true;
 				return null;
@@ -80,7 +72,7 @@
 					return;
 				}
 				appSyncStatus = getSettledAppSyncStatus();
-				if (user) requestImmediateSync();
+				if (user) queueMicrotask(requestImmediateSync);
 			},
 			async restoreLocalContext(user) {
 				await repeat.setUserId(user?.userId ?? null);
@@ -117,8 +109,7 @@
 	let syncBusy = false;
 	let appSyncStatus: AppSyncStatus = 'synced';
 	let toastNotices: Array<{ id: number; message: string }> = [];
-	let nextToastId = 1;
-	const toastTimeouts = new SvelteMap<number, number>();
+	const toastController = createToastController((notices) => (toastNotices = notices));
 
 	const EDIT_SYNC_DEBOUNCE_MS = 3000;
 	const syncController = createSyncController({
@@ -316,34 +307,15 @@
 	}
 
 	function showStatusNotice(message: string) {
-		if (typeof window === 'undefined') return;
-
-		const id = nextToastId++;
-		toastNotices = [{ id, message }, ...toastNotices];
-		toastTimeouts.set(
-			id,
-			window.setTimeout(() => {
-				dismissToast(id);
-			}, 4000)
-		);
+		toastController.show(message);
 	}
 
 	function dismissToast(id: number) {
-		const timeout = toastTimeouts.get(id);
-		if (timeout) {
-			window.clearTimeout(timeout);
-			toastTimeouts.delete(id);
-		}
-
-		toastNotices = toastNotices.filter((toast) => toast.id !== id);
+		toastController.dismiss(id);
 	}
 
 	function clearAllToasts() {
-		for (const timeout of toastTimeouts.values()) {
-			window.clearTimeout(timeout);
-		}
-		toastTimeouts.clear();
-		toastNotices = [];
+		toastController.clear();
 	}
 
 	function showQueuedAppUpdatedNotice() {
@@ -438,7 +410,7 @@
 								disabled={accountState.authBusy || syncBusy}
 								on:click={() => void account.openConnectedAccounts()}
 							>
-								Connected accounts
+								Profile
 							</button>
 							<button
 								type="button"
@@ -447,7 +419,7 @@
 							>
 								Logout
 							</button>
-							<div class="menu-stat">{accountState.user.email ?? accountState.user.userId}</div>
+							<div class="menu-stat">{accountState.displayName}</div>
 						{:else}
 							<button
 								type="button"

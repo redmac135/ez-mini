@@ -45,6 +45,7 @@ test.beforeEach(async () => {
 			deviceId,
 			userId: 'user-profile',
 			email: 'person@example.com',
+			username: 'person-dev',
 			supabaseAccessToken: 'access-profile',
 			supabaseRefreshToken: 'refresh-profile',
 			expiresAt: Math.floor(Date.now() / 1000) + 3600,
@@ -115,8 +116,11 @@ test('profile updates Supabase user metadata and limits display name length', as
 		}),
 		env
 	);
-	const sessionBody = (await sessions.json()) as { activeSession: { username: string } };
-	assert.equal(sessionBody.activeSession.username, 'Taylor Zhao');
+	const sessionBody = (await sessions.json()) as {
+		activeSession: { username: string; displayName: string };
+	};
+	assert.equal(sessionBody.activeSession.username, 'person-dev');
+	assert.equal(sessionBody.activeSession.displayName, 'Taylor Zhao');
 	assert.equal(profileReads, 0);
 	const otherDeviceId = 'profile-other-device';
 	await env.SESSIONS.put(
@@ -126,6 +130,7 @@ test('profile updates Supabase user metadata and limits display name length', as
 			deviceId: otherDeviceId,
 			userId: 'user-profile',
 			email: 'person@example.com',
+			username: 'person-dev',
 			displayName: 'person-dev',
 			supabaseAccessToken: 'other-access',
 			supabaseRefreshToken: 'other-refresh',
@@ -141,9 +146,10 @@ test('profile updates Supabase user metadata and limits display name length', as
 		env
 	);
 	const otherDeviceBody = (await otherDeviceSessions.json()) as {
-		sessions: Array<{ username: string }>;
+		sessions: Array<{ username: string; displayName: string }>;
 	};
-	assert.equal(otherDeviceBody.sessions[0]?.username, 'Taylor Zhao');
+	assert.equal(otherDeviceBody.sessions[0]?.username, 'person-dev');
+	assert.equal(otherDeviceBody.sessions[0]?.displayName, 'Taylor Zhao');
 	assert.equal(profileReads, 1);
 	const updatedOtherDeviceSession = (await env.SESSIONS.get(
 		sessionKey(otherDeviceId, 'other-session'),

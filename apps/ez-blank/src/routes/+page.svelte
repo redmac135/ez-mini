@@ -7,7 +7,6 @@
 	import { createAccountDataController } from '@ez/account';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { SvelteMap } from 'svelte/reactivity';
 	import { Editor, type EditorState } from '@ez/editor';
 	import {
 		APP_UPDATED_NOTICE,
@@ -32,7 +31,8 @@
 		Navbar,
 		Sidebar,
 		ToastStack,
-		Workspace
+		Workspace,
+		createToastController
 	} from '@ez/ui';
 	import {
 		getSettledAppSyncStatus as deriveSettledAppSyncStatus,
@@ -120,8 +120,7 @@
 	let preferences: EditorPreferences = DEFAULT_PREFERENCES;
 
 	let toastNotices: Array<{ id: number; message: string }> = [];
-	let nextToastId = 1;
-	let toastTimeouts = new SvelteMap<number, number>();
+	const toastController = createToastController((notices) => (toastNotices = notices));
 	let workspacePersistQueue: Promise<void> = Promise.resolve();
 	let pagesChannel: BroadcastChannel | null = null;
 	let editorIdleTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -170,10 +169,13 @@
 		adapter: {
 			loadAnonymous: () => loadBlankAccountData(null),
 			loadAccount: (user, options) => loadBlankAccountData(user, options),
+			async restoreLocalContext(user) {
+				applyLoadedBlankAccountData(await loadBlankAccountData(user));
+			},
 			deleteAccountData: (userId) => deleteLocalUserData(userId),
 			onLoaded({ user, data }) {
 				applyLoadedBlankAccountData(data);
-				if (user) requestImmediateSync();
+				if (user && !data.initialSyncCompleted) queueMicrotask(requestImmediateSync);
 			}
 		},
 		getErrorMessage,
@@ -1055,34 +1057,15 @@
 	}
 
 	function showStatusNotice(message: string) {
-		if (!browser) return;
-
-		const id = nextToastId++;
-		toastNotices = [{ id, message }, ...toastNotices];
-		toastTimeouts.set(
-			id,
-			window.setTimeout(() => {
-				dismissToast(id);
-			}, 4000)
-		);
+		toastController.show(message);
 	}
 
 	function dismissToast(id: number) {
-		const timeout = toastTimeouts.get(id);
-		if (timeout) {
-			window.clearTimeout(timeout);
-			toastTimeouts.delete(id);
-		}
-
-		toastNotices = toastNotices.filter((toast) => toast.id !== id);
+		toastController.dismiss(id);
 	}
 
 	function clearAllToasts() {
-		for (const timeout of toastTimeouts.values()) {
-			window.clearTimeout(timeout);
-		}
-		toastTimeouts.clear();
-		toastNotices = [];
+		toastController.clear();
 	}
 
 	function getErrorMessage(error: unknown, fallback: string) {
@@ -1338,12 +1321,12 @@
 								disabled={authBusy || syncBusy}
 								on:click={() => void account.openConnectedAccounts()}
 							>
-								Connected accounts
+								Profile
 							</button>
 							<button type="button" disabled={authBusy || syncBusy} on:click={logoutCurrentAccount}>
 								Logout
 							</button>
-							<div class="menu-stat">{authUser.email ?? authUser.userId}</div>
+							<div class="menu-stat">{accountState.displayName}</div>
 						{:else}
 							<button type="button" disabled={authBusy} on:click={openLoginOrAccountList}>
 								Login

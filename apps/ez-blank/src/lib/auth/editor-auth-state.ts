@@ -2,6 +2,7 @@ import type { AuthSessionSummary } from '@ez/auth';
 import type { EditorPreferences } from '$lib/editor/core/preferences';
 import {
 	createSession,
+	ensureValidActivePage,
 	hasVisibleEphemeralActivePage,
 	type EditorSession
 } from '$lib/editor/core/session';
@@ -24,6 +25,7 @@ export interface LoadedEditorAuthState {
 	pendingAnonymousImportSession: EditorSession | null;
 	importPromptOpen: boolean;
 	pulledRemoteChanges: boolean;
+	initialSyncCompleted: boolean;
 }
 
 export async function loadEditorAuthState(options: {
@@ -57,7 +59,8 @@ export async function loadEditorAuthState(options: {
 			appSyncStatus,
 			pendingAnonymousImportSession: null,
 			importPromptOpen: false,
-			pulledRemoteChanges: false
+			pulledRemoteChanges: false,
+			initialSyncCompleted: false
 		};
 	}
 
@@ -78,7 +81,7 @@ export async function loadEditorAuthState(options: {
 		preferences: userPreferences,
 		appSyncStatus: getSettledAppSyncStatus(baseSession, options.isOnline)
 	});
-	if (!options.isOnline || !options.signal) {
+	if (!options.signal || userLocal !== null) {
 		return {
 			user: options.user,
 			session: baseSession,
@@ -86,8 +89,12 @@ export async function loadEditorAuthState(options: {
 			appSyncStatus: getSettledAppSyncStatus(baseSession, options.isOnline),
 			pendingAnonymousImportSession: hasAnonymousData && !alreadyPrompted ? anonymousSession : null,
 			importPromptOpen: hasAnonymousData && !alreadyPrompted,
-			pulledRemoteChanges: false
+			pulledRemoteChanges: false,
+			initialSyncCompleted: false
 		};
+	}
+	if (!options.isOnline) {
+		throw new Error("You're offline. Connect to the internet to load this account.");
 	}
 
 	const syncResult = await syncUserPages(
@@ -98,18 +105,24 @@ export async function loadEditorAuthState(options: {
 		options.signal
 	);
 	const remoteActivePageId = await fetchRemoteActivePageId(options.pagesApi, options.signal);
-	const shouldPreserveLocalEphemeralPage = hasVisibleEphemeralActivePage(syncResult.session);
+	const hasInitialRemoteContext = userLocal === null && syncResult.pulledCount > 0;
+	const syncedSession = hasInitialRemoteContext
+		? ensureValidActivePage({
+				...syncResult.session,
+				pages: syncResult.session.pages.filter((page) => !page.isEphemeral)
+			})
+		: syncResult.session;
+	const shouldPreserveLocalEphemeralPage =
+		userLocal !== null && hasVisibleEphemeralActivePage(syncedSession);
 	const session =
 		!shouldPreserveLocalEphemeralPage &&
 		remoteActivePageId &&
-		syncResult.session.pages.some(
-			(page) => page.id === remoteActivePageId && page.deletedAt === null
-		)
+		syncedSession.pages.some((page) => page.id === remoteActivePageId && page.deletedAt === null)
 			? {
-					...syncResult.session,
+					...syncedSession,
 					activePageId: remoteActivePageId
 				}
-			: syncResult.session;
+			: syncedSession;
 
 	return {
 		user: options.user,
@@ -118,6 +131,7 @@ export async function loadEditorAuthState(options: {
 		appSyncStatus: getSettledAppSyncStatus(session, options.isOnline),
 		pendingAnonymousImportSession: hasAnonymousData && !alreadyPrompted ? anonymousSession : null,
 		importPromptOpen: hasAnonymousData && !alreadyPrompted,
-		pulledRemoteChanges: syncResult.pulledCount > 0
+		pulledRemoteChanges: syncResult.pulledCount > 0,
+		initialSyncCompleted: true
 	};
 }

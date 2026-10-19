@@ -79,16 +79,19 @@ test('shows the account ownership error after a rejected OAuth link', async () =
 			removeEventListener() {}
 		}
 	});
+	const notices: string[] = [];
 	const account = createAccountDataController({
 		authClient: createAuthClient({ activeSession: userA, sessions: [userA] }),
 		adapter: createDataAdapter(),
+		onNotice: (message) => notices.push(message),
 		channelName: 'account-controller-oauth-link-conflict'
 	});
 
 	try {
 		await account.initialize({ initialUser: userA });
 		assert.equal(account.getState().connectedAccountsOpen, true);
-		assert.equal(account.getState().authMessage, 'This account is linked to another account.');
+		assert.equal(account.getState().authMessage, '');
+		assert.deepEqual(notices, ['This account is linked to another account.']);
 	} finally {
 		account.destroy();
 		Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
@@ -276,6 +279,7 @@ test('loads connected identities and refreshes them after disconnecting one', as
 	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
 
 	await account.initialize();
+	assert.equal(account.getState().displayName, userA.displayName);
 	await account.openConnectedAccounts();
 	assert.equal(account.getState().connectedAccountsOpen, true);
 	assert.equal(account.getState().identitiesLoading, false);
@@ -287,27 +291,65 @@ test('loads connected identities and refreshes them after disconnecting one', as
 	await account.unlinkOAuthIdentity('github-identity');
 	assert.equal(unlinkIdentityId, 'github-identity');
 	assert.deepEqual(account.getState().identities, [remainingIdentity]);
+	assert.equal(account.getState().displayName, userA.displayName);
 	assert.equal(account.getState().identityBusyId, null);
 	account.destroy();
 });
 
-test('connected identity request failures leave the modal open with a readable message', async () => {
+test('connected identity request failures leave the modal open and show a notice', async () => {
 	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
 	auth.getIdentities = async () => {
 		throw new Error('Identity service unavailable.');
 	};
-	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+	const notices: string[] = [];
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		onNotice: (message) => notices.push(message)
+	});
 
 	await account.initialize();
 	await account.openConnectedAccounts();
 
 	assert.equal(account.getState().connectedAccountsOpen, true);
 	assert.equal(account.getState().identitiesLoading, false);
-	assert.equal(account.getState().authMessage, 'Identity service unavailable.');
+	assert.equal(account.getState().connectedAccountsError, 'Identity service unavailable.');
+	assert.equal(account.getState().authMessage, '');
+	assert.deepEqual(notices, ['Identity service unavailable.']);
 	account.destroy();
 });
 
-test('display name defaults to provider username, supports cancel, and saves account-wide profile state', async () => {
+test('opening profile offline keeps a retryable in-dialog error', async () => {
+	let online = false;
+	let identityRequests = 0;
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.getIdentities = async () => {
+		identityRequests += 1;
+		return { identities: [] };
+	};
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		isOnline: () => online
+	});
+
+	await account.initialize({ initialUser: userA });
+	await account.openConnectedAccounts();
+	assert.equal(account.getState().connectedAccountsOpen, true);
+	assert.equal(
+		account.getState().connectedAccountsError,
+		"You're offline. Connect to the internet to continue."
+	);
+	assert.equal(identityRequests, 0);
+
+	online = true;
+	await account.openConnectedAccounts();
+	assert.equal(identityRequests, 1);
+	assert.equal(account.getState().connectedAccountsError, '');
+	account.destroy();
+});
+
+test('display name loads from cached session and saves without changing auth username', async () => {
 	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
 	auth.getIdentities = async () => ({
 		identities: [
@@ -326,9 +368,15 @@ test('display name defaults to provider username, supports cancel, and saves acc
 		savedName = displayName;
 		return { displayName, customDisplayName: displayName };
 	};
-	const account = createAccountDataController({ authClient: auth, adapter: createDataAdapter() });
+	const notices: string[] = [];
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter: createDataAdapter(),
+		onNotice: (message) => notices.push(message)
+	});
 
 	await account.initialize();
+	assert.equal(account.getState().displayName, userA.displayName);
 	await account.openConnectedAccounts();
 	assert.equal(account.getState().displayName, 'taylor-dev');
 	assert.equal(account.getState().displayNameDraft, 'taylor-dev');
@@ -341,8 +389,12 @@ test('display name defaults to provider username, supports cancel, and saves acc
 	await account.saveDisplayName();
 	assert.equal(savedName, 'Taylor');
 	assert.equal(account.getState().displayName, 'Taylor');
-	assert.equal(account.getState().user?.username, 'Taylor');
-	assert.equal(account.getState().sessions[0]?.username, 'Taylor');
+	assert.equal(account.getState().user?.username, userA.username);
+	assert.equal(account.getState().user?.displayName, 'Taylor');
+	assert.equal(account.getState().sessions[0]?.username, userA.username);
+	assert.equal(account.getState().sessions[0]?.displayName, 'Taylor');
+	assert.equal(account.getState().connectedAccountsOpen, false);
+	assert.deepEqual(notices, ['Profile saved']);
 	account.destroy();
 });
 
@@ -651,7 +703,12 @@ test('restores the prior auth and data context when target loading fails', async
 			return `account:${user.userId}`;
 		}
 	};
-	const account = createAccountDataController({ authClient: auth, adapter });
+	const notices: string[] = [];
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		onNotice: (message) => notices.push(message)
+	});
 
 	await account.initialize();
 	await account.selectAccountSession(activeB.sessionId);
@@ -661,8 +718,82 @@ test('restores the prior auth and data context when target loading fails', async
 	assert.equal(account.getState().data, 'account:user-a');
 	assert.equal(account.getState().phase, 'ready');
 	assert.equal(account.getState().contextTransition, null);
-	assert.match(account.getState().authMessage, /Target data could not be loaded/);
+	assert.equal(account.getState().authMessage, '');
+	assert.deepEqual(notices, ['error loading context']);
 	account.destroy();
+});
+
+test('clears the transition and restores prior local data if auth rollback also fails', async () => {
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA, userB] });
+	auth.switchSession = async (sessionId) => {
+		if (sessionId === activeB.sessionId) {
+			return { activeSession: activeB, sessions: [{ ...userA, active: false }, activeB] };
+		}
+		throw new Error('Unable to restore the previous auth session.');
+	};
+	const restoredUsers: Array<string | null> = [];
+	const notices: string[] = [];
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		async loadAccount(user) {
+			if (user.userId === 'user-b') throw new Error('Target data could not be loaded.');
+			return `account:${user.userId}`;
+		},
+		async restoreLocalContext(user) {
+			restoredUsers.push(user?.userId ?? null);
+		}
+	};
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		onNotice: (message) => notices.push(message)
+	});
+
+	await account.initialize();
+	await account.selectAccountSession(activeB.sessionId);
+
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	assert.equal(account.getState().contextTransition, null);
+	assert.deepEqual(restoredUsers, ['user-a']);
+	assert.deepEqual(notices, ['error loading context']);
+	account.destroy();
+});
+
+test('successful OAuth sign-in loads the new context through the transition path', async () => {
+	const originalWindow = globalThis.window;
+	Object.defineProperty(globalThis, 'window', {
+		configurable: true,
+		value: {
+			location: {
+				href: 'https://app.example.test/?oauth=success&oauth_reason=sign-in'
+			},
+			history: { state: null, replaceState() {} },
+			addEventListener() {},
+			removeEventListener() {}
+		}
+	});
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({ activeSession: activeB, sessions: [activeB] });
+	const adapter = createDataAdapter();
+	let receivedTransitionSignal = false;
+	adapter.loadAccount = async (user, options) => {
+		receivedTransitionSignal = Boolean(options?.signal);
+		return `account:${user.userId}`;
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	try {
+		await account.initialize();
+		assert.equal(receivedTransitionSignal, true);
+		assert.equal(account.getState().user?.userId, 'user-b');
+		assert.equal(account.getState().authMessage, '');
+		assert.equal(account.getState().contextTransition, null);
+	} finally {
+		account.destroy();
+		Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+	}
 });
 
 test('ignores repeated email submissions while the first request is pending', async () => {
@@ -900,6 +1031,7 @@ function createSession(sessionId: string, userId: string, active: boolean): Auth
 		userId,
 		email: `${userId}@example.com`,
 		username: userId,
+		displayName: userId,
 		createdAt: 1,
 		lastUsedAt: 2,
 		active

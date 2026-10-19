@@ -55,6 +55,7 @@ export interface AccountControllerState<TData> {
 	resendCooldownRemaining: number;
 	oauthBusyProvider: OAuthProvider | null;
 	connectedAccountsOpen: boolean;
+	connectedAccountsError: string;
 	identities: AuthIdentity[];
 	identitiesLoading: boolean;
 	identityBusyId: string | null;
@@ -130,6 +131,7 @@ interface OAuthCallbackResult {
 	message: string;
 	broadcast: boolean;
 	alreadySignedIn: boolean;
+	successfulSignIn: boolean;
 	linked: boolean;
 	showLogin: boolean;
 	linkAttempt: boolean;
@@ -162,6 +164,7 @@ export function createAccountDataController<TData>(
 		resendCooldownRemaining: 0,
 		oauthBusyProvider: null,
 		connectedAccountsOpen: false,
+		connectedAccountsError: '',
 		identities: [],
 		identitiesLoading: false,
 		identityBusyId: null,
@@ -220,7 +223,11 @@ export function createAccountDataController<TData>(
 		openAuthChannel();
 		const oauthResult = consumeOAuthResult();
 		if (initOptions.initialUser !== undefined) {
-			setState({ user: initOptions.initialUser });
+			setState({
+				user: initOptions.initialUser,
+				displayName: initOptions.initialUser?.displayName ?? '',
+				displayNameDraft: initOptions.initialUser?.displayName ?? ''
+			});
 			options.onAuthChanged?.(initOptions.initialUser);
 		}
 
@@ -248,6 +255,8 @@ export function createAccountDataController<TData>(
 			if (initialUser && response.activeSession?.userId === initialUser.userId) {
 				setState({
 					user: response.activeSession,
+					displayName: response.activeSession.displayName ?? '',
+					displayNameDraft: response.activeSession.displayName ?? '',
 					sessions: response.sessions,
 					phase: 'ready',
 					authBusy: false,
@@ -264,7 +273,7 @@ export function createAccountDataController<TData>(
 					broadcast: oauthResult?.broadcast ?? false,
 					requestId: nextRequestId,
 					setBusy: false,
-					transition: switchingExistingAccount
+					transition: switchingExistingAccount || oauthResult?.successfulSignIn === true
 				});
 			}
 			await applyOAuthResult(oauthResult);
@@ -285,13 +294,22 @@ export function createAccountDataController<TData>(
 
 	async function applyOAuthResult(oauthResult: OAuthCallbackResult | null) {
 		if (!oauthResult) return;
+		if (oauthResult.linkAttempt) {
+			setState({
+				accountModalOpen: false,
+				loginModalOpen: false,
+				connectedAccountsOpen: true,
+				authMessage: ''
+			});
+			options.onNotice?.(oauthResult.message);
+			await openConnectedAccounts();
+			return;
+		}
 		setState({
 			accountModalOpen: oauthResult.alreadySignedIn,
 			loginModalOpen: oauthResult.showLogin,
-			connectedAccountsOpen: oauthResult.linkAttempt,
-			authMessage: oauthResult.message
+			authMessage: oauthResult.successfulSignIn ? '' : oauthResult.message
 		});
-		if (oauthResult.linkAttempt) await openConnectedAccounts(oauthResult.message);
 	}
 
 	function openLoginFlow() {
@@ -490,24 +508,30 @@ export function createAccountDataController<TData>(
 		startOAuth(provider);
 	}
 
-	async function openConnectedAccounts(message = '') {
+	async function openConnectedAccounts() {
 		if (!state.user || state.authBusy || !options.authClient?.getIdentities) return;
 		if (!isOnline()) {
 			setState({
 				connectedAccountsOpen: true,
 				identitiesLoading: false,
-				authMessage: OFFLINE_AUTH_MESSAGE
+				connectedAccountsError: OFFLINE_AUTH_MESSAGE,
+				authMessage: ''
 			});
 			return;
 		}
-		setState({ connectedAccountsOpen: true, identitiesLoading: true, authMessage: message });
+		setState({
+			connectedAccountsOpen: true,
+			identitiesLoading: true,
+			connectedAccountsError: '',
+			authMessage: ''
+		});
 		try {
 			const [result, profile] = await Promise.all([
 				options.authClient.getIdentities(),
 				options.authClient.getProfile?.()
 			]);
-			const fallbackName = getDefaultDisplayName(result.identities, state.user?.email);
-			const displayName = profile?.displayName || fallbackName;
+			const displayName =
+				profile?.displayName || state.displayName || state.user?.displayName || '';
 			setState({
 				identities: result.identities,
 				identitiesLoading: false,
@@ -517,22 +541,17 @@ export function createAccountDataController<TData>(
 		} catch (error) {
 			setState({
 				identitiesLoading: false,
-				authMessage: getAuthErrorMessage(error, 'Unable to load connected accounts.')
+				connectedAccountsError: getAuthErrorMessage(error, 'Unable to load login methods.'),
+				authMessage: ''
 			});
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to load login methods.'));
 		}
-	}
-
-	function getDefaultDisplayName(identities: AuthIdentity[], email?: string | null) {
-		for (const identity of identities) {
-			if (identity.displayName?.trim()) return identity.displayName.trim();
-		}
-		return email?.trim() || '';
 	}
 
 	async function saveDisplayName() {
 		if (!options.authClient?.updateProfile || state.displayNameSaving) return;
 		if (!isOnline()) {
-			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		const displayNameDraft = state.displayNameDraft.trim();
@@ -540,22 +559,23 @@ export function createAccountDataController<TData>(
 		try {
 			const profile = await options.authClient.updateProfile(displayNameDraft);
 			const displayName = profile.displayName || state.user?.email || state.user?.userId || '';
-			const user = state.user ? { ...state.user, username: displayName } : null;
+			const user = state.user ? { ...state.user, displayName } : null;
 			setState({
 				displayName,
 				displayNameDraft: displayName,
 				displayNameSaving: false,
+				connectedAccountsOpen: false,
+				authMessage: '',
 				user,
 				sessions: state.sessions.map((session) =>
-					session.userId === user?.userId ? { ...session, username: displayName } : session
+					session.userId === user?.userId ? { ...session, displayName } : session
 				)
 			});
 			options.onAuthChanged?.(user);
+			options.onNotice?.('Profile saved');
 		} catch (error) {
-			setState({
-				displayNameSaving: false,
-				authMessage: getAuthErrorMessage(error, 'Unable to save display name.')
-			});
+			setState({ displayNameSaving: false, authMessage: '' });
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to save profile.'));
 		}
 	}
 
@@ -568,47 +588,45 @@ export function createAccountDataController<TData>(
 	}
 
 	function closeConnectedAccounts() {
-		if (state.identitiesLoading || state.identityBusyId || state.oauthBusyProvider) return;
-		setState({ connectedAccountsOpen: false, authMessage: '' });
+		setState({ connectedAccountsOpen: false, connectedAccountsError: '', authMessage: '' });
 	}
 
 	function connectOAuthProvider(provider: OAuthProvider) {
 		if (!state.user) return;
 		if (!isOnline()) {
-			setState({ oauthBusyProvider: null, authMessage: OFFLINE_AUTH_MESSAGE });
+			setState({ oauthBusyProvider: null, authMessage: '' });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		if (!options.authClient?.beginOAuthLink || typeof window === 'undefined') {
-			setState({ authMessage: 'Provider connection is unavailable.' });
+			options.onNotice?.('Provider connection is unavailable.');
 			return;
 		}
 		const returnUrl = getOAuthReturnUrl();
 		setState({ oauthBusyProvider: provider, authMessage: '' });
 		void options.authClient.beginOAuthLink(provider, returnUrl).then(
 			({ authorizationUrl }) => window.location.assign(authorizationUrl),
-			(error) =>
-				setState({
-					oauthBusyProvider: null,
-					authMessage: getAuthErrorMessage(error, 'Unable to connect this provider.')
-				})
+			(error) => {
+				setState({ oauthBusyProvider: null, authMessage: '' });
+				options.onNotice?.(getAuthErrorMessage(error, 'Unable to connect this provider.'));
+			}
 		);
 	}
 
 	async function unlinkOAuthIdentity(identityId: string) {
 		if (!options.authClient?.unlinkIdentity || state.identityBusyId) return;
 		if (!isOnline()) {
-			setState({ authMessage: OFFLINE_AUTH_MESSAGE });
+			options.onNotice?.(OFFLINE_AUTH_MESSAGE);
 			return;
 		}
 		setState({ identityBusyId: identityId, authMessage: '' });
 		try {
 			const result = await options.authClient.unlinkIdentity(identityId);
-			setState({ identities: result.identities, identityBusyId: null });
+			setState({ identities: result.identities, identityBusyId: null, authMessage: '' });
+			options.onNotice?.('Login method removed');
 		} catch (error) {
-			setState({
-				identityBusyId: null,
-				authMessage: getAuthErrorMessage(error, 'Unable to disconnect this account.')
-			});
+			setState({ identityBusyId: null, authMessage: '' });
+			options.onNotice?.(getAuthErrorMessage(error, 'Unable to remove login method.'));
 		}
 	}
 
@@ -671,14 +689,15 @@ export function createAccountDataController<TData>(
 						? 'Already signed into this account.'
 						: linked
 							? 'Account connected.'
-							: 'Signed in successfully.'
+							: ''
 					: linkAttempt
 						? reason === 'identity_exists'
 							? messages.identity_exists
-							: 'Failed to connect. Please try again.'
+							: 'Failed to connect.'
 						: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,
+			successfulSignIn: result === 'success' && reason === 'sign-in',
 			linked,
 			showLogin: result !== 'success' && !linkAttempt,
 			linkAttempt
@@ -869,7 +888,13 @@ export function createAccountDataController<TData>(
 		}
 
 		const nextUser = response.activeSession ?? null;
-		setState({ sessions: response.sessions, user: nextUser, authMessage: '' });
+		setState({
+			sessions: response.sessions,
+			user: nextUser,
+			displayName: nextUser?.displayName ?? '',
+			displayNameDraft: nextUser?.displayName ?? '',
+			authMessage: ''
+		});
 		options.onAuthChanged?.(nextUser);
 		if (applyOptions.broadcast !== false) {
 			broadcastAuthSessionChanged(nextUser);
@@ -886,10 +911,13 @@ export function createAccountDataController<TData>(
 	) {
 		const nextUser = response.activeSession ?? null;
 		const previousUser = state.user;
+		const previousSessions = state.sessions;
 		const nextRequestId = applyOptions.requestId ?? beginRequest();
 		if ((previousUser?.userId ?? null) === (nextUser?.userId ?? null)) {
 			setState({
 				user: nextUser,
+				displayName: nextUser?.displayName ?? '',
+				displayNameDraft: nextUser?.displayName ?? '',
 				sessions: response.sessions,
 				phase: 'ready',
 				authBusy: false,
@@ -935,6 +963,8 @@ export function createAccountDataController<TData>(
 			pendingContextTransition = null;
 			setState({
 				user: nextUser,
+				displayName: nextUser?.displayName ?? '',
+				displayNameDraft: nextUser?.displayName ?? '',
 				data,
 				phase: 'ready',
 				authBusy: false,
@@ -949,7 +979,7 @@ export function createAccountDataController<TData>(
 				data,
 				pulledRemoteChanges: hasPulledRemoteChanges(data)
 			});
-		} catch (error) {
+		} catch {
 			if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
 			try {
 				const restored = await restoreAuthContext(previousUser);
@@ -965,22 +995,33 @@ export function createAccountDataController<TData>(
 					authBusy: false,
 					accountBusySessionId: null,
 					contextTransition: null,
-					authMessage: getErrorMessage(error, 'Unable to load account data.')
+					authMessage: ''
 				});
 				options.onAuthChanged?.(restoredUser);
 				broadcastAuthSessionChanged(restoredUser);
 				resubscribeToDataChanges(restoredUser);
-			} catch (restoreError) {
+				options.onNotice?.('error loading context');
+			} catch {
 				if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+				try {
+					await options.adapter.restoreLocalContext?.(previousUser);
+				} catch {
+					// Keep the prior in-memory data visible if local restoration also fails.
+				}
+				if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+				pendingContextTransition = null;
 				setState({
-					authMessage: `${getErrorMessage(error, 'Unable to load account data.')} ${getErrorMessage(restoreError, 'Unable to restore the previous account.')}`,
-					contextTransition: {
-						targetUser: nextUser,
-						canceling: false,
-						errorMessage: getErrorMessage(restoreError, 'Unable to restore the previous account.'),
-						cancelable: true
-					}
+					user: previousUser,
+					sessions: previousSessions,
+					phase: state.data === null ? 'error' : 'ready',
+					authBusy: false,
+					contextTransition: null,
+					authMessage: ''
 				});
+				options.onAuthChanged?.(previousUser);
+				broadcastAuthSessionChanged(previousUser);
+				resubscribeToDataChanges(previousUser);
+				options.onNotice?.('error loading context');
 			}
 		}
 	}
@@ -1002,7 +1043,12 @@ export function createAccountDataController<TData>(
 		if (loadOptions.setBusy) {
 			setState({ authBusy: true });
 		}
-		setState({ user, phase: 'loading-data' });
+		setState({
+			user,
+			displayName: user?.displayName ?? '',
+			displayNameDraft: user?.displayName ?? '',
+			phase: 'loading-data'
+		});
 		options.onAuthChanged?.(user);
 		resubscribeToDataChanges(user);
 

@@ -102,6 +102,8 @@ test('session lists device accounts with usernames and active state', async () =
 		sessionId: 'session-a',
 		userId: 'user-a',
 		email: 'a@example.com',
+		username: 'account-a',
+		displayName: 'Account A',
 		lastUsedAt: 1
 	});
 	await putStoredSession({
@@ -109,6 +111,8 @@ test('session lists device accounts with usernames and active state', async () =
 		sessionId: 'session-b',
 		userId: 'user-b',
 		email: 'b@example.com',
+		username: 'account-b',
+		displayName: 'Account B',
 		lastUsedAt: 2
 	});
 
@@ -119,8 +123,13 @@ test('session lists device accounts with usernames and active state', async () =
 		env
 	);
 	const body = (await response.json()) as {
-		activeSession: { sessionId: string; username: string };
-		sessions: Array<{ sessionId: string; username: string; active: boolean }>;
+		activeSession: { sessionId: string; username: string; displayName: string };
+		sessions: Array<{
+			sessionId: string;
+			username: string;
+			displayName: string;
+			active: boolean;
+		}>;
 	};
 
 	assert.equal(response.status, 200);
@@ -129,13 +138,53 @@ test('session lists device accounts with usernames and active state', async () =
 		body.sessions.map((session) => ({
 			sessionId: session.sessionId,
 			username: session.username,
+			displayName: session.displayName,
 			active: session.active
 		})),
 		[
-			{ sessionId: 'session-a', username: 'a@example.com', active: true },
-			{ sessionId: 'session-b', username: 'b@example.com', active: false }
+			{
+				sessionId: 'session-a',
+				username: 'account-a',
+				displayName: 'Account A',
+				active: true
+			},
+			{
+				sessionId: 'session-b',
+				username: 'account-b',
+				displayName: 'Account B',
+				active: false
+			}
 		]
 	);
+});
+
+test('session startup serves legacy account names from cached data without network access', async () => {
+	const deviceId = 'legacy-name-device';
+	await putStoredSession({
+		deviceId,
+		sessionId: 'legacy',
+		userId: 'legacy-user',
+		username: 'legacy-provider-name'
+	});
+	let networkRequests = 0;
+	mockFetch(async () => {
+		networkRequests += 1;
+		throw new Error('Session startup should use cached account data.');
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=legacy` }
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: { username: string; displayName: string };
+	};
+
+	assert.equal(body.activeSession.username, 'legacy-provider-name');
+	assert.equal(body.activeSession.displayName, 'a@example.com');
+	assert.equal(networkRequests, 0);
 });
 
 test('session startup uses cached inactive accounts while account listing refreshes shared names', async () => {
@@ -188,7 +237,7 @@ test('session startup uses cached inactive accounts while account listing refres
 		);
 	const startup = await sessionRequest('session');
 	const startupBody = (await startup.json()) as {
-		sessions: Array<{ sessionId: string; username: string }>;
+		sessions: Array<{ sessionId: string; username: string; displayName: string }>;
 	};
 	const cachedInactive = (await env.SESSIONS.get(sessionKey(deviceId, 'inactive'), 'json')) as {
 		supabaseRefreshToken: string;
@@ -206,7 +255,7 @@ test('session startup uses cached inactive accounts while account listing refres
 
 	const accounts = await sessionRequest('accounts');
 	const accountBody = (await accounts.json()) as {
-		sessions: Array<{ sessionId: string; username: string }>;
+		sessions: Array<{ sessionId: string; username: string; displayName: string }>;
 	};
 	assert.equal(accounts.status, 200);
 	assert.deepEqual(
@@ -214,10 +263,14 @@ test('session startup uses cached inactive accounts while account listing refres
 		['GET /auth/v1/user', 'GET /auth/v1/user', 'POST /auth/v1/token'].sort()
 	);
 	assert.deepEqual(
-		accountBody.sessions.map(({ sessionId, username }) => ({ sessionId, username })),
+		accountBody.sessions.map(({ sessionId, username, displayName }) => ({
+			sessionId,
+			username,
+			displayName
+		})),
 		[
-			{ sessionId: 'active', username: 'Shared active-user' },
-			{ sessionId: 'inactive', username: 'Shared inactive-user' }
+			{ sessionId: 'active', username: 'a@example.com', displayName: 'Shared active-user' },
+			{ sessionId: 'inactive', username: 'a@example.com', displayName: 'Shared inactive-user' }
 		]
 	);
 	const refreshedInactive = (await env.SESSIONS.get(sessionKey(deviceId, 'inactive'), 'json')) as {
@@ -922,6 +975,8 @@ async function putStoredSession(
 		sessionId: string;
 		userId?: string;
 		email?: string;
+		username?: string;
+		displayName?: string;
 		lastUsedAt?: number;
 		expiresAt?: number | null;
 	} = { deviceId: 'device-a', sessionId: 'session-a' }
@@ -934,6 +989,8 @@ async function putStoredSession(
 			deviceId: options.deviceId,
 			userId: options.userId ?? 'user-a',
 			email: options.email ?? 'a@example.com',
+			...(options.username ? { username: options.username } : {}),
+			...(options.displayName ? { displayName: options.displayName } : {}),
 			supabaseAccessToken: `access-${sessionId}`,
 			supabaseRefreshToken: `refresh-${sessionId}`,
 			expiresAt: options.expiresAt ?? Math.floor(Date.now() / 1000) + 3600,

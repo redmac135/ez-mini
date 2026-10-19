@@ -14,6 +14,7 @@ const session: AuthSessionSummary = {
 	userId: 'user-a',
 	email: 'user-a@example.com',
 	username: 'User A',
+	displayName: 'User A',
 	createdAt: 1,
 	lastUsedAt: 2,
 	active: true
@@ -37,6 +38,20 @@ test('auth session cache clears only when the cached account matches', () => {
 
 	clearCachedAuthSessionForUser(storage, session.userId);
 	assert.equal(readCachedAuthSession(storage), null);
+});
+
+test('legacy cached profile labels migrate to the email fallback', () => {
+	const storage = createMemoryStorage();
+	const legacySession = { ...session };
+	delete legacySession.displayName;
+	storage.setItem(
+		AUTH_SESSION_CACHE_KEY,
+		JSON.stringify({ ...legacySession, username: 'Custom profile name' })
+	);
+
+	const migratedSession = readCachedAuthSession(storage);
+	assert.equal(migratedSession?.username, 'user-a@example.com');
+	assert.equal(migratedSession?.displayName, 'user-a@example.com');
 });
 
 function createMemoryStorage(): AuthSessionCacheStorage & { values: Map<string, string> } {
