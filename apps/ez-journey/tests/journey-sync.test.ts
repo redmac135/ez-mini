@@ -10,6 +10,7 @@ import type { StoredJourneyEntry } from '../src/lib/journey';
 import {
 	journeyDateKey,
 	journeyEntryDateKey,
+	journeyEntryForDate,
 	loadEntriesThroughDate,
 	nextLocalDayStart,
 	searchJourneyEntries
@@ -341,4 +342,16 @@ test('calendar date keys cover saved entries and use local timeline dates', asyn
 		if (previousTimeZone === undefined) delete process.env.TZ;
 		else process.env.TZ = previousTimeZone;
 	}
+});
+
+test('date selection resolves the newest saved entry and leaves empty dates empty', () => {
+	const selectedDay = new Date(2026, 0, 12, 12).toISOString();
+	const entries = [
+		{ ...entry('earlier', 'Earlier entry', 12), createdAt: new Date(2026, 0, 12, 10).toISOString() },
+		{ ...entry('latest', 'Latest entry', 12), createdAt: selectedDay },
+		{ ...entry('deleted', 'Deleted entry', 12), createdAt: selectedDay, deletedAt: selectedDay }
+	];
+
+	assert.equal(journeyEntryForDate(entries, '2026-01-12')?.id, 'latest');
+	assert.equal(journeyEntryForDate(entries, '2026-01-13'), undefined);
 });

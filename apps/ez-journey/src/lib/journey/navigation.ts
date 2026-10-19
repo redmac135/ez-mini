@@ -8,6 +8,15 @@ export function journeyEntryDateKey(createdAt: string) {
 	return journeyDateKey(new Date(createdAt));
 }
 
+export function journeyEntryForDate(entries: StoredJourneyEntry[], date: string) {
+	return entries
+		.filter((entry) => !entry.deletedAt && journeyEntryDateKey(entry.createdAt) === date)
+		.sort(
+			(left, right) =>
+				right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+		)[0];
+}
+
 export function nextLocalDayStart(date: string) {
 	const [year, month, day] = date.split('-').map(Number);
 	return new Date(year, month - 1, day + 1).toISOString();

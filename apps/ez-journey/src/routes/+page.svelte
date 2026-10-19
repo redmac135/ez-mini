@@ -40,6 +40,7 @@
 	import {
 		journeyDateKey,
 		journeyEntryDateKey,
+		journeyEntryForDate,
 		loadEntriesThroughDate,
 		nextLocalDayStart,
 		searchJourneyEntries
@@ -543,6 +544,11 @@
 	async function selectJournalDate(date: string) {
 		selectedDate = date;
 		calendarOpen = false;
+		editorState = EMPTY_STATE;
+		editorInstance += 1;
+		overExpandThreshold = false;
+		entrySaveError = '';
+		setExpanded(false);
 		const userId = accountState.user?.userId ?? null;
 		if (olderEntriesLoad) await olderEntriesLoad;
 		if ((accountState.user?.userId ?? null) !== userId) return;
@@ -557,12 +563,27 @@
 			(targetDate) => loadEntriesAtDate(targetDate, userId)
 		);
 		if ((accountState.user?.userId ?? null) !== userId) return;
+		let entriesForEditor = savedEntries;
+		try {
+			entriesForEditor = await JourneyStorage.loadEntries(userId);
+			savedEntries = entriesForEditor;
+		} catch {
+			entriesForEditor = [...savedEntries, ...submittedEntries];
+		}
+		if ((accountState.user?.userId ?? null) !== userId) return;
+		const entryForDate = journeyEntryForDate(entriesForEditor, date);
 		requestAnimationFrame(() => {
 			const groups = [...timelineScroll.querySelectorAll<HTMLElement>('.day-group')];
 			const target =
 				groups.find((group) => group.dataset.date === date) ??
 				groups.find((group) => (group.dataset.date ?? '') < date);
 			if (target) timelineScroll.scrollTo({ top: target.offsetTop, behavior: 'smooth' });
+			if (entryForDate) {
+				const source = timelineScroll.querySelector<HTMLElement>(
+					`[data-entry-id="${CSS.escape(entryForDate.id)}"]`
+				);
+				openEntry(entryForDate, source ?? composer);
+			}
 		});
 	}
 </script>

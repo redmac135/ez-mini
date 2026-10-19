@@ -80,6 +80,54 @@ async function expectNoPageOverflow(page: import('playwright/test').Page) {
 		.toBeLessThanOrEqual(1);
 }
 
+async function addAnonymousEntry(
+	page: import('playwright/test').Page,
+	entry: { id: string; text: string; createdAt: string }
+) {
+	await page.evaluate(async (entry) => {
+		const db = await new Promise<IDBDatabase>((resolve, reject) => {
+			const request = indexedDB.open('journey', 3);
+			request.onupgradeneeded = () => {
+				const database = request.result;
+				const store = database.objectStoreNames.contains('entries')
+					? request.transaction!.objectStore('entries')
+					: database.createObjectStore('entries', { keyPath: 'id' });
+				if (!store.indexNames.contains('userId')) store.createIndex('userId', 'userId');
+				if (!store.indexNames.contains('userCreatedAtId')) {
+					store.createIndex('userCreatedAtId', ['userId', 'createdAt', 'id']);
+				}
+				if (!database.objectStoreNames.contains('settings')) {
+					database.createObjectStore('settings', { keyPath: ['userId', 'key'] });
+				}
+			};
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => reject(request.error);
+		});
+		const tx = db.transaction('entries', 'readwrite');
+		tx.objectStore('entries').put({
+			...entry,
+			userId: 'anonymous',
+			updatedAt: entry.createdAt,
+			deletedAt: null,
+			lastSyncedAt: null,
+			lastRemoteChangeAt: null
+		});
+		await new Promise<void>((resolve, reject) => {
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error);
+		});
+		db.close();
+	}, entry);
+}
+
+async function localDateAtOffset(page: import('playwright/test').Page, offset: number) {
+	return page.evaluate((offset) => {
+		const date = new Date();
+		date.setDate(date.getDate() + offset);
+		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+	}, offset);
+}
+
 test('expands only when the cursor reaches a fourth visual line', async ({ page }) => {
 	await page.setViewportSize({ width: 520, height: 900 });
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
@@ -259,6 +307,47 @@ test('saved entries appear in the timeline and open as editable full-screen entr
 	await page.getByRole('button', { name: 'Save journal entry' }).click();
 	await expect(page.locator('.entry-editor')).toHaveCount(0);
 	await expect(entryCard).toContainText('A moment worth keeping and more');
+});
+
+test('calendar selection opens the saved entry for that day and clears the previous draft', async ({
+	page
+}) => {
+	const today = await localDateAtOffset(page, 0);
+	const createdAt = await page.evaluate((date) => {
+		const [year, month, day] = date.split('-').map(Number);
+		return new Date(year, month - 1, day, 12).toISOString();
+	}, today);
+	await addAnonymousEntry(page, {
+		id: 'calendar-selected-entry',
+		text: 'Saved for the selected day',
+		createdAt
+	});
+	await page.reload();
+	const composerEditor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await expect(composerEditor).toBeVisible();
+	await composerEditor.pressSequentially('Draft from another day');
+	await page.getByRole('button', { name: 'Open calendar' }).click();
+	await page.getByRole('button', { name: today, exact: true }).click();
+
+	const selectedEntryEditor = page.locator('.entry-editor').getByRole('textbox', {
+		name: 'Markdown editor'
+	});
+	await expect(selectedEntryEditor).toContainText('Saved for the selected day');
+	await expect(selectedEntryEditor).not.toContainText('Draft from another day');
+	await page.getByRole('button', { name: 'Close journal entry' }).click();
+	await expect(page.locator('.entry-editor')).toHaveCount(0);
+	await expect(composerEditor).toHaveText('');
+});
+
+test('calendar selection clears a previous draft for an empty day', async ({ page }) => {
+	const tomorrow = await localDateAtOffset(page, 1);
+	const composerEditor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await composerEditor.pressSequentially('Draft from today');
+	await page.getByRole('button', { name: 'Open calendar' }).click();
+	await page.getByRole('button', { name: tomorrow, exact: true }).click();
+
+	await expect(composerEditor).toHaveText('');
+	await expect(page.locator('.entry-editor')).toHaveCount(0);
 });
 
 test('the app keeps page margins inside the viewport in every editor state', async ({ page }) => {
