@@ -341,6 +341,7 @@ test('calendar selection opens the saved entry for that day and clears the previ
 
 test('Journey search finds an entry and opens it in the journal editor', async ({ page }) => {
 	await page.goto('/?demo=journey');
+	await expect(page.getByRole('button', { name: /open journal entry/i })).toHaveCount(30);
 	await page.getByRole('button', { name: 'Search Journey entries' }).click();
 	const search = page.getByRole('textbox', { name: 'Search Journey entries' });
 	await search.fill('longer route home');
