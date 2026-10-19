@@ -186,7 +186,7 @@
 			const nextUrl = new URL(url);
 			// This URL comes from the current app page after removing OAuth callback parameters.
 			replaceState(
-				resolve(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`),
+				`${resolve('/')}${nextUrl.search}${nextUrl.hash}`,
 				appPage.state
 			);
 		},
@@ -1549,7 +1549,7 @@
 				if (event.target === event.currentTarget) searchOpen = false;
 			}}
 		>
-			<section class="search-dialog" role="dialog" aria-modal="true" aria-label="Search pages">
+			<div class="search-dialog" role="dialog" aria-modal="true" aria-label="Search pages">
 				<div class="search-field">
 					<Icon name="magnifying-glass" /><input
 						bind:this={searchInput}
@@ -1575,7 +1575,7 @@
 					{/if}
 				</div>
 				<footer>Search across all pages <span>Ctrl K / ⌘ K</span></footer>
-			</section>
+			</div>
 		</div>
 	{/if}
 	<ToastStack notices={toastNotices} onDismiss={dismissToast} />
