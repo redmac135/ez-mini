@@ -13,7 +13,6 @@
 		| 'plus'
 		| 'search'
 		| 'magnifying-glass'
-		| 'trash'
 		| 'x-mark';
 </script>
 
