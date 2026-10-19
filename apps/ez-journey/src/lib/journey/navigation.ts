@@ -17,6 +17,23 @@ export function journeyEntryForDate(entries: StoredJourneyEntry[], date: string)
 		)[0];
 }
 
+export type JourneyCalendarView = 'day' | 'month' | 'year';
+
+export function calendarYearRangeStart(year: number) {
+	return Math.floor(year / 12) * 12;
+}
+
+export function calendarYears(year: number) {
+	const start = calendarYearRangeStart(year);
+	return Array.from({ length: 12 }, (_, index) => start + index);
+}
+
+export function moveCalendarDate(date: Date, view: JourneyCalendarView, amount: number) {
+	if (view === 'day') return new Date(date.getFullYear(), date.getMonth() + amount, 1);
+	if (view === 'month') return new Date(date.getFullYear() + amount, date.getMonth(), 1);
+	return new Date(calendarYearRangeStart(date.getFullYear()) + amount * 12, date.getMonth(), 1);
+}
+
 export function nextLocalDayStart(date: string) {
 	const [year, month, day] = date.split('-').map(Number);
 	return new Date(year, month - 1, day + 1).toISOString();
@@ -32,23 +49,38 @@ export function searchJourneyEntries(entries: StoredJourneyEntry[], query: strin
 
 export async function loadEntriesThroughDate(
 	date: string,
-	getOldestDate: () => string | undefined,
-	hasMore: () => boolean,
-	loadNextPage: () => Promise<void>,
-	loadAnchor?: (date: string) => Promise<void>
+	options: {
+		getOldestDate: () => string | undefined;
+		getNewestDate: () => string | undefined;
+		hasOlderPage: () => boolean;
+		hasNewerPage: () => boolean;
+		loadOlderPage: () => Promise<void>;
+		loadNewerPage: () => Promise<void>;
+		loadAnchor: (date: string) => Promise<void>;
+		isCurrent: () => boolean;
+	}
 ) {
-	while (hasMore()) {
-		const oldest = getOldestDate();
-		if (oldest && oldest <= date) return;
-		if (!oldest && loadAnchor) {
-			await loadAnchor(date);
+	while (options.isCurrent()) {
+		const oldest = options.getOldestDate();
+		const newest = options.getNewestDate();
+		if (oldest && date < oldest) {
+			if (!options.hasOlderPage()) return;
+			if (dateDistance(oldest, date) > 30) {
+				await options.loadAnchor(date);
+				return;
+			}
+			await options.loadOlderPage();
+			continue;
+		}
+		if (!oldest && options.hasOlderPage()) {
+			await options.loadAnchor(date);
 			return;
 		}
-		if (oldest && loadAnchor && dateDistance(oldest, date) > 30) {
-			await loadAnchor(date);
-			return;
+		if (newest && date > newest && options.hasNewerPage()) {
+			await options.loadNewerPage();
+			continue;
 		}
-		await loadNextPage();
+		return;
 	}
 }
 

@@ -350,6 +350,50 @@ test('calendar selection clears a previous draft for an empty day', async ({ pag
 	await expect(page.locator('.entry-editor')).toHaveCount(0);
 });
 
+test('calendar arrows keep month view open and move through consecutive year ranges', async ({
+	page
+}) => {
+	await page.getByRole('button', { name: 'Open calendar' }).click();
+	const headerButtons = page.locator('.picker header .labels button');
+	const yearLabel = headerButtons.nth(1);
+	const year = Number(await yearLabel.textContent());
+	await headerButtons.nth(0).click();
+	await page.getByRole('button', { name: 'Next' }).click();
+	await expect(yearLabel).toHaveText(String(year + 1));
+	const monthGrid = page.locator('.picker .grid.months');
+	await expect(monthGrid.getByRole('button', { name: 'Jan', exact: true })).toBeVisible();
+
+	await yearLabel.click();
+	const rangeStart = Math.floor((year + 1) / 12) * 12;
+	await page.getByRole('button', { name: 'Previous' }).click();
+	await expect(yearLabel).toHaveText(String(rangeStart - 12));
+	await expect(
+		monthGrid.getByRole('button', { name: String(rangeStart - 12), exact: true })
+	).toBeVisible();
+	await expect(
+		monthGrid.getByRole('button', { name: String(rangeStart - 1), exact: true })
+	).toBeVisible();
+});
+
+test('distant calendar jumps can load continuously toward newer entries', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await page.goto('/?demo=journey');
+	const entryCards = page.getByRole('button', { name: /open journal entry/i });
+	await expect(entryCards).toHaveCount(30);
+	const selectedDate = await localDateAtOffset(page, -60);
+	await page.getByRole('button', { name: 'Open calendar' }).click();
+	await page.getByRole('button', { name: selectedDate, exact: true }).click();
+	await expect(page.locator('.entry-editor')).toBeVisible();
+	await page.getByRole('button', { name: 'Close journal entry' }).click();
+	await expect(page.locator('.entry-editor')).toHaveCount(0);
+	await expect(entryCards).toHaveCount(60);
+
+	await page.locator('.timeline-scroll').evaluate((element) => {
+		element.scrollTop = 0;
+	});
+	await expect(entryCards).toHaveCount(90);
+});
+
 test('the app keeps page margins inside the viewport in every editor state', async ({ page }) => {
 	await page.setViewportSize({ width: 1280, height: 800 });
 	await page.goto('/?demo=journey');

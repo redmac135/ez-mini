@@ -2,7 +2,11 @@
 	import { onMount } from 'svelte';
 	import { Icon } from '@ez/ui';
 	import type { JourneyEntry } from './journey';
-	import { journeyDateKey } from './journey/navigation';
+	import {
+		calendarYears,
+		journeyDateKey,
+		moveCalendarDate
+	} from './journey/navigation';
 	let {
 		selectedDate,
 		entries,
@@ -30,10 +34,7 @@
 		'Nov',
 		'Dec'
 	];
-	const years = $derived.by(() => {
-		const start = Math.floor(shown.getFullYear() / 12) * 12;
-		return Array.from({ length: 12 }, (_, i) => start + i);
-	});
+	const years = $derived(calendarYears(shown.getFullYear()));
 	const days = $derived.by(() => {
 		const first = new Date(shown.getFullYear(), shown.getMonth(), 1);
 		const count = new Date(shown.getFullYear(), shown.getMonth() + 1, 0).getDate();
@@ -49,11 +50,7 @@
 		return journeyDateKey(date);
 	}
 	function move(amount: number) {
-		shown = new Date(
-			shown.getFullYear() + (view === 'year' ? amount * 12 : 0),
-			shown.getMonth() + (view === 'month' ? amount : view === 'day' ? amount : 0),
-			1
-		);
+		shown = moveCalendarDate(shown, view, amount);
 	}
 	function dismiss(event: KeyboardEvent) {
 		if (event.key === 'Escape') onClose();

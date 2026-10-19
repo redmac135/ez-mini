@@ -84,6 +84,7 @@
 			onLoaded({ user, data }) {
 				submittedEntries = data.entries.filter((entry) => !entry.deletedAt);
 				nextEntryCursor = data.nextCursor;
+				newerEntryCursor = null;
 				anonymousImportOpen = Boolean(user && data.promptAnonymousImport);
 				if (user && !data.initialSyncCompleted) queueMicrotask(requestImmediateSync);
 			}
@@ -131,10 +132,13 @@
 	let pageScrolled = $state(false);
 	let submittedEntries = $state<StoredJourneyEntry[]>([]);
 	let nextEntryCursor = $state<EntryCursor | null>(null);
+	let newerEntryCursor = $state<EntryCursor | null>(null);
 	let loadingOlderEntries = $state(false);
-	let olderEntriesLoad: Promise<void> | null = null;
+	let timelinePageLoad: Promise<void> | null = null;
+	let dateSelectionToken = 0;
 	let timelineScroll: HTMLDivElement;
 	let loadSentinel: HTMLDivElement;
+	let newerLoadSentinel: HTMLDivElement;
 	let syncBusy = $state(false);
 	let anonymousImportOpen = $state(false);
 	let anonymousImportBusy = $state(false);
@@ -156,11 +160,19 @@
 		void initializeJourney();
 		const pageObserver = new IntersectionObserver(
 			(entries) => {
-				if (entries.some((entry) => entry.isIntersecting)) void loadMoreEntries();
+				if (entries.some((entry) => entry.target === loadSentinel && entry.isIntersecting)) {
+					void loadMoreEntries();
+				}
+				if (
+					entries.some((entry) => entry.target === newerLoadSentinel && entry.isIntersecting)
+				) {
+					void loadNewerEntries();
+				}
 			},
 			{ root: timelineScroll, rootMargin: '320px' }
 		);
 		if (loadSentinel) pageObserver.observe(loadSentinel);
+		if (newerLoadSentinel) pageObserver.observe(newerLoadSentinel);
 		window.addEventListener('online', handleOnline);
 		window.addEventListener('offline', handleOffline);
 
@@ -420,6 +432,7 @@
 			);
 			const visible = latest.filter((entry) => !entry.deletedAt).slice(0, visibleCount);
 			submittedEntries = visible;
+			newerEntryCursor = null;
 			const last = visible.at(-1);
 			nextEntryCursor =
 				latest.filter((entry) => !entry.deletedAt).length > visible.length && last
@@ -458,7 +471,7 @@
 	}
 
 	function loadMoreEntries(): Promise<void> {
-		if (olderEntriesLoad) return olderEntriesLoad;
+		if (timelinePageLoad) return timelinePageLoad;
 		const cursor = nextEntryCursor;
 		if (!cursor) return Promise.resolve();
 		const userId = accountState.user?.userId ?? null;
@@ -471,15 +484,48 @@
 				nextEntryCursor = page.nextCursor;
 			} finally {
 				loadingOlderEntries = false;
-				olderEntriesLoad = null;
+				timelinePageLoad = null;
 			}
 		})();
-		olderEntriesLoad = load;
+		timelinePageLoad = load;
 		return load;
 	}
 
-	function loadEntriesAtDate(date: string, userId: string | null): Promise<void> {
-		if (olderEntriesLoad) return olderEntriesLoad;
+	function loadNewerEntries(): Promise<void> {
+		if (timelinePageLoad) return timelinePageLoad;
+		const cursor = newerEntryCursor;
+		if (!cursor) return Promise.resolve();
+		const userId = accountState.user?.userId ?? null;
+		loadingOlderEntries = true;
+		const load = (async () => {
+			try {
+				let page = await JourneyStorage.loadPageAfter(userId, cursor);
+				while (page.entries.every((entry) => entry.deletedAt) && page.nextCursor) {
+					if ((accountState.user?.userId ?? null) !== userId) return;
+					page = await JourneyStorage.loadPageAfter(userId, page.nextCursor);
+				}
+				if ((accountState.user?.userId ?? null) !== userId || newerEntryCursor !== cursor) return;
+				const combined = new Map(submittedEntries.map((entry) => [entry.id, entry]));
+				for (const entry of page.entries) if (!entry.deletedAt) combined.set(entry.id, entry);
+				submittedEntries = [...combined.values()].sort(
+					(a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+				);
+				newerEntryCursor = page.nextCursor;
+			} finally {
+				loadingOlderEntries = false;
+				timelinePageLoad = null;
+			}
+		})();
+		timelinePageLoad = load;
+		return load;
+	}
+
+	function loadEntriesAtDate(
+		date: string,
+		userId: string | null,
+		isCurrent: () => boolean
+	): Promise<void> {
+		if (timelinePageLoad) return timelinePageLoad;
 		loadingOlderEntries = true;
 		const load = (async () => {
 			try {
@@ -488,22 +534,41 @@
 					id: ''
 				});
 				while (page.entries.every((entry) => entry.deletedAt) && page.nextCursor) {
-					if ((accountState.user?.userId ?? null) !== userId) return;
+					if ((accountState.user?.userId ?? null) !== userId || !isCurrent()) return;
 					page = await JourneyStorage.loadPage(userId, page.nextCursor);
 				}
-				if ((accountState.user?.userId ?? null) !== userId) return;
-				const combined = new Map(submittedEntries.map((entry) => [entry.id, entry]));
-				for (const entry of page.entries) if (!entry.deletedAt) combined.set(entry.id, entry);
-				submittedEntries = [...combined.values()].sort(
-					(a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
-				);
+				if ((accountState.user?.userId ?? null) !== userId || !isCurrent()) return;
+				submittedEntries = page.entries.filter((entry) => !entry.deletedAt);
 				nextEntryCursor = page.nextCursor;
+				const newest = page.entries[0];
+				newerEntryCursor = newest ? { createdAt: newest.createdAt, id: newest.id } : null;
+				if (newerEntryCursor) {
+					const cursor = newerEntryCursor;
+					let newerPage = await JourneyStorage.loadPageAfter(userId, cursor);
+					while (newerPage.entries.every((entry) => entry.deletedAt) && newerPage.nextCursor) {
+						if ((accountState.user?.userId ?? null) !== userId || !isCurrent()) return;
+						newerPage = await JourneyStorage.loadPageAfter(userId, newerPage.nextCursor);
+					}
+					if (
+						(accountState.user?.userId ?? null) !== userId ||
+						!isCurrent() ||
+						newerEntryCursor !== cursor
+					) return;
+					const combined = new Map(submittedEntries.map((entry) => [entry.id, entry]));
+					for (const entry of newerPage.entries) {
+						if (!entry.deletedAt) combined.set(entry.id, entry);
+					}
+					submittedEntries = [...combined.values()].sort(
+						(a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+					);
+					newerEntryCursor = newerPage.nextCursor;
+				}
 			} finally {
 				loadingOlderEntries = false;
-				olderEntriesLoad = null;
+				timelinePageLoad = null;
 			}
 		})();
-		olderEntriesLoad = load;
+		timelinePageLoad = load;
 		return load;
 	}
 
@@ -521,6 +586,7 @@
 				const page = await JourneyStorage.loadPage(user.userId, null);
 				submittedEntries = page.entries.filter((entry) => !entry.deletedAt);
 				nextEntryCursor = page.nextCursor;
+				newerEntryCursor = null;
 			}
 			await JourneyStorage.markPromptedForAnonymousImport(user.userId);
 			anonymousImportOpen = false;
@@ -542,6 +608,8 @@
 	}
 
 	async function selectJournalDate(date: string) {
+		const selectionToken = ++dateSelectionToken;
+		const isCurrent = () => selectionToken === dateSelectionToken && selectedDate === date;
 		selectedDate = date;
 		calendarOpen = false;
 		editorState = EMPTY_STATE;
@@ -550,19 +618,25 @@
 		entrySaveError = '';
 		setExpanded(false);
 		const userId = accountState.user?.userId ?? null;
-		if (olderEntriesLoad) await olderEntriesLoad;
-		if ((accountState.user?.userId ?? null) !== userId) return;
-		await loadEntriesThroughDate(
-			date,
-			() => {
+		if (timelinePageLoad) await timelinePageLoad;
+		if ((accountState.user?.userId ?? null) !== userId || !isCurrent()) return;
+		await loadEntriesThroughDate(date, {
+			getOldestDate: () => {
 				const oldest = submittedEntries.at(-1);
 				return oldest ? journeyEntryDateKey(oldest.createdAt) : undefined;
 			},
-			() => Boolean(nextEntryCursor),
-			loadMoreEntries,
-			(targetDate) => loadEntriesAtDate(targetDate, userId)
-		);
-		if ((accountState.user?.userId ?? null) !== userId) return;
+			getNewestDate: () => {
+				const newest = submittedEntries[0];
+				return newest ? journeyEntryDateKey(newest.createdAt) : undefined;
+			},
+			hasOlderPage: () => Boolean(nextEntryCursor),
+			hasNewerPage: () => Boolean(newerEntryCursor),
+			loadOlderPage: loadMoreEntries,
+			loadNewerPage: loadNewerEntries,
+			loadAnchor: (targetDate) => loadEntriesAtDate(targetDate, userId, isCurrent),
+			isCurrent
+		});
+		if ((accountState.user?.userId ?? null) !== userId || !isCurrent()) return;
 		let entriesForEditor = savedEntries;
 		try {
 			entriesForEditor = await JourneyStorage.loadEntries(userId);
@@ -570,9 +644,10 @@
 		} catch {
 			entriesForEditor = [...savedEntries, ...submittedEntries];
 		}
-		if ((accountState.user?.userId ?? null) !== userId) return;
+		if ((accountState.user?.userId ?? null) !== userId || !isCurrent()) return;
 		const entryForDate = journeyEntryForDate(entriesForEditor, date);
 		requestAnimationFrame(() => {
+			if (!isCurrent()) return;
 			const groups = [...timelineScroll.querySelectorAll<HTMLElement>('.day-group')];
 			const target =
 				groups.find((group) => group.dataset.date === date) ??
@@ -795,6 +870,7 @@
 		</div>
 
 		<div class="timeline-scroll" bind:this={timelineScroll} onscroll={handleTimelineScroll}>
+			<div class="timeline-sentinel" bind:this={newerLoadSentinel} aria-hidden="true"></div>
 			<JourneyTimeline entries={submittedEntries} onOpen={openEntry} />
 			<div class="timeline-sentinel" bind:this={loadSentinel} aria-hidden="true"></div>
 			{#if loadingOlderEntries}<p class="timeline-loading" aria-live="polite">
@@ -987,7 +1063,8 @@
 		scrollbar-gutter: stable;
 	}
 
-	.timeline-sentinel {
+	.timeline-sentinel,
+	.timeline-newer-sentinel {
 		height: 1px;
 	}
 
