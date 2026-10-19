@@ -90,6 +90,9 @@
 
 	let session: EditorSession = { pages: [], activePageId: '' };
 	let drawerOpen = false;
+	let searchOpen = false;
+	let searchQuery = '';
+	let searchInput: HTMLInputElement | null = null;
 	let loaded = false;
 	let menuPageId: string | null = null;
 	let editingPageId: string | null = null;
@@ -355,6 +358,31 @@
 			clearTimeout(editorIdleTimeout);
 			editorIdleTimeout = null;
 		}
+	}
+
+	$: searchResults = (() => {
+		const query = searchQuery.trim().toLocaleLowerCase();
+		if (!query) return sortPagesByRecency(visiblePages);
+		return sortPagesByRecency(visiblePages.filter((page) =>
+			page.title.toLocaleLowerCase().includes(query) || page.content.toLocaleLowerCase().includes(query)
+		)).sort((a, b) => {
+			const aTitle = a.title.toLocaleLowerCase().includes(query);
+			const bTitle = b.title.toLocaleLowerCase().includes(query);
+			return Number(bTitle) - Number(aTitle);
+		});
+	})();
+
+	async function openSearch() {
+		searchOpen = true;
+		drawerOpen = false;
+		await tick();
+		searchInput?.focus();
+	}
+
+	function selectSearchResult(pageId: string) {
+		selectPage(pageId);
+		searchOpen = false;
+		searchQuery = '';
 	}
 
 	function selectPage(pageId: string) {
@@ -710,6 +738,19 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
+		if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+			event.preventDefault();
+			void openSearch();
+			return;
+		}
+
+		if (event.key === 'Escape' && searchOpen) {
+			searchOpen = false;
+			searchQuery = '';
+			event.preventDefault();
+			return;
+		}
+
 		const isCtrlShiftShortcut = event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey;
 
 		if (isCtrlShiftShortcut && event.key.toLowerCase() === 'n') {
@@ -1402,7 +1443,10 @@
 	>
 		<div class="drawer-header">
 			<h1>Pages</h1>
-			<button type="button" class="add-page" aria-label="New page" on:click={addPage}>+</button>
+			<div class="drawer-actions">
+				<button type="button" class="add-page" aria-label="Search pages" on:click={() => void openSearch()}><Icon name="magnifying-glass" /></button>
+				<button type="button" class="add-page" aria-label="New page" on:click={addPage}>+</button>
+			</div>
 		</div>
 
 		<nav class="page-list" aria-label="Page tabs">
@@ -1485,6 +1529,26 @@
 		</Workspace>
 	</section>
 
+	{#if searchOpen}
+		<div class="search-backdrop" role="presentation" on:click={(event) => { if (event.target === event.currentTarget) searchOpen = false; }}>
+			<section class="search-dialog" role="dialog" aria-modal="true" aria-label="Search pages">
+				<div class="search-field"><Icon name="magnifying-glass" /><input bind:this={searchInput} bind:value={searchQuery} placeholder="Search your pages..." aria-label="Search your pages" /><kbd>ESC</kbd></div>
+				<div class="search-results" aria-live="polite">
+					{#if searchResults.length === 0}
+						<p class="search-empty">No pages found</p>
+					{:else}
+					{#each searchResults as result (result.id)}
+						<button type="button" class="search-result" on:click={() => selectSearchResult(result.id)}>
+							<strong>{result.title || 'Untitled'}</strong>
+							<span>{result.content.slice(0, 120) || 'No content'}</span>
+						</button>
+					{/each}
+					{/if}
+				</div>
+				<footer>Search across all pages <span>Ctrl K / ⌘ K</span></footer>
+			</section>
+		</div>
+	{/if}
 	<ToastStack notices={toastNotices} onDismiss={dismissToast} />
 </AppShell>
 
@@ -1672,6 +1736,12 @@
 		cursor: pointer;
 	}
 
+	.drawer-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
 	.add-page,
 	.menu-toggle {
 		width: 1.75rem;
@@ -1744,6 +1814,56 @@
 		color: var(--color-fg);
 		fill: currentColor;
 	}
+
+	.search-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 1000;
+		display: flex;
+		align-items: flex-start;
+		justify-content: center;
+		padding: min(18vh, 9rem) var(--space-4) var(--space-4);
+		background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+	}
+
+	.search-dialog {
+		width: min(100%, 38rem);
+		max-height: min(70vh, 36rem);
+		display: flex;
+		flex-direction: column;
+		background: var(--color-bg);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-2);
+		color: var(--color-fg);
+	}
+
+	.search-field {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-4);
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.search-field input {
+		flex: 1;
+		min-width: 0;
+		border: 0;
+		outline: 0;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		font-size: var(--font-size-lg);
+	}
+
+	.search-field kbd,
+	.search-dialog footer span { color: var(--color-muted); font-size: var(--font-size-sm); }
+	.search-results { overflow-y: auto; padding: var(--space-2); }
+	.search-result { width: 100%; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3); border: 0; border-radius: var(--radius-1); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+	.search-result:hover, .search-result:focus-visible { background: var(--color-hover); outline: 0; }
+	.search-result span, .search-empty { overflow: hidden; color: var(--color-muted); text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-sm); }
+	.search-empty { padding: var(--space-3); text-align: center; }
+	.search-dialog footer { display: flex; justify-content: space-between; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-border); color: var(--color-muted); font-size: var(--font-size-sm); }
 
 	.title-input {
 		min-width: 0;
