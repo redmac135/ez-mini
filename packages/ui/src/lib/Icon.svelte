@@ -2,6 +2,7 @@
 	export let name:
 		| 'archive-box'
 		| 'bars-3'
+		| 'calendar'
 		| 'calendar-days'
 		| 'check'
 		| 'chevron-left'
@@ -10,6 +11,7 @@
 		| 'edit'
 		| 'delete'
 		| 'plus'
+		| 'search'
 		| 'x-mark';
 </script>
 
@@ -34,7 +36,7 @@
 			stroke-width="1.5"
 		></path>
 	</svg>
-{:else if name === 'calendar-days'}
+{:else if name === 'calendar' || name === 'calendar-days'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">
 		<path
 			d="M7 3v4m10-4v4M4 9h16M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zm3 7h2m4 0h2m-8 4h2m4 0h2"
@@ -104,6 +106,17 @@
 			stroke="currentColor"
 			stroke-linecap="round"
 			stroke-width="1.6"
+		></path>
+	</svg>
+{:else if name === 'search'}
+	<svg viewBox="0 0 24 24" aria-hidden="true">
+		<path
+			d="M20.25 20.25l-4.5-4.5m2.25-5.25a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"
+			fill="none"
+			stroke="currentColor"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			stroke-width="1.7"
 		></path>
 	</svg>
 {:else if name === 'delete'}

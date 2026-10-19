@@ -6,6 +6,7 @@
 	const names = [
 		'archive-box',
 		'bars-3',
+		'calendar',
 		'calendar-days',
 		'check',
 		'chevron-left',
@@ -14,6 +15,7 @@
 		'edit',
 		'delete',
 		'plus',
+		'search',
 		'x-mark'
 	] as const;
 </script>
@@ -23,11 +25,19 @@
 	play={async ({ canvas }) => {
 		const editLabel = canvas.getByText('edit');
 		const deleteLabel = canvas.getByText('delete');
+		const calendarLabel = canvas.getByText('calendar');
+		const searchLabel = canvas.getByText('search');
 		await expect(editLabel.parentElement?.querySelector('svg path')?.getAttribute('d')).toContain(
 			'M16.862'
 		);
 		await expect(deleteLabel.parentElement?.querySelector('svg path')?.getAttribute('d')).toContain(
 			'M4 7h16'
+		);
+		await expect(
+			calendarLabel.parentElement?.querySelector('svg path')?.getAttribute('d')
+		).toContain('M7 3v4');
+		await expect(searchLabel.parentElement?.querySelector('svg path')?.getAttribute('d')).toContain(
+			'M20.25 20.25'
 		);
 	}}
 >
