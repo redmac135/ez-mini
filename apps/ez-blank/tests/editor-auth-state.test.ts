@@ -127,7 +127,7 @@ test('startup auth state publishes local data and leaves remote sync for the bac
 	assert.equal(remoteCalls, 0);
 });
 
-test('editor auth state syncs signed-in pages, applies remote active page, and prompts for anonymous content', async () => {
+test('editor auth state loads initial remote context when no local account state exists', async () => {
 	const remotePage = {
 		id: 'remote-page',
 		user_id: 'user-a',
@@ -142,22 +142,9 @@ test('editor auth state syncs signed-in pages, applies remote active page, and p
 		pages: [anonymousPage],
 		activePageId: anonymousPage.id
 	};
-	const localPage = createPage('Old remote body', {
-		id: 'remote-page',
-		userId: 'user-a',
-		now: '2026-01-01T00:00:00.000Z',
-		isEphemeral: false
-	});
-	localPage.lastSyncedAt = '2026-01-01T00:00:00.000Z';
-	localPage.syncStatus = 'synced';
-	const userLocal = {
-		pages: [localPage],
-		activePageId: localPage.id
-	};
-
 	const result = await loadEditorAuthState({
 		user,
-		loader: buildLoader({ userLocal, anonymousSession }),
+		loader: buildLoader({ anonymousSession }),
 		pagesApi: buildPagesApi([remotePage], 'remote-page'),
 		isOnline: true,
 		signal: new AbortController().signal

@@ -131,6 +131,7 @@ interface OAuthCallbackResult {
 	message: string;
 	broadcast: boolean;
 	alreadySignedIn: boolean;
+	successfulSignIn: boolean;
 	linked: boolean;
 	showLogin: boolean;
 	linkAttempt: boolean;
@@ -272,7 +273,7 @@ export function createAccountDataController<TData>(
 					broadcast: oauthResult?.broadcast ?? false,
 					requestId: nextRequestId,
 					setBusy: false,
-					transition: switchingExistingAccount
+					transition: switchingExistingAccount || oauthResult?.successfulSignIn === true
 				});
 			}
 			await applyOAuthResult(oauthResult);
@@ -307,7 +308,7 @@ export function createAccountDataController<TData>(
 		setState({
 			accountModalOpen: oauthResult.alreadySignedIn,
 			loginModalOpen: oauthResult.showLogin,
-			authMessage: oauthResult.message
+			authMessage: oauthResult.successfulSignIn ? '' : oauthResult.message
 		});
 	}
 
@@ -688,7 +689,7 @@ export function createAccountDataController<TData>(
 						? 'Already signed into this account.'
 						: linked
 							? 'Account connected.'
-							: 'Signed in successfully.'
+							: ''
 					: linkAttempt
 						? reason === 'identity_exists'
 							? messages.identity_exists
@@ -696,6 +697,7 @@ export function createAccountDataController<TData>(
 						: (messages[reason ?? ''] ?? 'Unable to complete provider sign-in.'),
 			broadcast: successfulSignIn,
 			alreadySignedIn,
+			successfulSignIn: result === 'success' && reason === 'sign-in',
 			linked,
 			showLogin: result !== 'success' && !linkAttempt,
 			linkAttempt
@@ -909,10 +911,13 @@ export function createAccountDataController<TData>(
 	) {
 		const nextUser = response.activeSession ?? null;
 		const previousUser = state.user;
+		const previousSessions = state.sessions;
 		const nextRequestId = applyOptions.requestId ?? beginRequest();
 		if ((previousUser?.userId ?? null) === (nextUser?.userId ?? null)) {
 			setState({
 				user: nextUser,
+				displayName: nextUser?.displayName ?? '',
+				displayNameDraft: nextUser?.displayName ?? '',
 				sessions: response.sessions,
 				phase: 'ready',
 				authBusy: false,
@@ -958,6 +963,8 @@ export function createAccountDataController<TData>(
 			pendingContextTransition = null;
 			setState({
 				user: nextUser,
+				displayName: nextUser?.displayName ?? '',
+				displayNameDraft: nextUser?.displayName ?? '',
 				data,
 				phase: 'ready',
 				authBusy: false,
@@ -972,7 +979,7 @@ export function createAccountDataController<TData>(
 				data,
 				pulledRemoteChanges: hasPulledRemoteChanges(data)
 			});
-		} catch (error) {
+		} catch {
 			if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
 			try {
 				const restored = await restoreAuthContext(previousUser);
@@ -988,22 +995,33 @@ export function createAccountDataController<TData>(
 					authBusy: false,
 					accountBusySessionId: null,
 					contextTransition: null,
-					authMessage: getErrorMessage(error, 'Unable to load account data.')
+					authMessage: ''
 				});
 				options.onAuthChanged?.(restoredUser);
 				broadcastAuthSessionChanged(restoredUser);
 				resubscribeToDataChanges(restoredUser);
-			} catch (restoreError) {
+				options.onNotice?.('error loading context');
+			} catch {
 				if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+				try {
+					await options.adapter.restoreLocalContext?.(previousUser);
+				} catch {
+					// Keep the prior in-memory data visible if local restoration also fails.
+				}
+				if (!isLatest(nextRequestId) || pendingContextTransition !== pending) return;
+				pendingContextTransition = null;
 				setState({
-					authMessage: `${getErrorMessage(error, 'Unable to load account data.')} ${getErrorMessage(restoreError, 'Unable to restore the previous account.')}`,
-					contextTransition: {
-						targetUser: nextUser,
-						canceling: false,
-						errorMessage: getErrorMessage(restoreError, 'Unable to restore the previous account.'),
-						cancelable: true
-					}
+					user: previousUser,
+					sessions: previousSessions,
+					phase: state.data === null ? 'error' : 'ready',
+					authBusy: false,
+					contextTransition: null,
+					authMessage: ''
 				});
+				options.onAuthChanged?.(previousUser);
+				broadcastAuthSessionChanged(previousUser);
+				resubscribeToDataChanges(previousUser);
+				options.onNotice?.('error loading context');
 			}
 		}
 	}

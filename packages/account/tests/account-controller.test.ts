@@ -703,7 +703,12 @@ test('restores the prior auth and data context when target loading fails', async
 			return `account:${user.userId}`;
 		}
 	};
-	const account = createAccountDataController({ authClient: auth, adapter });
+	const notices: string[] = [];
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		onNotice: (message) => notices.push(message)
+	});
 
 	await account.initialize();
 	await account.selectAccountSession(activeB.sessionId);
@@ -713,8 +718,82 @@ test('restores the prior auth and data context when target loading fails', async
 	assert.equal(account.getState().data, 'account:user-a');
 	assert.equal(account.getState().phase, 'ready');
 	assert.equal(account.getState().contextTransition, null);
-	assert.match(account.getState().authMessage, /Target data could not be loaded/);
+	assert.equal(account.getState().authMessage, '');
+	assert.deepEqual(notices, ['error loading context']);
 	account.destroy();
+});
+
+test('clears the transition and restores prior local data if auth rollback also fails', async () => {
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA, userB] });
+	auth.switchSession = async (sessionId) => {
+		if (sessionId === activeB.sessionId) {
+			return { activeSession: activeB, sessions: [{ ...userA, active: false }, activeB] };
+		}
+		throw new Error('Unable to restore the previous auth session.');
+	};
+	const restoredUsers: Array<string | null> = [];
+	const notices: string[] = [];
+	const adapter: AccountDataAdapter<string> = {
+		...createDataAdapter(),
+		async loadAccount(user) {
+			if (user.userId === 'user-b') throw new Error('Target data could not be loaded.');
+			return `account:${user.userId}`;
+		},
+		async restoreLocalContext(user) {
+			restoredUsers.push(user?.userId ?? null);
+		}
+	};
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		onNotice: (message) => notices.push(message)
+	});
+
+	await account.initialize();
+	await account.selectAccountSession(activeB.sessionId);
+
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	assert.equal(account.getState().contextTransition, null);
+	assert.deepEqual(restoredUsers, ['user-a']);
+	assert.deepEqual(notices, ['error loading context']);
+	account.destroy();
+});
+
+test('successful OAuth sign-in loads the new context through the transition path', async () => {
+	const originalWindow = globalThis.window;
+	Object.defineProperty(globalThis, 'window', {
+		configurable: true,
+		value: {
+			location: {
+				href: 'https://app.example.test/?oauth=success&oauth_reason=sign-in'
+			},
+			history: { state: null, replaceState() {} },
+			addEventListener() {},
+			removeEventListener() {}
+		}
+	});
+	const activeB = { ...userB, active: true };
+	const auth = createAuthClient({ activeSession: activeB, sessions: [activeB] });
+	const adapter = createDataAdapter();
+	let receivedTransitionSignal = false;
+	adapter.loadAccount = async (user, options) => {
+		receivedTransitionSignal = Boolean(options?.signal);
+		return `account:${user.userId}`;
+	};
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	try {
+		await account.initialize();
+		assert.equal(receivedTransitionSignal, true);
+		assert.equal(account.getState().user?.userId, 'user-b');
+		assert.equal(account.getState().authMessage, '');
+		assert.equal(account.getState().contextTransition, null);
+	} finally {
+		account.destroy();
+		Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+	}
 });
 
 test('ignores repeated email submissions while the first request is pending', async () => {

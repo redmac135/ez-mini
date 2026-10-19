@@ -13,15 +13,21 @@ export type RemoteJourneyEntry = {
 };
 
 export interface JourneyApi {
-	listEntries(options?: { since?: string | null }): Promise<RemoteJourneyEntry[]>;
-	upsertEntry(entry: RemoteJourneyEntry): Promise<RemoteJourneyEntry>;
+	listEntries(options?: {
+		since?: string | null;
+		signal?: AbortSignal;
+	}): Promise<RemoteJourneyEntry[]>;
+	upsertEntry(
+		entry: RemoteJourneyEntry,
+		options?: { signal?: AbortSignal }
+	): Promise<RemoteJourneyEntry>;
 }
 
-export async function syncJourneyEntries(api: JourneyApi, userId: string) {
+export async function syncJourneyEntries(api: JourneyApi, userId: string, signal?: AbortSignal) {
 	let originalEntries: StoredJourneyEntry[] = [];
 	const result = await createSyncEngine<StoredJourneyEntry, RemoteJourneyEntry>({
-		pull: (since) => api.listEntries({ since }),
-		push: (entry) => api.upsertEntry(entry),
+		pull: (since) => api.listEntries({ since, signal }),
+		push: (entry) => api.upsertEntry(entry, { signal }),
 		getLocal: async () => {
 			originalEntries = await JourneyStorage.loadEntries(userId);
 			return originalEntries;
