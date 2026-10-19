@@ -372,7 +372,7 @@
 		{/if}
 		<div class="nav-actions">
 			<Button size="icon" ariaLabel="Edit habits" onclick={() => (editMode = !editMode)}>
-				<Icon name="pencil-square" />
+				<Icon name="edit" />
 			</Button>
 			<Button size="icon" ariaLabel="Add habit" onclick={() => (addModalOpen = true)}>
 				<Icon name="plus" />

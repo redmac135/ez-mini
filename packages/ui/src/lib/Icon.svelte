@@ -2,14 +2,16 @@
 	export let name:
 		| 'archive-box'
 		| 'bars-3'
+		| 'calendar'
 		| 'calendar-days'
 		| 'check'
 		| 'chevron-left'
 		| 'chevron-right'
 		| 'ellipsis-horizontal'
-		| 'pencil-square'
+		| 'edit'
+		| 'delete'
 		| 'plus'
-		| 'trash'
+		| 'search'
 		| 'x-mark';
 </script>
 
@@ -34,7 +36,7 @@
 			stroke-width="1.5"
 		></path>
 	</svg>
-{:else if name === 'calendar-days'}
+{:else if name === 'calendar' || name === 'calendar-days'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">
 		<path
 			d="M7 3v4m10-4v4M4 9h16M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1zm3 7h2m4 0h2m-8 4h2m4 0h2"
@@ -85,15 +87,15 @@
 			fill="currentColor"
 		></path>
 	</svg>
-{:else if name === 'pencil-square'}
+{:else if name === 'edit'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">
 		<path
-			d="M13.5 6h-6A2.25 2.25 0 005.25 8.25v8.25A2.25 2.25 0 007.5 18.75h8.25A2.25 2.25 0 0018 16.5v-6m-6.75 3l7.5-7.5 2.25 2.25-7.5 7.5h-2.25z"
+			d="M16.862 4.487l2.651 2.651M4.5 19.5l4.067-.813L19.513 7.74a1.875 1.875 0 00-2.652-2.652L5.915 16.034 4.5 19.5z"
 			fill="none"
 			stroke="currentColor"
 			stroke-linecap="round"
 			stroke-linejoin="round"
-			stroke-width="1.5"
+			stroke-width="1.7"
 		></path>
 	</svg>
 {:else if name === 'plus'}
@@ -106,7 +108,18 @@
 			stroke-width="1.6"
 		></path>
 	</svg>
-{:else if name === 'trash'}
+{:else if name === 'search'}
+	<svg viewBox="0 0 24 24" aria-hidden="true">
+		<path
+			d="M20.25 20.25l-4.5-4.5m2.25-5.25a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"
+			fill="none"
+			stroke="currentColor"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			stroke-width="1.7"
+		></path>
+	</svg>
+{:else if name === 'delete'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">
 		<path
 			d="M4 7h16M9 7V4h6v3m-8 0l1 13h8l1-13M10 11v5m4-5v5"

@@ -80,7 +80,7 @@
 				ariaLabel={`Edit ${progress.habit.title}`}
 				onclick={() => onEdit(progress)}
 			>
-				<Icon name="pencil-square" />
+				<Icon name="edit" />
 			</Button>
 			<Button
 				size="icon"
@@ -94,7 +94,7 @@
 				ariaLabel={`Delete ${progress.habit.title}`}
 				onclick={() => onDelete(progress)}
 			>
-				<Icon name="trash" />
+				<Icon name="delete" />
 			</Button>
 		</div>
 	{/if}
