@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
+	import { expect } from 'storybook/test';
 	import Icon from './Icon.svelte';
 	const { Story } = defineMeta({ title: 'Components/Primitives/Icon', component: Icon });
 	const names = [
@@ -10,14 +11,26 @@
 		'chevron-left',
 		'chevron-right',
 		'ellipsis-horizontal',
-		'pencil-square',
+		'edit',
+		'delete',
 		'plus',
-		'trash',
 		'x-mark'
 	] as const;
 </script>
 
-<Story name="Icon set">
+<Story
+	name="Icon set"
+	play={async ({ canvas }) => {
+		const editLabel = canvas.getByText('edit');
+		const deleteLabel = canvas.getByText('delete');
+		await expect(editLabel.parentElement?.querySelector('svg path')?.getAttribute('d')).toContain(
+			'M16.862'
+		);
+		await expect(deleteLabel.parentElement?.querySelector('svg path')?.getAttribute('d')).toContain(
+			'M4 7h16'
+		);
+	}}
+>
 	{#snippet template()}
 		<div class="icons">
 			{#each names as name (name)}<div><Icon {name} /><code>{name}</code></div>{/each}
