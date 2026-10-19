@@ -99,5 +99,6 @@ test('Ctrl+K search cancels a title draft and navigates to the selected page', a
 
 	await expect(dialog).not.toBeVisible();
 	await expect(page.locator('.page-row.active .page-title')).toHaveText('Destination page');
+	await openPages(page);
 	await expect(page.getByRole('button', { name: 'Source page', exact: true })).toBeVisible();
 });
