@@ -24,6 +24,7 @@
 	import { auth, journeyApi } from '$lib/api';
 	import JourneyEntryEditor from '../lib/JourneyEntryEditor.svelte';
 	import JourneyTimeline from '../lib/JourneyTimeline.svelte';
+	import JourneyCalendar from '../lib/JourneyCalendar.svelte';
 	import {
 		animateBounds,
 		clearFixedBounds,
@@ -110,6 +111,11 @@
 	let entryEditorClosing = $state(false);
 	let discardEntryConfirmationOpen = $state(false);
 	let menuOpen = $state(false);
+	let calendarOpen = $state(false);
+	let searchOpen = $state(false);
+	let searchQuery = $state('');
+	let selectedDate = $state(new Date().toLocaleDateString('en-CA'));
+	let searchInput = $state<HTMLInputElement>();
 	let toastNotices = $state<Array<{ id: number; message: string }>>([]);
 	const toastController = createToastController((notices) => (toastNotices = notices));
 	let theme = $state<'light' | 'dark'>('light');
@@ -258,7 +264,15 @@
 		const text = editorState.text.trim();
 		if (!text) return;
 
-		const timestamp = new Date().toISOString();
+		const timestampDate = new Date(`${selectedDate}T12:00:00`);
+		const now = new Date();
+		timestampDate.setHours(
+			now.getHours(),
+			now.getMinutes(),
+			now.getSeconds(),
+			now.getMilliseconds()
+		);
+		const timestamp = timestampDate.toISOString();
 		const entry: StoredJourneyEntry = {
 			id: crypto.randomUUID(),
 			userId: accountState.user?.userId ?? 'anonymous',
@@ -471,6 +485,36 @@
 	function dismissToast(id: number) {
 		toastController.dismiss(id);
 	}
+
+	async function selectJournalDate(date: string) {
+		selectedDate = date;
+		calendarOpen = false;
+		const userId = accountState.user?.userId ?? null;
+		while (nextEntryCursor && !loadingOlderEntries) {
+			const oldest = submittedEntries.at(-1)?.createdAt.slice(0, 10);
+			if (oldest && oldest <= date) break;
+			const cursor = nextEntryCursor;
+			loadingOlderEntries = true;
+			try {
+				const page = await JourneyStorage.loadPage(userId, cursor);
+				if ((accountState.user?.userId ?? null) !== userId || nextEntryCursor !== cursor) return;
+				submittedEntries = [
+					...submittedEntries,
+					...page.entries.filter((entry) => !entry.deletedAt)
+				];
+				nextEntryCursor = page.nextCursor;
+			} finally {
+				loadingOlderEntries = false;
+			}
+		}
+		requestAnimationFrame(() => {
+			const groups = [...timelineScroll.querySelectorAll<HTMLElement>('.day-group')];
+			const target =
+				groups.find((group) => group.dataset.date === date) ??
+				groups.find((group) => (group.dataset.date ?? '') < date);
+			if (target) timelineScroll.scrollTo({ top: target.offsetTop, behavior: 'smooth' });
+		});
+	}
 </script>
 
 <svelte:head>
@@ -513,62 +557,136 @@
 						<Icon name="check" />
 					</Button>
 				{:else if !expanded}
-					<div class="menu-control">
+					<div class="navbar-tools">
 						<Button
 							size="icon"
-							ariaLabel="Open app menu"
-							ariaHaspopup="menu"
-							ariaExpanded={menuOpen}
-							onclick={() => (menuOpen = !menuOpen)}
+							ariaLabel="Search Journey entries"
+							onclick={() => {
+								searchOpen = true;
+								requestAnimationFrame(() => searchInput?.focus());
+							}}
 						>
-							<Icon name="ellipsis-horizontal" />
+							<svg viewBox="0 0 24 24" aria-hidden="true"
+								><circle
+									cx="10.8"
+									cy="10.8"
+									r="6.4"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.7"
+								/><path
+									d="m16 16 4.5 4.5"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.7"
+									stroke-linecap="round"
+								/></svg
+							>
 						</Button>
-						{#if menuOpen}
-							<FloatingMenu label="App menu" onDismiss={() => (menuOpen = false)}>
-								<button type="button" role="menuitem" onclick={toggleTheme}>
-									{theme === 'dark' ? 'Light mode' : 'Dark mode'}
-								</button>
-								{#if accountState.user}
-									<button
-										type="button"
-										role="menuitem"
-										disabled={syncBusy}
-										onclick={requestImmediateSync}>{syncStatusLabel}</button
-									>
-									<button
-										type="button"
-										role="menuitem"
-										disabled={accountState.authBusy || syncBusy}
-										onclick={account.openLoginOrAccountList}>Switch account</button
-									>
-									<button
-										type="button"
-										role="menuitem"
-										disabled={accountState.authBusy || syncBusy}
-										onclick={() => void account.openConnectedAccounts()}>Profile</button
-									>
-									<button
-										type="button"
-										role="menuitem"
-										disabled={accountState.authBusy || syncBusy}
-										onclick={() => void account.logoutCurrentAccount()}>Log out</button
-									>
-									<div class="menu-stat">{accountState.displayName}</div>
-								{:else}
-									<button
-										type="button"
-										role="menuitem"
-										disabled={!auth || accountState.authBusy}
-										onclick={account.openLoginOrAccountList}>Login</button
-									>
-								{/if}
-							</FloatingMenu>
-						{/if}
+						<Button
+							size="icon"
+							ariaLabel="Open calendar"
+							ariaExpanded={calendarOpen}
+							onclick={() => {
+								calendarOpen = !calendarOpen;
+								menuOpen = false;
+							}}><Icon name="calendar-days" /></Button
+						>
+						<div class="menu-control">
+							<Button
+								size="icon"
+								ariaLabel="Open app menu"
+								ariaHaspopup="menu"
+								ariaExpanded={menuOpen}
+								onclick={() => (menuOpen = !menuOpen)}
+							>
+								<Icon name="ellipsis-horizontal" />
+							</Button>
+							{#if menuOpen}
+								<FloatingMenu label="App menu" onDismiss={() => (menuOpen = false)}>
+									<button type="button" role="menuitem" onclick={toggleTheme}>
+										{theme === 'dark' ? 'Light mode' : 'Dark mode'}
+									</button>
+									{#if accountState.user}
+										<button
+											type="button"
+											role="menuitem"
+											disabled={syncBusy}
+											onclick={requestImmediateSync}>{syncStatusLabel}</button
+										>
+										<button
+											type="button"
+											role="menuitem"
+											disabled={accountState.authBusy || syncBusy}
+											onclick={account.openLoginOrAccountList}>Switch account</button
+										>
+										<button
+											type="button"
+											role="menuitem"
+											disabled={accountState.authBusy || syncBusy}
+											onclick={() => void account.openConnectedAccounts()}>Profile</button
+										>
+										<button
+											type="button"
+											role="menuitem"
+											disabled={accountState.authBusy || syncBusy}
+											onclick={() => void account.logoutCurrentAccount()}>Log out</button
+										>
+										<div class="menu-stat">{accountState.displayName}</div>
+									{:else}
+										<button
+											type="button"
+											role="menuitem"
+											disabled={!auth || accountState.authBusy}
+											onclick={account.openLoginOrAccountList}>Login</button
+										>
+									{/if}
+								</FloatingMenu>
+							{/if}
+						</div>
 					</div>
 				{/if}
 			</div>
 		</div>
 	</Navbar>
+	{#if calendarOpen}<JourneyCalendar
+			{selectedDate}
+			entries={submittedEntries.filter((entry) => !entry.deletedAt)}
+			onSelect={selectJournalDate}
+			onClose={() => (calendarOpen = false)}
+		/>{/if}
+	{#if searchOpen}
+		<div
+			class="search-backdrop"
+			role="presentation"
+			onclick={(event) => {
+				if (event.target === event.currentTarget) searchOpen = false;
+			}}
+		>
+			<section class="search-panel" aria-label="Search Journey entries">
+				<input
+					bind:this={searchInput}
+					bind:value={searchQuery}
+					placeholder="Search your entries"
+					aria-label="Search Journey entries"
+					onkeydown={(event) => {
+						if (event.key === 'Escape') searchOpen = false;
+					}}
+				/>
+				{#each submittedEntries
+					.filter((entry) => !entry.deletedAt && searchQuery.trim() && entry.text
+								.toLowerCase()
+								.includes(searchQuery.toLowerCase()))
+					.slice(0, 8) as entry (entry.id)}<button
+						class="search-result"
+						onclick={() => {
+							searchOpen = false;
+							openEntry(entry, document.body);
+						}}>{entry.text}<small>{new Date(entry.createdAt).toLocaleDateString()}</small></button
+					>{/each}
+			</section>
+		</div>
+	{/if}
 
 	<Workspace
 		maxWidth="calc(680px + var(--space-5) + var(--space-5))"
@@ -680,10 +798,64 @@
 
 	.navbar-start,
 	.navbar-actions,
-	.menu-control {
+	.menu-control,
+	.navbar-tools {
 		position: relative;
 		display: flex;
 		align-items: center;
+	}
+
+	.navbar-tools {
+		gap: var(--space-1);
+	}
+	.navbar-tools :global(svg) {
+		width: 1.25rem;
+		height: 1.25rem;
+	}
+	.search-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 30;
+		background: rgb(0 0 0 / 24%);
+		padding: 12vh var(--space-5) 0;
+	}
+	.search-panel {
+		width: min(34rem, 100%);
+		margin: 0 auto;
+		padding: var(--space-3);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-2);
+		background: var(--color-bg);
+		box-shadow: 0 12px 38px #0002;
+	}
+	.search-panel input {
+		width: 100%;
+		box-sizing: border-box;
+		border: 0;
+		border-bottom: 1px solid var(--color-border);
+		padding: var(--space-3);
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		outline: none;
+	}
+	.search-result {
+		display: block;
+		width: 100%;
+		padding: var(--space-3);
+		border: 0;
+		background: transparent;
+		color: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.search-result:hover {
+		background: color-mix(in srgb, var(--color-fg) 7%, transparent);
+	}
+	.search-result small {
+		display: block;
+		color: var(--color-muted);
+		margin-top: 3px;
 	}
 
 	.composer {
