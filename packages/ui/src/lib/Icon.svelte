@@ -102,8 +102,15 @@
 	</svg>
 {:else if name === 'magnifying-glass'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">
-		<circle cx="10.8" cy="10.8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
-		<path d="M15.5 15.5L20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.7"></path>
+		<circle cx="10.8" cy="10.8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.7"
+		></circle>
+		<path
+			d="M15.5 15.5L20 20"
+			fill="none"
+			stroke="currentColor"
+			stroke-linecap="round"
+			stroke-width="1.7"
+		></path>
 	</svg>
 {:else if name === 'plus'}
 	<svg viewBox="0 0 24 24" aria-hidden="true">

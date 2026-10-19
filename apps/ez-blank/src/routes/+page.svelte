@@ -185,7 +185,6 @@
 		replaceOAuthUrl: (url) => {
 			const nextUrl = new URL(url);
 			// This URL comes from the current app page after removing OAuth callback parameters.
-			// eslint-disable-next-line svelte/no-navigation-without-resolve
 			replaceState(`${resolve('/')}${nextUrl.search}${nextUrl.hash}`, appPage.state);
 		},
 		onNotice(message) {
@@ -363,9 +362,13 @@
 	$: searchResults = (() => {
 		const query = searchQuery.trim().toLocaleLowerCase();
 		if (!query) return sortPagesByRecency(visiblePages);
-		return sortPagesByRecency(visiblePages.filter((page) =>
-			page.title.toLocaleLowerCase().includes(query) || page.content.toLocaleLowerCase().includes(query)
-		)).sort((a, b) => {
+		return sortPagesByRecency(
+			visiblePages.filter(
+				(page) =>
+					page.title.toLocaleLowerCase().includes(query) ||
+					page.content.toLocaleLowerCase().includes(query)
+			)
+		).sort((a, b) => {
 			const aTitle = a.title.toLocaleLowerCase().includes(query);
 			const bTitle = b.title.toLocaleLowerCase().includes(query);
 			return Number(bTitle) - Number(aTitle);
@@ -1445,7 +1448,12 @@
 		<div class="drawer-header">
 			<h1>Pages</h1>
 			<div class="drawer-actions">
-				<button type="button" class="add-page" aria-label="Search pages" on:click={() => void openSearch()}><Icon name="magnifying-glass" /></button>
+				<button
+					type="button"
+					class="add-page"
+					aria-label="Search pages"
+					on:click={() => void openSearch()}><Icon name="magnifying-glass" /></button
+				>
 				<button type="button" class="add-page" aria-label="New page" on:click={addPage}>+</button>
 			</div>
 		</div>
@@ -1531,19 +1539,36 @@
 	</section>
 
 	{#if searchOpen}
-		<div class="search-backdrop" role="presentation" on:click={(event) => { if (event.target === event.currentTarget) searchOpen = false; }}>
+		<div
+			class="search-backdrop"
+			role="presentation"
+			on:click={(event) => {
+				if (event.target === event.currentTarget) searchOpen = false;
+			}}
+		>
 			<section class="search-dialog" role="dialog" aria-modal="true" aria-label="Search pages">
-				<div class="search-field"><Icon name="magnifying-glass" /><input bind:this={searchInput} bind:value={searchQuery} placeholder="Search your pages..." aria-label="Search your pages" /><kbd>ESC</kbd></div>
+				<div class="search-field">
+					<Icon name="magnifying-glass" /><input
+						bind:this={searchInput}
+						bind:value={searchQuery}
+						placeholder="Search your pages..."
+						aria-label="Search your pages"
+					/><kbd>ESC</kbd>
+				</div>
 				<div class="search-results" aria-live="polite">
 					{#if searchResults.length === 0}
 						<p class="search-empty">No pages found</p>
 					{:else}
-					{#each searchResults as result (result.id)}
-						<button type="button" class="search-result" on:click={() => selectSearchResult(result.id)}>
-							<strong>{result.title || 'Untitled'}</strong>
-							<span>{result.content.slice(0, 120) || 'No content'}</span>
-						</button>
-					{/each}
+						{#each searchResults as result (result.id)}
+							<button
+								type="button"
+								class="search-result"
+								on:click={() => selectSearchResult(result.id)}
+							>
+								<strong>{result.title || 'Untitled'}</strong>
+								<span>{result.content.slice(0, 120) || 'No content'}</span>
+							</button>
+						{/each}
 					{/if}
 				</div>
 				<footer>Search across all pages <span>Ctrl K / ⌘ K</span></footer>
@@ -1858,13 +1883,52 @@
 	}
 
 	.search-field kbd,
-	.search-dialog footer span { color: var(--color-muted); font-size: var(--font-size-sm); }
-	.search-results { overflow-y: auto; padding: var(--space-2); }
-	.search-result { width: 100%; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3); border: 0; border-radius: var(--radius-1); background: transparent; color: inherit; text-align: left; cursor: pointer; }
-	.search-result:hover, .search-result:focus-visible { background: var(--color-hover); outline: 0; }
-	.search-result span, .search-empty { overflow: hidden; color: var(--color-muted); text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-sm); }
-	.search-empty { padding: var(--space-3); text-align: center; }
-	.search-dialog footer { display: flex; justify-content: space-between; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-border); color: var(--color-muted); font-size: var(--font-size-sm); }
+	.search-dialog footer span {
+		color: var(--color-muted);
+		font-size: var(--font-size-sm);
+	}
+	.search-results {
+		overflow-y: auto;
+		padding: var(--space-2);
+	}
+	.search-result {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding: var(--space-3);
+		border: 0;
+		border-radius: var(--radius-1);
+		background: transparent;
+		color: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.search-result:hover,
+	.search-result:focus-visible {
+		background: var(--color-hover);
+		outline: 0;
+	}
+	.search-result span,
+	.search-empty {
+		overflow: hidden;
+		color: var(--color-muted);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--font-size-sm);
+	}
+	.search-empty {
+		padding: var(--space-3);
+		text-align: center;
+	}
+	.search-dialog footer {
+		display: flex;
+		justify-content: space-between;
+		padding: var(--space-3) var(--space-4);
+		border-top: 1px solid var(--color-border);
+		color: var(--color-muted);
+		font-size: var(--font-size-sm);
+	}
 
 	.title-input {
 		min-width: 0;
