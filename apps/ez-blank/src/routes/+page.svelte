@@ -380,6 +380,7 @@
 	}
 
 	function selectSearchResult(pageId: string) {
+		if (editingPageId) cancelTitleEdit();
 		selectPage(pageId);
 		searchOpen = false;
 		searchQuery = '';
