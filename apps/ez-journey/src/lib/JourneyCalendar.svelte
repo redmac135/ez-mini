@@ -2,11 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Icon } from '@ez/ui';
 	import type { JourneyEntry } from './journey';
-	import {
-		calendarYears,
-		journeyDateKey,
-		moveCalendarDate
-	} from './journey/navigation';
+	import { calendarYears, journeyDateKey, moveCalendarDate } from './journey/navigation';
 	let {
 		selectedDate,
 		entries,
@@ -83,7 +79,7 @@
 		</header>
 		{#if view === 'day'}
 			<div class="week">
-				{#each ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as day}<span>{day}</span>{/each}
+				{#each ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as day, index (index)}<span>{day}</span>{/each}
 			</div>
 			<div class="grid">
 				{#each days as item (key(item.date))}<button
@@ -96,7 +92,7 @@
 					>{/each}
 			</div>
 		{:else if view === 'month'}<div class="grid months">
-				{#each monthNames as month, index}<button
+				{#each monthNames as month, index (month)}<button
 						class:selected={shown.getMonth() === index}
 						onclick={() => {
 							shown = new Date(shown.getFullYear(), index, 1);
@@ -105,7 +101,7 @@
 					>{/each}
 			</div>
 		{:else}<div class="grid months">
-				{#each years as year}<button
+				{#each years as year (year)}<button
 						class:selected={shown.getFullYear() === year}
 						onclick={() => {
 							shown = new Date(year, shown.getMonth(), 1);

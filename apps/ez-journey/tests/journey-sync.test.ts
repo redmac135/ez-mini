@@ -369,8 +369,14 @@ test('calendar arrows keep month view and move year ranges without overlap', () 
 	const currentYears = calendarYears(2026);
 	const previousRangeDate = moveCalendarDate(new Date(2026, 8, 1), 'year', -1);
 	const previousYears = calendarYears(previousRangeDate.getFullYear());
-	assert.deepEqual(currentYears, Array.from({ length: 12 }, (_, index) => 2016 + index));
-	assert.deepEqual(previousYears, Array.from({ length: 12 }, (_, index) => 2004 + index));
+	assert.deepEqual(
+		currentYears,
+		Array.from({ length: 12 }, (_, index) => 2016 + index)
+	);
+	assert.deepEqual(
+		previousYears,
+		Array.from({ length: 12 }, (_, index) => 2004 + index)
+	);
 	assert.equal(previousYears.at(-1)! + 1, currentYears[0]);
 });
 
@@ -412,7 +418,10 @@ test('date anchored storage pages include entries on or before the selected loca
 		id: ''
 	});
 
-	assert.deepEqual(page.entries.map(({ id }) => id), ['before-date']);
+	assert.deepEqual(
+		page.entries.map(({ id }) => id),
+		['before-date']
+	);
 });
 
 test('calendar date keys cover saved entries and use local timeline dates', async () => {
@@ -421,7 +430,10 @@ test('calendar date keys cover saved entries and use local timeline dates', asyn
 		entry('newer-marker', 'Newer saved entry', 30)
 	]);
 	const savedEntries = await JourneyStorage.loadEntries('user-a');
-	assert.equal(new Set(savedEntries.map(({ createdAt }) => journeyEntryDateKey(createdAt))).size, 2);
+	assert.equal(
+		new Set(savedEntries.map(({ createdAt }) => journeyEntryDateKey(createdAt))).size,
+		2
+	);
 
 	const previousTimeZone = process.env.TZ;
 	process.env.TZ = 'Pacific/Auckland';
@@ -439,7 +451,10 @@ test('calendar date keys cover saved entries and use local timeline dates', asyn
 test('date selection resolves the newest saved entry and leaves empty dates empty', () => {
 	const selectedDay = new Date(2026, 0, 12, 12).toISOString();
 	const entries = [
-		{ ...entry('earlier', 'Earlier entry', 12), createdAt: new Date(2026, 0, 12, 10).toISOString() },
+		{
+			...entry('earlier', 'Earlier entry', 12),
+			createdAt: new Date(2026, 0, 12, 10).toISOString()
+		},
 		{ ...entry('latest', 'Latest entry', 12), createdAt: selectedDay },
 		{ ...entry('deleted', 'Deleted entry', 12), createdAt: selectedDay, deletedAt: selectedDay }
 	];
@@ -447,4 +462,3 @@ test('date selection resolves the newest saved entry and leaves empty dates empt
 	assert.equal(journeyEntryForDate(entries, '2026-01-12')?.id, 'latest');
 	assert.equal(journeyEntryForDate(entries, '2026-01-13'), undefined);
 });
-

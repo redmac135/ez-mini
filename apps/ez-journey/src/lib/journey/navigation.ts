@@ -87,7 +87,9 @@ export async function loadEntriesThroughDate(
 function dateDistance(left: string, right: string) {
 	const [leftYear, leftMonth, leftDay] = left.split('-').map(Number);
 	const [rightYear, rightMonth, rightDay] = right.split('-').map(Number);
-	return Math.abs(
-		Date.UTC(leftYear, leftMonth - 1, leftDay) - Date.UTC(rightYear, rightMonth - 1, rightDay)
-	) / 86_400_000;
+	return (
+		Math.abs(
+			Date.UTC(leftYear, leftMonth - 1, leftDay) - Date.UTC(rightYear, rightMonth - 1, rightDay)
+		) / 86_400_000
+	);
 }

@@ -6,6 +6,7 @@
 	import { AUTH_SESSION_CACHE_KEY, readCachedAuthSession, writeCachedAuthSession } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
+	import { SvelteDate, SvelteMap } from 'svelte/reactivity';
 	import { Editor, type EditorState } from '@ez/editor';
 	import {
 		AccountDialogs,
@@ -163,9 +164,7 @@
 				if (entries.some((entry) => entry.target === loadSentinel && entry.isIntersecting)) {
 					void loadMoreEntries();
 				}
-				if (
-					entries.some((entry) => entry.target === newerLoadSentinel && entry.isIntersecting)
-				) {
+				if (entries.some((entry) => entry.target === newerLoadSentinel && entry.isIntersecting)) {
 					void loadNewerEntries();
 				}
 			},
@@ -286,7 +285,7 @@
 		const text = editorState.text.trim();
 		if (!text) return;
 
-		const timestampDate = new Date(`${selectedDate}T12:00:00`);
+		const timestampDate = new SvelteDate(`${selectedDate}T12:00:00`);
 		const now = new Date();
 		timestampDate.setHours(
 			now.getHours(),
@@ -480,7 +479,10 @@
 			try {
 				const page = await JourneyStorage.loadPage(userId, cursor);
 				if ((accountState.user?.userId ?? null) !== userId || nextEntryCursor !== cursor) return;
-				submittedEntries = [...submittedEntries, ...page.entries.filter((entry) => !entry.deletedAt)];
+				submittedEntries = [
+					...submittedEntries,
+					...page.entries.filter((entry) => !entry.deletedAt)
+				];
 				nextEntryCursor = page.nextCursor;
 			} finally {
 				loadingOlderEntries = false;
@@ -505,7 +507,7 @@
 					page = await JourneyStorage.loadPageAfter(userId, page.nextCursor);
 				}
 				if ((accountState.user?.userId ?? null) !== userId || newerEntryCursor !== cursor) return;
-				const combined = new Map(submittedEntries.map((entry) => [entry.id, entry]));
+				const combined = new SvelteMap(submittedEntries.map((entry) => [entry.id, entry] as const));
 				for (const entry of page.entries) if (!entry.deletedAt) combined.set(entry.id, entry);
 				submittedEntries = [...combined.values()].sort(
 					(a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
@@ -553,8 +555,11 @@
 						(accountState.user?.userId ?? null) !== userId ||
 						!isCurrent() ||
 						newerEntryCursor !== cursor
-					) return;
-					const combined = new Map(submittedEntries.map((entry) => [entry.id, entry]));
+					)
+						return;
+					const combined = new SvelteMap(
+						submittedEntries.map((entry) => [entry.id, entry] as const)
+					);
 					for (const entry of newerPage.entries) {
 						if (!entry.deletedAt) combined.set(entry.id, entry);
 					}
@@ -821,8 +826,7 @@
 						if (event.key === 'Escape') searchOpen = false;
 					}}
 				/>
-				{#each searchJourneyEntries(savedEntries, searchQuery)
-					.slice(0, 8) as entry (entry.id)}<button
+				{#each searchJourneyEntries(savedEntries, searchQuery).slice(0, 8) as entry (entry.id)}<button
 						class="search-result"
 						onclick={() => {
 							searchOpen = false;
