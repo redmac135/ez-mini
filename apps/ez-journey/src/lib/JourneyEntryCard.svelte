@@ -21,6 +21,7 @@
 	bind:this={source}
 	type="button"
 	class="entry-card"
+	data-entry-id={entry.id}
 	aria-label={`Open journal entry from ${timeFormat.format(createdAt)}`}
 	onclick={() => onOpen(entry, source)}
 >

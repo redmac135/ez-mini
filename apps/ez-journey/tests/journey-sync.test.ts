@@ -7,6 +7,16 @@ import {
 	type RemoteJourneyEntry
 } from '../src/lib/journey/sync';
 import type { StoredJourneyEntry } from '../src/lib/journey';
+import {
+	calendarYears,
+	journeyDateKey,
+	journeyEntryDateKey,
+	journeyEntryForDate,
+	loadEntriesThroughDate,
+	moveCalendarDate,
+	nextLocalDayStart,
+	searchJourneyEntries
+} from '../src/lib/journey/navigation';
 
 const timestamp = (day: number) => `2026-01-${String(day).padStart(2, '0')}T00:00:00.000Z`;
 
@@ -226,4 +236,229 @@ test('local timeline pages use a stable newest-first cursor without duplicates',
 		['entry-1']
 	);
 	assert.equal(third.nextCursor, null);
+});
+
+test('newer timeline pages advance from an anchor without gaps or duplicates', async () => {
+	await JourneyStorage.saveEntries(
+		[1, 2, 3, 4, 5].map((day) => entry(`entry-${day}`, `Entry ${day}`, day))
+	);
+	const first = await JourneyStorage.loadPageAfter(
+		'user-a',
+		{ createdAt: timestamp(2), id: 'entry-2' },
+		2
+	);
+	assert.deepEqual(
+		first.entries.map(({ id }) => id),
+		['entry-4', 'entry-3']
+	);
+	assert.deepEqual(first.nextCursor, { createdAt: timestamp(4), id: 'entry-4' });
+	const second = await JourneyStorage.loadPageAfter('user-a', first.nextCursor!, 2);
+	assert.deepEqual(
+		second.entries.map(({ id }) => id),
+		['entry-5']
+	);
+	assert.equal(second.nextCursor, null);
+});
+
+test('Journey search includes saved entries outside the current timeline page', async () => {
+	await JourneyStorage.saveEntries([
+		entry('older-entry', 'A moment from months ago', 1),
+		entry('newer-entry', 'A recent moment', 30)
+	]);
+	const timelinePage = await JourneyStorage.loadPage('user-a', null, 1);
+	const allSavedEntries = await JourneyStorage.loadEntries('user-a');
+
+	assert.deepEqual(
+		searchJourneyEntries(allSavedEntries, 'months ago').map(({ id }) => id),
+		['older-entry']
+	);
+	assert.deepEqual(searchJourneyEntries(timelinePage.entries, 'months ago'), []);
+});
+
+test('date navigation waits for an in-flight page before deciding to fetch more', async () => {
+	let entries = [entry('newest', 'Newest', 30)];
+	const hasMore = true;
+	let started!: () => void;
+	let release!: () => void;
+	const pageStarted = new Promise<void>((resolve) => (started = resolve));
+	const pageGate = new Promise<void>((resolve) => (release = resolve));
+	const inFlightPage = (async () => {
+		started();
+		await pageGate;
+		entries = [...entries, entry('middle', 'Middle', 20)];
+	})();
+	let pendingPage: Promise<void> | null = inFlightPage;
+	let additionalLoads = 0;
+	const loadNextPage = () => {
+		if (pendingPage) {
+			const page = pendingPage;
+			pendingPage = null;
+			return page;
+		}
+		additionalLoads += 1;
+		return Promise.resolve();
+	};
+	await pageStarted;
+	const navigation = loadEntriesThroughDate('2026-01-25', {
+		getOldestDate: () => entries.at(-1)?.createdAt.slice(0, 10),
+		getNewestDate: () => entries[0]?.createdAt.slice(0, 10),
+		hasOlderPage: () => hasMore,
+		hasNewerPage: () => false,
+		loadOlderPage: loadNextPage,
+		loadNewerPage: async () => {},
+		loadAnchor: async () => {},
+		isCurrent: () => true
+	});
+	let completed = false;
+	void navigation.then(() => (completed = true));
+	await Promise.resolve();
+	assert.equal(completed, false);
+	release();
+	await navigation;
+	assert.equal(entries.at(-1)?.createdAt.slice(0, 10), '2026-01-20');
+	assert.equal(additionalLoads, 0);
+});
+
+test('distant date navigation loads from a date anchor instead of paging through history', async () => {
+	let pageLoads = 0;
+	const anchors: string[] = [];
+	await loadEntriesThroughDate('2020-01-15', {
+		getOldestDate: () => '2026-01-30',
+		getNewestDate: () => '2026-01-30',
+		hasOlderPage: () => true,
+		hasNewerPage: () => false,
+		loadOlderPage: async () => {
+			pageLoads += 1;
+		},
+		loadNewerPage: async () => {},
+		loadAnchor: async (date) => {
+			anchors.push(date);
+		},
+		isCurrent: () => true
+	});
+
+	assert.equal(pageLoads, 0);
+	assert.deepEqual(anchors, ['2020-01-15']);
+});
+
+test('date navigation loads newer pages until the selected date is in range', async () => {
+	let newestDate = '2026-01-10';
+	let newerPageLoads = 0;
+	await loadEntriesThroughDate('2026-01-15', {
+		getOldestDate: () => '2026-01-01',
+		getNewestDate: () => newestDate,
+		hasOlderPage: () => true,
+		hasNewerPage: () => newestDate < '2026-01-15',
+		loadOlderPage: async () => {},
+		loadNewerPage: async () => {
+			newerPageLoads += 1;
+			newestDate = '2026-01-20';
+		},
+		loadAnchor: async () => {},
+		isCurrent: () => true
+	});
+
+	assert.equal(newerPageLoads, 1);
+});
+
+test('calendar arrows keep month view and move year ranges without overlap', () => {
+	const monthDate = moveCalendarDate(new Date(2026, 8, 1), 'month', 1);
+	assert.equal(monthDate.getFullYear(), 2027);
+	assert.equal(monthDate.getMonth(), 8);
+
+	const currentYears = calendarYears(2026);
+	const previousRangeDate = moveCalendarDate(new Date(2026, 8, 1), 'year', -1);
+	const previousYears = calendarYears(previousRangeDate.getFullYear());
+	assert.deepEqual(
+		currentYears,
+		Array.from({ length: 12 }, (_, index) => 2016 + index)
+	);
+	assert.deepEqual(
+		previousYears,
+		Array.from({ length: 12 }, (_, index) => 2004 + index)
+	);
+	assert.equal(previousYears.at(-1)! + 1, currentYears[0]);
+});
+
+test('date navigation stops obsolete selection work after a pending page finishes', async () => {
+	let release!: () => void;
+	let started!: () => void;
+	const pendingPage = new Promise<void>((resolve) => (release = resolve));
+	const pageStarted = new Promise<void>((resolve) => (started = resolve));
+	let current = true;
+	let pageLoads = 0;
+	const navigation = loadEntriesThroughDate('2026-01-01', {
+		getOldestDate: () => '2026-01-30',
+		getNewestDate: () => '2026-01-30',
+		hasOlderPage: () => true,
+		hasNewerPage: () => false,
+		loadOlderPage: () => {
+			pageLoads += 1;
+			started();
+			return pendingPage;
+		},
+		loadNewerPage: async () => {},
+		loadAnchor: async () => {},
+		isCurrent: () => current
+	});
+	await pageStarted;
+	current = false;
+	release();
+	await navigation;
+	assert.equal(pageLoads, 1);
+});
+
+test('date anchored storage pages include entries on or before the selected local day', async () => {
+	await JourneyStorage.saveEntries([
+		entry('before-date', 'Before', 10),
+		entry('after-date', 'After', 20)
+	]);
+	const page = await JourneyStorage.loadPage('user-a', {
+		createdAt: nextLocalDayStart('2026-01-15'),
+		id: ''
+	});
+
+	assert.deepEqual(
+		page.entries.map(({ id }) => id),
+		['before-date']
+	);
+});
+
+test('calendar date keys cover saved entries and use local timeline dates', async () => {
+	await JourneyStorage.saveEntries([
+		entry('older-marker', 'Older saved entry', 1),
+		entry('newer-marker', 'Newer saved entry', 30)
+	]);
+	const savedEntries = await JourneyStorage.loadEntries('user-a');
+	assert.equal(
+		new Set(savedEntries.map(({ createdAt }) => journeyEntryDateKey(createdAt))).size,
+		2
+	);
+
+	const previousTimeZone = process.env.TZ;
+	process.env.TZ = 'Pacific/Auckland';
+	try {
+		const timestamp = '2026-01-01T20:30:00.000Z';
+		const localDate = new Date(timestamp);
+		assert.equal(journeyEntryDateKey(timestamp), journeyDateKey(localDate));
+		assert.equal(journeyEntryDateKey(timestamp), '2026-01-02');
+	} finally {
+		if (previousTimeZone === undefined) delete process.env.TZ;
+		else process.env.TZ = previousTimeZone;
+	}
+});
+
+test('date selection resolves the newest saved entry and leaves empty dates empty', () => {
+	const selectedDay = new Date(2026, 0, 12, 12).toISOString();
+	const entries = [
+		{
+			...entry('earlier', 'Earlier entry', 12),
+			createdAt: new Date(2026, 0, 12, 10).toISOString()
+		},
+		{ ...entry('latest', 'Latest entry', 12), createdAt: selectedDay },
+		{ ...entry('deleted', 'Deleted entry', 12), createdAt: selectedDay, deletedAt: selectedDay }
+	];
+
+	assert.equal(journeyEntryForDate(entries, '2026-01-12')?.id, 'latest');
+	assert.equal(journeyEntryForDate(entries, '2026-01-13'), undefined);
 });
