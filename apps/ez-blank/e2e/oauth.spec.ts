@@ -104,6 +104,180 @@ test('OAuth startup failure returns to login with an app-visible message', async
 	).toBeVisible();
 });
 
+test('OAuth sign-in covers the anonymous context while the first account context loads', async ({
+	page
+}) => {
+	const transitionSession = { ...activeSession, displayName: 'Taylor' };
+	await mockApi(page, async (route) => {
+		const pathname = new URL(route.request().url()).pathname;
+		if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts')) {
+			await route.fulfill({
+				json: { activeSession: transitionSession, sessions: [transitionSession] }
+			});
+			return;
+		}
+		await route.fulfill({ json: {} });
+	});
+	await page.route('http://localhost:1350/v1/pages**', async (route) => {
+		await new Promise((resolve) => setTimeout(resolve, 2500));
+		await route.fulfill({ json: [] });
+	});
+
+	await page.goto('/?oauth=success&oauth_reason=sign-in');
+
+	await expect(page.getByRole('dialog', { name: 'Switching account' })).toBeVisible({
+		timeout: 5000
+	});
+	await expect(page.getByRole('status', { name: 'Loading account data' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+	await expect(page.getByRole('dialog', { name: 'Switching account' })).toHaveCount(0, {
+		timeout: 3000
+	});
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await expect(page.locator('.menu-stat')).toContainText('Taylor');
+	await expect(page.getByText('Signed in successfully')).toHaveCount(0);
+});
+
+test('OAuth sign-in switches to cached local account data without waiting for sync', async ({
+	page
+}) => {
+	const transitionSession = { ...activeSession, displayName: 'Taylor' };
+	await page.addInitScript(async () => {
+		await new Promise<void>((resolve, reject) => {
+			const request = indexedDB.open('blank', 1);
+			request.onupgradeneeded = () => {
+				const db = request.result;
+				const pages = db.createObjectStore('pages', { keyPath: ['userId', 'id'] });
+				pages.createIndex('userId', 'userId', { unique: false });
+				pages.createIndex('updatedAt', ['userId', 'updatedAt'], { unique: false });
+				const settings = db.createObjectStore('settings', { keyPath: ['userId', 'key'] });
+				settings.createIndex('userId', 'userId', { unique: false });
+			};
+			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const transaction = request.result.transaction('pages', 'readwrite');
+				transaction.objectStore('pages').put({
+					id: 'cached-user-page',
+					userId: 'user-a',
+					title: 'Cached account',
+					content: 'Cached account content',
+					selectionStart: 0,
+					selectionEnd: 0,
+					createdAt: '2026-01-01T00:00:00.000Z',
+					updatedAt: '2026-01-01T00:00:00.000Z',
+					deletedAt: null,
+					lastSyncedAt: '2026-01-01T00:00:00.000Z',
+					lastKnownRemoteUpdatedAt: '2026-01-01T00:00:00.000Z',
+					lastKnownRemoteDeletedAt: null,
+					syncStatus: 'synced',
+					isEphemeral: false
+				});
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () => reject(transaction.error);
+			};
+		});
+	});
+	await mockApi(page, async (route) => {
+		const pathname = new URL(route.request().url()).pathname;
+		if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts')) {
+			await route.fulfill({
+				json: { activeSession: transitionSession, sessions: [transitionSession] }
+			});
+			return;
+		}
+		await route.fulfill({ json: {} });
+	});
+	let syncStarted = false;
+	await page.route('http://localhost:1350/v1/pages**', async (route) => {
+		syncStarted = true;
+		await new Promise((resolve) => setTimeout(resolve, 2500));
+		await route.fulfill({ json: [] });
+	});
+
+	await page.goto('/?oauth=success&oauth_reason=sign-in');
+
+	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await expect(editor).toContainText('Cached account content');
+	await expect.poll(() => syncStarted).toBe(true);
+	await expect(page.getByRole('dialog', { name: 'Switching account' })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await expect(page.locator('.menu-stat')).toContainText('Taylor');
+});
+
+test('canceling a slow OAuth context load returns to anonymous content', async ({ page }) => {
+	const transitionSession = { ...activeSession, displayName: 'Taylor' };
+	let authenticated = false;
+	await mockApi(page, async (route) => {
+		const pathname = new URL(route.request().url()).pathname;
+		if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts')) {
+			await route.fulfill({
+				json: authenticated
+					? { activeSession: transitionSession, sessions: [transitionSession] }
+					: { activeSession: null, sessions: [] }
+			});
+			return;
+		}
+		if (pathname.endsWith('/auth/anonymous')) {
+			await route.fulfill({ json: { activeSession: null, sessions: [] } });
+			return;
+		}
+		await route.fulfill({ json: {} });
+	});
+	await page.route('http://localhost:1350/v1/pages**', async (route) => {
+		await new Promise((resolve) => setTimeout(resolve, 2500));
+		await route.fulfill({ json: [] }).catch(() => undefined);
+	});
+
+	await page.goto('/');
+	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await editor.fill('Anonymous local content');
+	await expect(editor).toHaveText('Anonymous local content');
+	await page.reload();
+	await expect(editor).toContainText('Anonymous local content');
+	authenticated = true;
+	await page.goto('/?oauth=success&oauth_reason=sign-in');
+	await expect(page.getByRole('dialog', { name: 'Switching account' })).toBeVisible();
+	const cancel = page.getByRole('button', { name: 'Cancel' });
+	await expect(cancel).toBeVisible();
+	await cancel.click();
+	await expect(page.getByRole('button', { name: 'Canceling…' })).toBeDisabled();
+	await expect(page.getByRole('dialog', { name: 'Switching account' })).toHaveCount(0);
+	await expect(editor).toContainText('Anonymous local content');
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await expect(page.getByRole('button', { name: 'Login' })).toBeVisible();
+});
+
+test('a failed account context load restores anonymous content and shows a toast', async ({
+	page
+}) => {
+	const transitionSession = { ...activeSession, displayName: 'Taylor' };
+	await mockApi(page, async (route) => {
+		const pathname = new URL(route.request().url()).pathname;
+		if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts')) {
+			await route.fulfill({
+				json: { activeSession: transitionSession, sessions: [transitionSession] }
+			});
+			return;
+		}
+		if (pathname.endsWith('/auth/anonymous')) {
+			await route.fulfill({ json: { activeSession: null, sessions: [] } });
+			return;
+		}
+		await route.fulfill({ json: {} });
+	});
+	await page.route('http://localhost:1350/v1/pages**', async (route) => {
+		await route.fulfill({ status: 503, json: { message: 'Sync unavailable.' } });
+	});
+
+	await page.goto('/?oauth=success&oauth_reason=sign-in');
+
+	await expect(page.getByText('error loading context')).toBeVisible();
+	await expect(page.getByRole('dialog', { name: 'Switching account' })).toHaveCount(0);
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await expect(page.getByRole('button', { name: 'Login' })).toBeVisible();
+});
+
 test('cancelled OAuth linking keeps profile open and shows a retryable toast', async ({ page }) => {
 	await mockApi(
 		page,
@@ -383,6 +557,7 @@ async function mockApi(
 				pathname.endsWith('/auth/accounts') ||
 				pathname.endsWith('/auth/oauth/start') ||
 				pathname.endsWith('/auth/oauth/link') ||
+				pathname.endsWith('/auth/anonymous') ||
 				pathname.endsWith('/auth/profile') ||
 				pathname.endsWith('/auth/login') ||
 				pathname.endsWith('/auth/verify')

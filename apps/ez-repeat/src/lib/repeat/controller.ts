@@ -85,6 +85,11 @@ export function createRepeatController() {
 		await load(activeUserId, requestId);
 	}
 
+	function hasLocalContext() {
+		const snapshot = get(state).snapshot;
+		return snapshot.habits.length > 0 || snapshot.completions.length > 0;
+	}
+
 	function selectDate(dateKey: string) {
 		state.update((current) => ({ ...current, selectedDate: dateKey }));
 	}
@@ -201,6 +206,7 @@ export function createRepeatController() {
 		load,
 		refresh,
 		setUserId,
+		hasLocalContext,
 		subscribeToExternalChanges: () => createExternalStorageSubscription(refresh),
 		selectDate,
 		moveDate,

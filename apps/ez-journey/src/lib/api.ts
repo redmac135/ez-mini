@@ -24,17 +24,18 @@ export const journeyApi: JourneyApi | null = auth
 					const page = await readJson<{
 						entries: RemoteJourneyEntry[];
 						nextCursor: { created_at: string; id: string } | null;
-					}>(await auth.authFetch(`/journey/entries?${params}`));
+					}>(await auth.authFetch(`/journey/entries?${params}`, { signal: options.signal }));
 					entries.push(...page.entries);
 					cursor = page.nextCursor;
 				} while (cursor);
 				return entries;
 			},
-			async upsertEntry(entry) {
+			async upsertEntry(entry, options = {}) {
 				return readJson(
 					await auth.authFetch('/journey/entries', {
 						method: 'POST',
-						body: JSON.stringify(entry)
+						body: JSON.stringify(entry),
+						signal: options.signal
 					})
 				);
 			}

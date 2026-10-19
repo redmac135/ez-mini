@@ -40,19 +40,33 @@
 	const EMPTY_STATE: EditorState = { text: '', selectionStart: 0, selectionEnd: 0 };
 	const VISIBLE_EDITOR_LINES = 3;
 	const syncController = createSyncController({ delayMs: 2500, runSync: executeSync });
-	type LoadedJourneyPage = EntryPage & { promptAnonymousImport?: boolean };
+	type LoadedJourneyPage = EntryPage & {
+		promptAnonymousImport?: boolean;
+		initialSyncCompleted?: boolean;
+	};
 	const account = createAccountDataController<LoadedJourneyPage>({
 		authClient: auth,
 		adapter: {
 			loadAnonymous: () => JourneyStorage.loadPage(null, null),
-			async loadAccount(user) {
+			async loadAccount(user, options = {}) {
 				const [page, anonymousEntries, alreadyPrompted] = await Promise.all([
 					JourneyStorage.loadPage(user.userId, null),
 					JourneyStorage.loadEntries(null),
 					JourneyStorage.hasPromptedForAnonymousImport(user.userId)
 				]);
+				let accountPage = page;
+				let initialSyncCompleted = false;
+				if (options.signal && page.entries.length === 0) {
+					if (!journeyApi || !navigator.onLine) {
+						throw new Error('Account data is not available offline.');
+					}
+					await syncJourneyEntries(journeyApi, user.userId, options.signal);
+					accountPage = await JourneyStorage.loadPage(user.userId, null);
+					initialSyncCompleted = true;
+				}
 				return {
-					...page,
+					...accountPage,
+					initialSyncCompleted,
 					promptAnonymousImport:
 						!alreadyPrompted &&
 						anonymousEntries.some((entry) => !entry.deletedAt && !entry.lastSyncedAt)
@@ -62,7 +76,7 @@
 				submittedEntries = data.entries.filter((entry) => !entry.deletedAt);
 				nextEntryCursor = data.nextCursor;
 				anonymousImportOpen = Boolean(user && data.promptAnonymousImport);
-				if (user) queueMicrotask(requestImmediateSync);
+				if (user && !data.initialSyncCompleted) queueMicrotask(requestImmediateSync);
 			}
 		},
 		getErrorMessage: (error, fallback) => (error instanceof Error ? error.message : fallback),

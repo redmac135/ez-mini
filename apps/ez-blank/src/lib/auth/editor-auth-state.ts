@@ -24,6 +24,7 @@ export interface LoadedEditorAuthState {
 	pendingAnonymousImportSession: EditorSession | null;
 	importPromptOpen: boolean;
 	pulledRemoteChanges: boolean;
+	initialSyncCompleted: boolean;
 }
 
 export async function loadEditorAuthState(options: {
@@ -57,7 +58,8 @@ export async function loadEditorAuthState(options: {
 			appSyncStatus,
 			pendingAnonymousImportSession: null,
 			importPromptOpen: false,
-			pulledRemoteChanges: false
+			pulledRemoteChanges: false,
+			initialSyncCompleted: false
 		};
 	}
 
@@ -78,7 +80,7 @@ export async function loadEditorAuthState(options: {
 		preferences: userPreferences,
 		appSyncStatus: getSettledAppSyncStatus(baseSession, options.isOnline)
 	});
-	if (!options.isOnline || !options.signal) {
+	if (!options.signal || userLocal !== null) {
 		return {
 			user: options.user,
 			session: baseSession,
@@ -86,8 +88,12 @@ export async function loadEditorAuthState(options: {
 			appSyncStatus: getSettledAppSyncStatus(baseSession, options.isOnline),
 			pendingAnonymousImportSession: hasAnonymousData && !alreadyPrompted ? anonymousSession : null,
 			importPromptOpen: hasAnonymousData && !alreadyPrompted,
-			pulledRemoteChanges: false
+			pulledRemoteChanges: false,
+			initialSyncCompleted: false
 		};
+	}
+	if (!options.isOnline) {
+		throw new Error("You're offline. Connect to the internet to load this account.");
 	}
 
 	const syncResult = await syncUserPages(
@@ -118,6 +124,7 @@ export async function loadEditorAuthState(options: {
 		appSyncStatus: getSettledAppSyncStatus(session, options.isOnline),
 		pendingAnonymousImportSession: hasAnonymousData && !alreadyPrompted ? anonymousSession : null,
 		importPromptOpen: hasAnonymousData && !alreadyPrompted,
-		pulledRemoteChanges: syncResult.pulledCount > 0
+		pulledRemoteChanges: syncResult.pulledCount > 0,
+		initialSyncCompleted: true
 	};
 }

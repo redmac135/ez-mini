@@ -3,12 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { page as appPage } from '$app/state';
 	import { createAccountDataController } from '@ez/account';
-	import {
-		AUTH_SESSION_CACHE_KEY,
-		isUnauthorizedError,
-		readCachedAuthSession,
-		writeCachedAuthSession
-	} from '@ez/auth';
+	import { AUTH_SESSION_CACHE_KEY, readCachedAuthSession, writeCachedAuthSession } from '@ez/auth';
 	import { createSyncController, getSyncStatusLabel, type AppSyncStatus } from '@ez/sync';
 	import { onMount } from 'svelte';
 	import {
@@ -50,26 +45,23 @@
 			},
 			async loadAccount(user, options = {}) {
 				await repeat.setUserId(user.userId);
-				// Initial session loading keeps the pre-transition behavior: load local data,
-				// then sync in the background from onLoaded. Explicit account transitions
-				// pass a signal and keep the blocking sync behind the loading screen.
-				if (!options.signal) {
+				if (!options.signal || repeat.hasLocalContext()) {
 					appSyncStatus = getSettledAppSyncStatus();
 					return null;
 				}
-				if (repeatApi && isBrowserOnline()) {
-					appSyncStatus = 'syncing';
-					try {
-						await syncRepeatData(repeatApi, user.userId, options.signal);
-						if (options.signal?.aborted) return null;
-						await repeat.refresh();
-						appSyncStatus = getSettledAppSyncStatus();
-					} catch (error) {
-						if (options.signal.aborted || isUnauthorizedError(error)) throw error;
-						appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
-					}
-				} else {
+				if (!repeatApi || !isBrowserOnline()) {
+					appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
+					throw new Error('Account data is not available offline.');
+				}
+				appSyncStatus = 'syncing';
+				try {
+					await syncRepeatData(repeatApi, user.userId, options.signal);
+					if (options.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+					await repeat.refresh();
 					appSyncStatus = getSettledAppSyncStatus();
+				} catch (error) {
+					appSyncStatus = isBrowserOnline() ? 'error' : 'offline';
+					throw error;
 				}
 				skipNextLoadedSync = true;
 				return null;
@@ -80,7 +72,7 @@
 					return;
 				}
 				appSyncStatus = getSettledAppSyncStatus();
-				if (user) requestImmediateSync();
+				if (user) queueMicrotask(requestImmediateSync);
 			},
 			async restoreLocalContext(user) {
 				await repeat.setUserId(user?.userId ?? null);

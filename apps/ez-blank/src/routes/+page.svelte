@@ -169,10 +169,13 @@
 		adapter: {
 			loadAnonymous: () => loadBlankAccountData(null),
 			loadAccount: (user, options) => loadBlankAccountData(user, options),
+			async restoreLocalContext(user) {
+				applyLoadedBlankAccountData(await loadBlankAccountData(user));
+			},
 			deleteAccountData: (userId) => deleteLocalUserData(userId),
 			onLoaded({ user, data }) {
 				applyLoadedBlankAccountData(data);
-				if (user) requestImmediateSync();
+				if (user && !data.initialSyncCompleted) queueMicrotask(requestImmediateSync);
 			}
 		},
 		getErrorMessage,
