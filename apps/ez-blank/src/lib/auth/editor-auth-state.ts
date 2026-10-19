@@ -2,6 +2,7 @@ import type { AuthSessionSummary } from '@ez/auth';
 import type { EditorPreferences } from '$lib/editor/core/preferences';
 import {
 	createSession,
+	ensureValidActivePage,
 	hasVisibleEphemeralActivePage,
 	type EditorSession
 } from '$lib/editor/core/session';
@@ -104,19 +105,26 @@ export async function loadEditorAuthState(options: {
 		options.signal
 	);
 	const remoteActivePageId = await fetchRemoteActivePageId(options.pagesApi, options.signal);
+	const hasInitialRemoteContext = userLocal === null && syncResult.pulledCount > 0;
+	const syncedSession = hasInitialRemoteContext
+		? ensureValidActivePage({
+				...syncResult.session,
+				pages: syncResult.session.pages.filter((page) => !page.isEphemeral)
+			})
+		: syncResult.session;
 	const shouldPreserveLocalEphemeralPage =
-		userLocal !== null && hasVisibleEphemeralActivePage(syncResult.session);
+		userLocal !== null && hasVisibleEphemeralActivePage(syncedSession);
 	const session =
 		!shouldPreserveLocalEphemeralPage &&
 		remoteActivePageId &&
-		syncResult.session.pages.some(
+		syncedSession.pages.some(
 			(page) => page.id === remoteActivePageId && page.deletedAt === null
 		)
 			? {
-					...syncResult.session,
+					...syncedSession,
 					activePageId: remoteActivePageId
 				}
-			: syncResult.session;
+			: syncedSession;
 
 	return {
 		user: options.user,
