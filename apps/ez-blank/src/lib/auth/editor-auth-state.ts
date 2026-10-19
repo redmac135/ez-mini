@@ -117,9 +117,7 @@ export async function loadEditorAuthState(options: {
 	const session =
 		!shouldPreserveLocalEphemeralPage &&
 		remoteActivePageId &&
-		syncedSession.pages.some(
-			(page) => page.id === remoteActivePageId && page.deletedAt === null
-		)
+		syncedSession.pages.some((page) => page.id === remoteActivePageId && page.deletedAt === null)
 			? {
 					...syncedSession,
 					activePageId: remoteActivePageId
