@@ -186,7 +186,7 @@
 			const nextUrl = new URL(url);
 			// This URL comes from the current app page after removing OAuth callback parameters.
 			replaceState(
-				resolve(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`),
+				resolve(`/${nextUrl.search}${nextUrl.hash}`),
 				appPage.state
 			);
 		},
