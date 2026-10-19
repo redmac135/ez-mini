@@ -339,6 +339,18 @@ test('calendar selection opens the saved entry for that day and clears the previ
 	await expect(composerEditor).toHaveText('');
 });
 
+test('Journey search finds an entry and opens it in the journal editor', async ({ page }) => {
+	await page.goto('/?demo=journey');
+	await page.getByRole('button', { name: 'Search Journey entries' }).click();
+	const search = page.getByRole('textbox', { name: 'Search Journey entries' });
+	await search.fill('longer route home');
+	const result = page.locator('.search-result').filter({ hasText: 'longer route home' }).first();
+	await expect(result).toBeVisible();
+	await result.click();
+	await expect(page.locator('.entry-editor')).toBeVisible();
+	await expect(page.locator('.entry-editor')).toContainText('longer route home');
+});
+
 test('calendar selection clears a previous draft for an empty day', async ({ page }) => {
 	const tomorrow = await localDateAtOffset(page, 1);
 	const composerEditor = page.getByRole('textbox', { name: 'Markdown editor' });
@@ -382,6 +394,15 @@ test('distant calendar jumps can load continuously toward newer entries', async 
 	await expect(entryCards).toHaveCount(30);
 	const selectedDate = await localDateAtOffset(page, -60);
 	await page.getByRole('button', { name: 'Open calendar' }).click();
+	const targetMonth = new Date(`${selectedDate}T12:00:00`);
+	const monthLabels = page.locator('.picker header .labels button');
+	while (
+		(await monthLabels.nth(0).textContent()) !==
+			new Intl.DateTimeFormat('en', { month: 'short' }).format(targetMonth) ||
+		Number(await monthLabels.nth(1).textContent()) !== targetMonth.getFullYear()
+	) {
+		await page.getByRole('button', { name: 'Previous' }).click();
+	}
 	await page.getByRole('button', { name: selectedDate, exact: true }).click();
 	await expect(page.locator('.entry-editor')).toBeVisible();
 	await page.getByRole('button', { name: 'Close journal entry' }).click();
