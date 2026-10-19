@@ -104,7 +104,8 @@ export async function loadEditorAuthState(options: {
 		options.signal
 	);
 	const remoteActivePageId = await fetchRemoteActivePageId(options.pagesApi, options.signal);
-	const shouldPreserveLocalEphemeralPage = hasVisibleEphemeralActivePage(syncResult.session);
+	const shouldPreserveLocalEphemeralPage =
+		userLocal !== null && hasVisibleEphemeralActivePage(syncResult.session);
 	const session =
 		!shouldPreserveLocalEphemeralPage &&
 		remoteActivePageId &&
