@@ -185,10 +185,7 @@
 		replaceOAuthUrl: (url) => {
 			const nextUrl = new URL(url);
 			// This URL comes from the current app page after removing OAuth callback parameters.
-			replaceState(
-				`${resolve('/')}${nextUrl.search}${nextUrl.hash}`,
-				appPage.state
-			);
+			replaceState(`${resolve('/')}${nextUrl.search}${nextUrl.hash}`, appPage.state);
 		},
 		onNotice(message) {
 			showStatusNotice(message);
