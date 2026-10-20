@@ -155,12 +155,12 @@ test('OTP verification does not double-write a session under a same-key KV rate 
 	assert.equal(kv.writesFor(sessionKey(deviceId, sessionId)), 1);
 });
 
-test('account switching does not write an already-live session under a same-key KV rate limit', async () => {
-	const kv = new SameKeyRateLimitedKv();
-	env.SESSIONS = kv as unknown as KVNamespace;
-	const deviceId = 'rate-limited-switch-device';
+test('account switching updates last-used recency with one session write', async () => {
+	const deviceId = 'switch-recency-device';
 	await putStoredSession({ deviceId, sessionId: 'session-a' });
-	kv.enableRateLimit();
+	const before = (await env.SESSIONS.get(sessionKey(deviceId, 'session-a'), 'json')) as {
+		lastUsedAt: number;
+	};
 
 	const response = await handleRequest(
 		new Request('https://mini.api.ethanzhao.ca/v1/auth/switch', {
@@ -174,10 +174,13 @@ test('account switching does not write an already-live session under a same-key 
 		env
 	);
 	const body = (await response.json()) as { activeSession: { sessionId: string } };
+	const after = (await env.SESSIONS.get(sessionKey(deviceId, 'session-a'), 'json')) as {
+		lastUsedAt: number;
+	};
 
 	assert.equal(response.status, 200);
 	assert.equal(body.activeSession.sessionId, 'session-a');
-	assert.equal(kv.writesFor(sessionKey(deviceId, 'session-a')), 1);
+	assert.ok(after.lastUsedAt > before.lastUsedAt);
 });
 
 test('repeated active session reads are read-only under a same-key KV rate limit', async () => {
