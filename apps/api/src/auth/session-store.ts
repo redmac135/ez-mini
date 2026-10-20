@@ -38,13 +38,13 @@ export async function requireActiveSession(env: Env, context: RequestContext) {
 	}
 
 	const session = await getOwnedSession(env, context.deviceId, context.activeSessionId);
-	return refreshStoredSession(env, session);
+	return refreshStoredSession(env, session, false);
 }
 
 export async function refreshStoredSession(
 	env: Env,
 	session: StoredSession,
-	touchLastUsedAt = true
+	touchLastUsedAt = false
 ) {
 	const nowSeconds = Math.floor(Date.now() / 1000);
 	if (session.expiresAt && session.expiresAt - nowSeconds > 60) {
@@ -80,17 +80,23 @@ export async function getSessionResponse(env: Env, context: RequestContext) {
 		try {
 			activeSession = await refreshStoredSession(
 				env,
-				await getOwnedSession(env, context.deviceId, context.activeSessionId)
+				await getOwnedSession(env, context.deviceId, context.activeSessionId),
+				false
 			);
-		} catch {
+		} catch (error) {
+			if (!isConfirmedInvalidSessionError(error)) throw error;
 			activeSession = null;
 			context.activeSessionId = null;
+			clearActiveSession(context.headers, env);
 		}
 	}
 
 	const storedSessions = await listDeviceSessions(env, context.deviceId);
-	const sessions = storedSessions.map((session) =>
-		activeSession?.sessionId === session.sessionId ? activeSession : session
+	const sessions = moveActiveSessionFirst(
+		storedSessions.map((session) =>
+			activeSession?.sessionId === session.sessionId ? activeSession : session
+		),
+		context.activeSessionId
 	);
 	return {
 		activeSession:
@@ -103,15 +109,18 @@ export async function getSessionResponse(env: Env, context: RequestContext) {
 
 export async function getAccountSessionsResponse(env: Env, context: RequestContext) {
 	const storedSessions = await listDeviceSessions(env, context.deviceId);
-	const sessions = await Promise.all(
-		storedSessions.map(async (storedSession) => {
-			try {
-				const session = await refreshStoredSession(env, storedSession, false);
-				return await refreshDisplayName(env, session);
-			} catch {
-				return storedSession;
-			}
-		})
+	const sessions = moveActiveSessionFirst(
+		await Promise.all(
+			storedSessions.map(async (storedSession) => {
+				try {
+					const session = await refreshStoredSession(env, storedSession, false);
+					return await refreshDisplayName(env, session);
+				} catch {
+					return storedSession;
+				}
+			})
+		),
+		context.activeSessionId
 	);
 	return {
 		activeSession:
@@ -180,6 +189,15 @@ export async function deleteSession(env: Env, session: StoredSession) {
 	await env.SESSIONS.delete(sessionKey(session.deviceId, session.sessionId));
 }
 
+export function isConfirmedInvalidSessionError(error: unknown) {
+	if (!(error instanceof ApiError)) return false;
+	if (error.status === 401) return true;
+	return (
+		error.status === 400 &&
+		/invalid\s+refresh\s+token|refresh\s+token.*(?:not found|expired)/i.test(error.message)
+	);
+}
+
 function getPersistedDisplayName(metadata: Record<string, unknown> | undefined) {
 	const value = metadata?.display_name;
 	return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -199,6 +217,17 @@ export function sessionKey(deviceId: string, sessionId: string) {
 
 function sessionKeyPrefix(deviceId: string) {
 	return `device:${deviceId}:session:`;
+}
+
+function moveActiveSessionFirst(sessions: StoredSession[], activeSessionId: string | null) {
+	if (!activeSessionId) return sessions;
+	const activeIndex = sessions.findIndex((session) => session.sessionId === activeSessionId);
+	if (activeIndex <= 0) return sessions;
+	return [
+		sessions[activeIndex],
+		...sessions.slice(0, activeIndex),
+		...sessions.slice(activeIndex + 1)
+	];
 }
 
 function toPublicSession(session: StoredSession, activeSessionId: string | null): PublicSession {
