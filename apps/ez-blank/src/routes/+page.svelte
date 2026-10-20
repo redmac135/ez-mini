@@ -190,10 +190,7 @@
 				: nextUrl.hash
 					? `/#${nextUrl.hash.slice(1)}`
 					: '/';
-			replaceState(
-				resolve(route),
-				appPage.state
-			);
+			replaceState(resolve(route), appPage.state);
 		},
 		onNotice(message) {
 			showStatusNotice(message);
