@@ -204,11 +204,7 @@ export function isConfirmedInvalidSessionError(error: unknown) {
 	);
 }
 
-function handleConfirmedInvalidActiveSession(
-	context: RequestContext,
-	error: unknown,
-	env: Env
-) {
+function handleConfirmedInvalidActiveSession(context: RequestContext, error: unknown, env: Env) {
 	if (!isConfirmedInvalidSessionError(error)) return false;
 	context.activeSessionId = null;
 	clearActiveSession(context.headers, env);

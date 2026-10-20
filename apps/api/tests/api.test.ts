@@ -310,11 +310,13 @@ test('account listing keeps the active cookie when profile lookup is unauthorize
 		env
 	);
 	const body = (await response.json()) as {
-		activeSession: { sessionId: string; active: boolean };
+		activeSession: { sessionId: string; active: boolean; userId: string };
 	};
 
 	assert.equal(response.status, 200);
-	assert.deepEqual(body.activeSession, { sessionId: 'session-a', active: true });
+	assert.equal(body.activeSession.sessionId, 'session-a');
+	assert.equal(body.activeSession.userId, 'user-a');
+	assert.equal(body.activeSession.active, true);
 	assert.equal(response.headers.get('set-cookie'), null);
 });
 
