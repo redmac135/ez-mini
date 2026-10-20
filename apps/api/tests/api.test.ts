@@ -287,6 +287,34 @@ test('account listing clears an active cookie after a confirmed invalid refresh 
 	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_active_session_id=;/);
 });
 
+test('account listing keeps the active cookie when profile lookup is unauthorized', async () => {
+	const deviceId = 'profile-unauthorized-account-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a' });
+	mockFetch(
+		async () =>
+			new Response(JSON.stringify({ message: 'User not found' }), {
+				status: 401,
+				headers: { 'content-type': 'application/json' }
+			})
+	);
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/accounts', {
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+			}
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: { sessionId: string; active: boolean };
+	};
+
+	assert.equal(response.status, 200);
+	assert.deepEqual(body.activeSession, { sessionId: 'session-a', active: true });
+	assert.equal(response.headers.get('set-cookie'), null);
+});
+
 test('transient refresh failures return an error and keep the active cookie for retry', async () => {
 	const deviceId = 'transient-refresh-device';
 	await putStoredSession({ deviceId, sessionId: 'session-a', expiresAt: 1 });

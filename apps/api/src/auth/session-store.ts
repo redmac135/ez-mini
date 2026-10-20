@@ -110,14 +110,19 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 	const sessions = moveActiveSessionFirst(
 		await Promise.all(
 			storedSessions.map(async (storedSession) => {
+				let session: StoredSession;
 				try {
-					const session = await refreshStoredSession(env, storedSession, false);
-					return await refreshDisplayName(env, session);
+					session = await refreshStoredSession(env, storedSession, false);
 				} catch (error) {
 					if (storedSession.sessionId === context.activeSessionId) {
 						handleConfirmedInvalidActiveSession(context, error, env);
 					}
 					return storedSession;
+				}
+				try {
+					return await refreshDisplayName(env, session);
+				} catch {
+					return session;
 				}
 			})
 		),
