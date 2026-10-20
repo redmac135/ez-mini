@@ -246,6 +246,47 @@ test('session reads clear the active cookie only after a confirmed invalid refre
 	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_active_session_id=;/);
 });
 
+test('account listing clears an active cookie after a confirmed invalid refresh token', async () => {
+	const deviceId = 'invalid-account-refresh-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a', expiresAt: 1 });
+	mockFetch(
+		async () =>
+			new Response(JSON.stringify({ msg: 'Invalid Refresh Token: Refresh Token Not Found' }), {
+				status: 400,
+				headers: { 'content-type': 'application/json' }
+			})
+	);
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/accounts', {
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+			}
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: null;
+		sessions: Array<{ sessionId: string; active: boolean }>;
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession, null);
+	assert.deepEqual(body.sessions, [
+		{
+			sessionId: 'session-a',
+			userId: 'user-a',
+			email: 'a@example.com',
+			username: 'a@example.com',
+			displayName: 'a@example.com',
+			createdAt: 1,
+			lastUsedAt: 1,
+			active: false
+		}
+	]);
+	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_active_session_id=;/);
+});
+
 test('transient refresh failures return an error and keep the active cookie for retry', async () => {
 	const deviceId = 'transient-refresh-device';
 	await putStoredSession({ deviceId, sessionId: 'session-a', expiresAt: 1 });

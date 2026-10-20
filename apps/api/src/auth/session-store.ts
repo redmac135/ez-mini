@@ -84,10 +84,8 @@ export async function getSessionResponse(env: Env, context: RequestContext) {
 				false
 			);
 		} catch (error) {
-			if (!isConfirmedInvalidSessionError(error)) throw error;
+			if (!handleConfirmedInvalidActiveSession(context, error, env)) throw error;
 			activeSession = null;
-			context.activeSessionId = null;
-			clearActiveSession(context.headers, env);
 		}
 	}
 
@@ -115,7 +113,10 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 				try {
 					const session = await refreshStoredSession(env, storedSession, false);
 					return await refreshDisplayName(env, session);
-				} catch {
+				} catch (error) {
+					if (storedSession.sessionId === context.activeSessionId) {
+						handleConfirmedInvalidActiveSession(context, error, env);
+					}
 					return storedSession;
 				}
 			})
@@ -196,6 +197,17 @@ export function isConfirmedInvalidSessionError(error: unknown) {
 		error.status === 400 &&
 		/invalid\s+refresh\s+token|refresh\s+token.*(?:not found|expired)/i.test(error.message)
 	);
+}
+
+function handleConfirmedInvalidActiveSession(
+	context: RequestContext,
+	error: unknown,
+	env: Env
+) {
+	if (!isConfirmedInvalidSessionError(error)) return false;
+	context.activeSessionId = null;
+	clearActiveSession(context.headers, env);
+	return true;
 }
 
 function getPersistedDisplayName(metadata: Record<string, unknown> | undefined) {
