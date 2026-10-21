@@ -95,7 +95,7 @@ export async function switchSession(
 	const body = await readJson<{ sessionId?: unknown }>(request);
 	const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
 	const session = await getOwnedSession(env, context.deviceId, sessionId);
-	await refreshStoredSession(env, session);
+	await refreshStoredSession(env, session, true);
 	context.activeSessionId = session.sessionId;
 	activateSession(headers, session.sessionId, env);
 	return getSessionResponse(env, context);

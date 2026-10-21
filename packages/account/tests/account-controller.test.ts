@@ -229,6 +229,42 @@ test('offline startup loads cached account data without requesting a remote sess
 	account.destroy();
 });
 
+test('preserves cached identity when an online session refresh fails transiently', async () => {
+	const auth = createAuthClient({ activeSession: userA, sessions: [userA] });
+	auth.getSession = async () => {
+		throw new Error('Session refresh temporarily unavailable.');
+	};
+	const adapter = createDataAdapter();
+	const account = createAccountDataController({
+		authClient: auth,
+		adapter,
+		isOnline: () => true
+	});
+
+	await account.initialize({ initialUser: userA });
+
+	assert.equal(account.getState().user?.userId, 'user-a');
+	assert.equal(account.getState().data, 'account:user-a');
+	assert.equal(account.getState().phase, 'ready');
+	assert.equal(account.getState().authMessage, '');
+	assert.deepEqual(adapter.loads, ['account:user-a']);
+	account.destroy();
+});
+
+test('clears cached identity after the server confirms the session is invalid', async () => {
+	const activeUser = { ...userA, active: false };
+	const auth = createAuthClient({ activeSession: null, sessions: [activeUser] });
+	const adapter = createDataAdapter();
+	const account = createAccountDataController({ authClient: auth, adapter });
+
+	await account.initialize({ initialUser: userA });
+
+	assert.equal(account.getState().user, null);
+	assert.equal(account.getState().data, 'anonymous');
+	assert.deepEqual(adapter.loads, ['account:user-a', 'anonymous']);
+	account.destroy();
+});
+
 test('pending startup session lookup does not block login interactions', async () => {
 	let resolveSession!: (response: AuthSessionResponse) => void;
 	const auth = createAuthClient({ activeSession: null, sessions: [] });

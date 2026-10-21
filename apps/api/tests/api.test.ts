@@ -28,6 +28,28 @@ class MemoryKv {
 	}
 }
 
+class SameKeyRateLimitedKv extends MemoryKv {
+	private readonly writes = new Map<string, number>();
+	private enforceRateLimit = false;
+
+	enableRateLimit() {
+		this.enforceRateLimit = true;
+	}
+
+	writesFor(key: string) {
+		return this.writes.get(key) ?? 0;
+	}
+
+	async put(key: string, value: string) {
+		const writes = this.writesFor(key);
+		if (this.enforceRateLimit && writes > 0) {
+			throw new Error('KV put failed: 429 Too Many Requests');
+		}
+		this.writes.set(key, writes + 1);
+		await super.put(key, value);
+	}
+}
+
 const env = {
 	SESSIONS: new MemoryKv(),
 	SUPABASE_URL: 'https://supabase.example.test',
@@ -93,6 +115,252 @@ test('auth broadcast frame is served without creating cookies', async () => {
 	assert.match(response.headers.get('cache-control') ?? '', /no-store/);
 	assert.match(body, /ez-auth-relay/);
 	assert.equal(response.headers.get('set-cookie'), null);
+});
+
+test('OTP verification does not double-write a session under a same-key KV rate limit', async () => {
+	const kv = new SameKeyRateLimitedKv();
+	env.SESSIONS = kv as unknown as KVNamespace;
+	kv.enableRateLimit();
+	mockFetch(async (request) => {
+		assert.equal(request.url, 'https://supabase.example.test/auth/v1/verify');
+		return Response.json({
+			access_token: 'access-a',
+			refresh_token: 'refresh-a',
+			expires_at: Math.floor(Date.now() / 1000) + 3600,
+			user: {
+				id: 'user-a',
+				email: 'a@example.com',
+				user_metadata: { display_name: 'a@example.com' }
+			}
+		});
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/verify', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ email: 'a@example.com', token: '12345678' })
+		}),
+		env
+	);
+	const body = (await response.json()) as { activeSession: { userId: string } };
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession.userId, 'user-a');
+	const setCookie = response.headers.get('set-cookie') ?? '';
+	const deviceId = /ez_mini_device_id=([^;]+)/.exec(setCookie)?.[1];
+	const sessionId = /ez_mini_active_session_id=([^;]+)/.exec(setCookie)?.[1];
+	assert.ok(deviceId);
+	assert.ok(sessionId);
+	assert.equal(kv.writesFor(sessionKey(deviceId, sessionId)), 1);
+});
+
+test('account switching updates last-used recency with one session write', async () => {
+	const deviceId = 'switch-recency-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a' });
+	const before = (await env.SESSIONS.get(sessionKey(deviceId, 'session-a'), 'json')) as {
+		lastUsedAt: number;
+	};
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/switch', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ sessionId: 'session-a' })
+		}),
+		env
+	);
+	const body = (await response.json()) as { activeSession: { sessionId: string } };
+	const after = (await env.SESSIONS.get(sessionKey(deviceId, 'session-a'), 'json')) as {
+		lastUsedAt: number;
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession.sessionId, 'session-a');
+	assert.ok(after.lastUsedAt > before.lastUsedAt);
+});
+
+test('repeated active session reads are read-only under a same-key KV rate limit', async () => {
+	const kv = new SameKeyRateLimitedKv();
+	env.SESSIONS = kv as unknown as KVNamespace;
+	const deviceId = 'rate-limited-read-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a' });
+	kv.enableRateLimit();
+	const request = () =>
+		handleRequest(
+			new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+				headers: {
+					cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+				}
+			}),
+			env
+		);
+
+	const first = await request();
+	const second = await request();
+	assert.equal(first.status, 200);
+	assert.equal(second.status, 200);
+	assert.equal(((await first.json()) as { activeSession: unknown }).activeSession !== null, true);
+	assert.equal(((await second.json()) as { activeSession: unknown }).activeSession !== null, true);
+	assert.equal(kv.writesFor(sessionKey(deviceId, 'session-a')), 1);
+});
+
+test('session reads clear the active cookie only after a confirmed invalid refresh token', async () => {
+	const deviceId = 'invalid-refresh-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a', expiresAt: 1 });
+	mockFetch(
+		async () =>
+			new Response(JSON.stringify({ msg: 'Invalid Refresh Token: Refresh Token Not Found' }), {
+				status: 400,
+				headers: { 'content-type': 'application/json' }
+			})
+	);
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+			}
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: null;
+		sessions: Array<{ sessionId: string; active: boolean }>;
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession, null);
+	assert.deepEqual(body.sessions, [
+		{
+			sessionId: 'session-a',
+			userId: 'user-a',
+			email: 'a@example.com',
+			username: 'a@example.com',
+			displayName: 'a@example.com',
+			createdAt: 1,
+			lastUsedAt: 1,
+			active: false
+		}
+	]);
+	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_active_session_id=;/);
+});
+
+test('account listing clears an active cookie after a confirmed invalid refresh token', async () => {
+	const deviceId = 'invalid-account-refresh-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a', expiresAt: 1 });
+	mockFetch(
+		async () =>
+			new Response(JSON.stringify({ msg: 'Invalid Refresh Token: Refresh Token Not Found' }), {
+				status: 400,
+				headers: { 'content-type': 'application/json' }
+			})
+	);
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/accounts', {
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+			}
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: null;
+		sessions: Array<{ sessionId: string; active: boolean }>;
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession, null);
+	assert.deepEqual(body.sessions, [
+		{
+			sessionId: 'session-a',
+			userId: 'user-a',
+			email: 'a@example.com',
+			username: 'a@example.com',
+			displayName: 'a@example.com',
+			createdAt: 1,
+			lastUsedAt: 1,
+			active: false
+		}
+	]);
+	assert.match(response.headers.get('set-cookie') ?? '', /ez_mini_active_session_id=;/);
+});
+
+test('account listing keeps the active cookie when profile lookup is unauthorized', async () => {
+	const deviceId = 'profile-unauthorized-account-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a' });
+	mockFetch(
+		async () =>
+			new Response(JSON.stringify({ message: 'User not found' }), {
+				status: 401,
+				headers: { 'content-type': 'application/json' }
+			})
+	);
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/accounts', {
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+			}
+		}),
+		env
+	);
+	const body = (await response.json()) as {
+		activeSession: { sessionId: string; active: boolean; userId: string };
+	};
+
+	assert.equal(response.status, 200);
+	assert.equal(body.activeSession.sessionId, 'session-a');
+	assert.equal(body.activeSession.userId, 'user-a');
+	assert.equal(body.activeSession.active, true);
+	assert.equal(response.headers.get('set-cookie'), null);
+});
+
+test('transient refresh failures return an error and keep the active cookie for retry', async () => {
+	const deviceId = 'transient-refresh-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a', expiresAt: 1 });
+	mockFetch(async () => {
+		throw new Error('Supabase network unavailable.');
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/session', {
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+			}
+		}),
+		env
+	);
+
+	assert.equal(response.status, 500);
+	assert.deepEqual(await response.json(), { error: 'Supabase network unavailable.' });
+	assert.equal(response.headers.get('set-cookie'), null);
+});
+
+test('protected routes fail closed when a transient refresh fails', async () => {
+	const deviceId = 'protected-transient-refresh-device';
+	await putStoredSession({ deviceId, sessionId: 'session-a', expiresAt: 1 });
+	let restCalled = false;
+	mockFetch(async (request) => {
+		if (new URL(request.url).pathname.includes('/rest/')) restCalled = true;
+		throw new Error('Supabase network unavailable.');
+	});
+
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/pages', {
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`
+			}
+		}),
+		env
+	);
+
+	assert.equal(response.status, 500);
+	assert.equal(restCalled, false);
 });
 
 test('session lists device accounts with usernames and active state', async () => {
