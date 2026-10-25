@@ -148,8 +148,8 @@ As the user types, the parser looks for schedule phrases and updates this chip a
 #### Desktop
 
 - Clicking a habit marks one completion. A habit is a horizontal rectangle with the title on the left and the completion status on the right (e.g. "2/3" or a progress bar). Clicking anywhere on the habit marks a completion for that day.
-- Once 3/3 or 100% completion, the fraction gets replaced with a checkmark to indicate the habit is complete for that day.
-- Habits cannot be completion for higher than 100%.
+- The status remains a count. Counts above the target are shown as `target(+over)/target`, such as `4(+1)/4`.
+- Progress fills to the target in the medium shade. Further completions layer a darker bar over the full background. After a full heavy-shade cycle, the background resets to medium and the over-completion shading cycle repeats. Over-completions are recorded but do not increase calendar shading beyond the target.
 - Right-clicking a habit undos a completion.
 
 #### Mobile
