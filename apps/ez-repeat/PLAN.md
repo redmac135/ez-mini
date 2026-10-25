@@ -62,7 +62,7 @@ The only special case is in the event the user archives and unarchives a habit o
 
 ## Completion Calculation (Client‑Side)
 
-The `completion` that is displayed for a given day is simply `completions in interval` / `target_count`, where the interval depends on the habit’s recurrence:
+The habit progress shown for a selected day is `completions in interval` / `target_count`, where the interval depends on the habit’s recurrence:
 
 - If it is a `days` habit, then we search for completions which occured between the current date and `n` days ago, where `n` is the interval of the habit. Note that completions happen on a day-level, so the time of the completion is not relevant, only the date.
 - If it is a `weeks` habit, then we search for completions which occured between the current date and `n` weeks ago, where `n` is the interval of the habit.
@@ -70,10 +70,9 @@ The `completion` that is displayed for a given day is simply `completions in int
 
 Note that `daysOfWeek` habits are the only ones that aren't shown every day. Because of this, `daysOfWeek` habits can only have completions on the days they exist. For example, if `interval=2` and `days=[1]` (every other Monday), then the habit will only have completions on Mondays, and the completion for that habit will only be shown on Mondays.
 
-Now a given day's `completion_score` also needs to be calculated on the client side. For a given day (As this calculate will repeat for each day), we take a weighted contribution of each habit completion.
+The calendar's `completion_score` is calculated separately from the progress shown for the selected day. For each date, it averages the completion ratios of the habits visible on that date. For weekly habits, the calendar uses completions through the end of that date's Sunday-to-Saturday week, so the whole week is shaded consistently as progress is made. If a habit is archived during that week, its calendar score uses completions through the day before archiving. The selected-day progress still uses completions only through the selected date.
 
-- The goal for the `completion_score` is to be a days measure of how well the user has done in terms of their habits. Therefore, the requirement is that if the user did not meet all their habits, it should be impossible to get 100%, and if they meet all requirements they should get 100%.
-- Thus, very simply, the completion score is the average of all the completion scores of each habit that is displayed that day. THAT MEANS, let's say a habit is due every 3 days, and I did nothing today, then my completion score will be 0%, but the next day, when I do one thing, the completion score will become 100% for both days!
+- The score is the average of the completion ratios of the habits visible on that calendar date. A date with no visible habits has a score of 0%.
 
 ---
 

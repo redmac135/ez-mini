@@ -73,6 +73,23 @@ test('completion progress is capped and score averages visible habits', () => {
 	assert.equal(getCompletionScore(progress), 0.75);
 });
 
+test('weekly slider progress remains as of the selected day', () => {
+	const weeklyHabit: Habit = {
+		...baseHabit,
+		targetCount: 4,
+		recurrence: { type: 'weeks', interval: 1 }
+	};
+	const completions = [
+		completion(weeklyHabit.id, '2026-05-12', 1),
+		completion(weeklyHabit.id, '2026-05-13', 1),
+		completion(weeklyHabit.id, '2026-05-14', 1),
+		completion(weeklyHabit.id, '2026-05-16', 1)
+	];
+
+	assert.equal(buildHabitProgress([weeklyHabit], completions, '2026-05-12')[0]?.count, 1);
+	assert.equal(buildHabitProgress([weeklyHabit], completions, '2026-05-16')[0]?.count, 4);
+});
+
 test('multi-day windows include previous days', () => {
 	const habit: Habit = { ...baseHabit, targetCount: 1, recurrence: { type: 'days', interval: 2 } };
 	const progress = buildHabitProgress(
