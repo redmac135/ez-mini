@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	buildHabitProgress,
+	formatProgressCount,
 	getCompletionScore,
+	getProgressFillState,
+	getProgressRollover,
 	isHabitVisibleOnDate
 } from '../src/lib/repeat/recurrence.ts';
 import type { Completion, Habit } from '../src/lib/repeat/types.ts';
@@ -59,7 +62,7 @@ test('daysOfWeek habits only appear on selected weekdays and interval weeks', ()
 	assert.equal(isHabitVisibleOnDate(habit, '2026-05-25'), true);
 });
 
-test('completion progress is capped and score averages visible habits', () => {
+test('completion count remains uncapped while score averages capped progress', () => {
 	const completions: Completion[] = [
 		completion('habit-1', '2026-05-12', 3),
 		completion('habit-2', '2026-05-12', 1)
@@ -67,10 +70,59 @@ test('completion progress is capped and score averages visible habits', () => {
 	const otherHabit: Habit = { ...baseHabit, id: 'habit-2', targetCount: 2 };
 	const progress = buildHabitProgress([baseHabit, otherHabit], completions, '2026-05-12');
 
-	assert.equal(progress[0]?.count, 2);
+	assert.equal(progress[0]?.count, 3);
+	assert.equal(progress[0]?.ratio, 1);
 	assert.equal(progress[0]?.complete, true);
 	assert.equal(progress[1]?.ratio, 0.5);
 	assert.equal(getCompletionScore(progress), 0.75);
+});
+
+test('over-completion shades cycle through medium, medium-heavy, and heavy fills', () => {
+	assert.deepEqual(getProgressFillState(0, 4), {
+		baseProgress: 0,
+		baseShade: 'medium',
+		overlayProgress: 0,
+		overlayShade: null
+	});
+	assert.deepEqual(getProgressFillState(2, 4), {
+		baseProgress: 0.5,
+		baseShade: 'medium',
+		overlayProgress: 0,
+		overlayShade: null
+	});
+	assert.deepEqual(getProgressFillState(5, 4), {
+		baseProgress: 1,
+		baseShade: 'medium',
+		overlayProgress: 0.25,
+		overlayShade: 'mediumHeavy'
+	});
+	assert.deepEqual(getProgressFillState(8, 4), {
+		baseProgress: 1,
+		baseShade: 'medium',
+		overlayProgress: 1,
+		overlayShade: 'mediumHeavy'
+	});
+	assert.deepEqual(getProgressFillState(9, 4), {
+		baseProgress: 1,
+		baseShade: 'mediumHeavy',
+		overlayProgress: 0.25,
+		overlayShade: 'heavy'
+	});
+	assert.deepEqual(getProgressFillState(12, 4), {
+		baseProgress: 1,
+		baseShade: 'mediumHeavy',
+		overlayProgress: 1,
+		overlayShade: 'heavy'
+	});
+	assert.deepEqual(getProgressFillState(13, 4), {
+		baseProgress: 1,
+		baseShade: 'mediumHeavy',
+		overlayProgress: 0.25,
+		overlayShade: 'heavy'
+	});
+	assert.equal(formatProgressCount(13, 4), '4(+9)/4');
+	assert.equal(getProgressRollover(8, 9, 4), 'shade');
+	assert.equal(getProgressRollover(12, 13, 4), 'full-heavy');
 });
 
 test('weekly slider progress remains as of the selected day', () => {

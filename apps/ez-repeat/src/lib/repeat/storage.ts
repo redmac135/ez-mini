@@ -30,7 +30,7 @@ interface StorageBackend {
 	addHabit(habit: Habit): Promise<void>;
 	archiveHabit(habitId: string, archivedAt: string, updatedAt: string): Promise<void>;
 	deleteHabit(habitId: string, deletedAt: string): Promise<void>;
-	incrementCompletion(completion: Completion, maxCount: number): Promise<void>;
+	incrementCompletion(completion: Completion): Promise<void>;
 	decrementCompletion(habitId: string, completedOn: string, updatedAt: string): Promise<void>;
 	getSetting<T>(key: string): Promise<T | undefined>;
 	setSetting(key: string, value: unknown): Promise<void>;
@@ -79,9 +79,9 @@ export class RepeatStorage {
 		notifyRepeatStorageChanged();
 	}
 
-	static async incrementCompletion(completion: Completion, maxCount: number) {
+	static async incrementCompletion(completion: Completion) {
 		const backend = await this.getBackend();
-		await backend.incrementCompletion(completion, maxCount);
+		await backend.incrementCompletion(completion);
 		notifyRepeatStorageChanged();
 	}
 
@@ -174,12 +174,12 @@ function createMemoryBackend(): StorageBackend {
 				habits.set(habitId, { ...habit, deletedAt, updatedAt: deletedAt });
 			}
 		},
-		async incrementCompletion(completion, maxCount) {
+		async incrementCompletion(completion) {
 			const key = completionKey(completion.habitId, completion.completedOn);
 			const existing = completions.get(key);
 			completions.set(key, {
 				...(existing ?? completion),
-				count: Math.min(maxCount, (existing?.count ?? 0) + 1),
+				count: (existing?.count ?? 0) + 1,
 				updatedAt: completion.updatedAt,
 				lastSyncedAt: existing?.lastSyncedAt ?? null
 			});
@@ -259,14 +259,14 @@ async function createIndexedDbBackend(): Promise<StorageBackend> {
 			}
 			await transactionToPromise(tx);
 		},
-		async incrementCompletion(completion, maxCount) {
+		async incrementCompletion(completion) {
 			const tx = db.transaction(COMPLETIONS_STORE_NAME, 'readwrite');
 			const store = tx.objectStore(COMPLETIONS_STORE_NAME);
 			const key = [completion.habitId, completion.completedOn];
 			const existing = await requestToPromise<Completion | undefined>(store.get(key));
 			store.put({
 				...(existing ?? completion),
-				count: Math.min(maxCount, (existing?.count ?? 0) + 1),
+				count: (existing?.count ?? 0) + 1,
 				updatedAt: completion.updatedAt,
 				lastSyncedAt: existing?.lastSyncedAt ?? null
 			});
