@@ -174,9 +174,9 @@
 	}
 
 	.habit-row {
-		--progress-medium: color-mix(in srgb, var(--color-fg), transparent 94%);
-		--progress-medium-heavy: color-mix(in srgb, var(--color-fg), transparent 72%);
-		--progress-heavy: color-mix(in srgb, var(--color-fg), transparent 53%);
+		--progress-medium: color-mix(in srgb, var(--color-fg) 6%, var(--color-panel));
+		--progress-medium-heavy: color-mix(in srgb, var(--color-fg) 28%, var(--color-panel));
+		--progress-heavy: color-mix(in srgb, var(--color-fg) 47%, var(--color-panel));
 
 		position: relative;
 		overflow: hidden;
