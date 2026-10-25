@@ -1,5 +1,5 @@
 import { buildHabitProgress, getCompletionScore } from './recurrence';
-import { addDays, startOfWeek } from './dates';
+import { addDays, compareDateKeys, startOfWeek } from './dates';
 import type { Completion, Habit } from './types';
 
 export interface CalendarDay {
@@ -100,12 +100,20 @@ export function buildCalendarMonth(
 }
 
 export function getCalendarDayScore(habits: Habit[], completions: Completion[], dateKey: string) {
-	const periodEndDateKey = addDays(startOfWeek(dateKey), 6);
-	const progress = buildHabitProgress(habits, completions, dateKey).map((item) =>
-		item.habit.recurrence.type === 'weeks'
-			? buildHabitProgress([item.habit], completions, periodEndDateKey)[0] ?? item
-			: item
-	);
+	const progress = buildHabitProgress(habits, completions, dateKey).map((item) => {
+		if (item.habit.recurrence.type !== 'weeks') {
+			return item;
+		}
+
+		const periodEndDateKey = addDays(startOfWeek(dateKey), 6);
+		const archiveDateKey = item.habit.archivedAt?.slice(0, 10);
+		const shadingDateKey =
+			archiveDateKey && compareDateKeys(archiveDateKey, periodEndDateKey) <= 0
+				? addDays(archiveDateKey, -1)
+				: periodEndDateKey;
+
+		return buildHabitProgress([item.habit], completions, shadingDateKey)[0] ?? item;
+	});
 
 	return getCompletionScore(progress);
 }

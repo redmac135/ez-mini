@@ -129,3 +129,28 @@ test('calendar scores respect archive date visibility', () => {
 	assert.equal(getCalendarDayScore([archived], [], '2026-05-12'), 0);
 	assert.equal(getCalendarDayScore([archived], [], '2026-05-13'), 0);
 });
+
+test('weekly calendar shading uses completions through the last visible day before Friday archive', () => {
+	const weeklyHabit: Habit = {
+		...habit,
+		targetCount: 4,
+		recurrence: { type: 'weeks', interval: 1 },
+		archivedAt: '2026-05-15T00:00:00.000'
+	};
+	const completions: Completion[] = ['2026-05-12', '2026-05-13', '2026-05-14'].map(
+		(completedOn) => ({
+			userId: 'anonymous',
+			habitId: weeklyHabit.id,
+			completedOn,
+			count: 1,
+			createdAt: `${completedOn}T00:00:00.000`,
+			updatedAt: `${completedOn}T00:00:00.000`,
+			lastSyncedAt: null
+		})
+	);
+
+	for (const date of ['2026-05-10', '2026-05-12', '2026-05-14']) {
+		assert.equal(getCalendarDayScore([weeklyHabit], completions, date), 0.75);
+	}
+	assert.equal(getCalendarDayScore([weeklyHabit], completions, '2026-05-15'), 0);
+});
