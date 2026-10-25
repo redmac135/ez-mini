@@ -62,6 +62,15 @@ export function countCompletionsForHabit(habit: Habit, completions: Completion[]
 		.reduce((sum, completion) => sum + Math.max(0, completion.count), 0);
 }
 
+export type ProgressShade = 'medium' | 'mediumHeavy' | 'heavy';
+
+export interface ProgressFillState {
+	baseProgress: number;
+	baseShade: 'medium' | 'mediumHeavy';
+	overlayProgress: number;
+	overlayShade: 'mediumHeavy' | 'heavy' | null;
+}
+
 export function buildHabitProgress(
 	habits: Habit[],
 	completions: Completion[],
@@ -71,8 +80,8 @@ export function buildHabitProgress(
 		.filter((habit) => isHabitVisibleOnDate(habit, dateKey))
 		.map((habit) => {
 			const target = Math.max(1, habit.targetCount);
-			const count = Math.min(target, countCompletionsForHabit(habit, completions, dateKey));
-			const ratio = count / target;
+			const count = countCompletionsForHabit(habit, completions, dateKey);
+			const ratio = Math.min(1, count / target);
 			return {
 				habit,
 				count,
@@ -81,6 +90,64 @@ export function buildHabitProgress(
 				complete: ratio >= 1
 			};
 		});
+}
+
+export function getProgressFillState(count: number, target: number): ProgressFillState {
+	const safeTarget = Math.max(1, target);
+	const safeCount = Math.max(0, count);
+
+	if (safeCount <= safeTarget) {
+		return {
+			baseProgress: safeCount / safeTarget,
+			baseShade: 'medium',
+			overlayProgress: 0,
+			overlayShade: null
+		};
+	}
+
+	const overCount = safeCount - safeTarget;
+	if (overCount <= safeTarget) {
+		return {
+			baseProgress: 1,
+			baseShade: 'medium',
+			overlayProgress: overCount / safeTarget,
+			overlayShade: 'mediumHeavy'
+		};
+	}
+
+	return {
+		baseProgress: 1,
+		baseShade: 'mediumHeavy',
+		overlayProgress: (((overCount - 1) % safeTarget) + 1) / safeTarget,
+		overlayShade: 'heavy'
+	};
+}
+
+export function getProgressRollover(
+	previousCount: number,
+	count: number,
+	target: number
+): 'shade' | 'full-heavy' | null {
+	const safeTarget = Math.max(1, target);
+	const overCount = count - safeTarget;
+	if (
+		count !== previousCount + 1 ||
+		overCount <= safeTarget ||
+		(overCount - 1) % safeTarget !== 0
+	) {
+		return null;
+	}
+
+	return overCount > safeTarget * 2 ? 'full-heavy' : 'shade';
+}
+
+export function formatProgressCount(count: number, target: number) {
+	const safeTarget = Math.max(1, target);
+	const safeCount = Math.max(0, count);
+	const overCount = safeCount - safeTarget;
+	return overCount > 0
+		? `${safeTarget}(+${overCount})/${safeTarget}`
+		: `${safeCount}/${safeTarget}`;
 }
 
 export function getCompletionScore(progress: HabitProgress[]) {

@@ -1067,8 +1067,7 @@
 		scrollbar-gutter: stable;
 	}
 
-	.timeline-sentinel,
-	.timeline-newer-sentinel {
+	.timeline-sentinel {
 		height: 1px;
 	}
 

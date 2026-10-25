@@ -1,5 +1,12 @@
 <script lang="ts">
+	import { afterUpdate, onDestroy } from 'svelte';
 	import { Button, Icon } from '@ez/ui';
+	import {
+		formatProgressCount,
+		getProgressFillState,
+		getProgressRollover,
+		type ProgressShade
+	} from '$lib/repeat/recurrence';
 	import type { HabitProgress } from '$lib/repeat/types';
 
 	export let progress: HabitProgress;
@@ -11,8 +18,61 @@
 	export let onDelete: (progress: HabitProgress) => void = () => {};
 
 	let touchStart: { x: number; y: number } | null = null;
+	let rolloverAnimation: 'shade-reset' | 'full-h-reset' | '' = '';
+	let rolloverTimer: ReturnType<typeof setTimeout> | null = null;
+	let previousProgress = {
+		habitId: progress.habit.id,
+		count: progress.count,
+		target: progress.target
+	};
 	const SWIPE_MIN_X = 56;
 	const SWIPE_MAX_Y = 42;
+	const SHADE_COLORS: Record<ProgressShade, string> = {
+		medium: 'var(--progress-medium)',
+		mediumHeavy: 'var(--progress-medium-heavy)',
+		heavy: 'var(--progress-heavy)'
+	};
+
+	$: fillState = getProgressFillState(progress.count, progress.target);
+	$: progressLabel = formatProgressCount(progress.count, progress.target);
+	$: accessibleProgressLabel =
+		progress.count > progress.target
+			? `${progress.count} completed, ${progress.count - progress.target} over goal of ${progress.target}`
+			: `${progress.count} of ${progress.target}`;
+
+	afterUpdate(() => {
+		const changed =
+			progress.habit.id !== previousProgress.habitId ||
+			progress.count !== previousProgress.count ||
+			progress.target !== previousProgress.target;
+		if (!changed) {
+			return;
+		}
+
+		const previous = previousProgress;
+		previousProgress = {
+			habitId: progress.habit.id,
+			count: progress.count,
+			target: progress.target
+		};
+
+		if (progress.habit.id !== previous.habitId || progress.target !== previous.target) {
+			rolloverAnimation = '';
+			return;
+		}
+
+		const rollover = getProgressRollover(previous.count, progress.count, progress.target);
+		rolloverAnimation =
+			rollover === 'full-heavy' ? 'full-h-reset' : rollover === 'shade' ? 'shade-reset' : '';
+		if (rolloverAnimation) {
+			if (rolloverTimer) clearTimeout(rolloverTimer);
+			rolloverTimer = setTimeout(() => (rolloverAnimation = ''), 220);
+		}
+	});
+
+	onDestroy(() => {
+		if (rolloverTimer) clearTimeout(rolloverTimer);
+	});
 
 	function handleContextMenu(event: MouseEvent) {
 		event.preventDefault();
@@ -53,24 +113,21 @@
 <div class:editing={editMode} class="habit-shell">
 	<button
 		class:complete={progress.complete}
+		class:shade-reset={rolloverAnimation === 'shade-reset'}
+		class:full-h-reset={rolloverAnimation === 'full-h-reset'}
 		class="habit-row"
 		type="button"
-		style={`--progress: ${Math.round(progress.ratio * 100)}%`}
-		aria-label={`${progress.habit.title}, ${progress.count} of ${progress.target}`}
+		style={`--progress-width: ${fillState.baseProgress * 100}%; --progress-color: ${SHADE_COLORS[fillState.baseShade]}; --over-progress-width: ${fillState.overlayProgress * 100}%; --over-progress-color: ${fillState.overlayShade ? SHADE_COLORS[fillState.overlayShade] : 'transparent'}`}
+		aria-label={`${progress.habit.title}, ${accessibleProgressLabel}`}
 		onclick={() => onComplete(progress)}
 		oncontextmenu={handleContextMenu}
 		ontouchstart={handleTouchStart}
 		ontouchend={handleTouchEnd}
 	>
-		<span class="fill"></span>
+		<span class="fill" aria-hidden="true"></span>
+		<span class="over-fill" aria-hidden="true"></span>
 		<span class="title">{progress.habit.title}</span>
-		<span class="status">
-			{#if progress.complete}
-				<Icon name="check" />
-			{:else}
-				{progress.count}/{progress.target}
-			{/if}
-		</span>
+		<span class="status">{progressLabel}</span>
 	</button>
 
 	{#if editMode}
@@ -117,6 +174,10 @@
 	}
 
 	.habit-row {
+		--progress-medium: color-mix(in srgb, var(--color-fg) 6%, var(--color-panel));
+		--progress-medium-heavy: color-mix(in srgb, var(--color-fg) 28%, var(--color-panel));
+		--progress-heavy: color-mix(in srgb, var(--color-fg) 47%, var(--color-panel));
+
 		position: relative;
 		overflow: hidden;
 		display: grid;
@@ -142,13 +203,59 @@
 		border-color: color-mix(in srgb, var(--color-fg), transparent 78%);
 	}
 
-	.fill {
+	.fill,
+	.over-fill {
 		position: absolute;
 		inset: 0 auto 0 0;
-		width: var(--progress);
-		background: color-mix(in srgb, var(--color-fg), transparent 94%);
 		pointer-events: none;
+	}
+
+	.fill {
+		width: var(--progress-width);
+		background-color: var(--progress-color);
+		transition:
+			width var(--duration-normal) var(--ease-standard),
+			background-color var(--duration-normal) var(--ease-standard);
+	}
+
+	.over-fill {
+		width: var(--over-progress-width);
+		background-color: var(--over-progress-color);
 		transition: width var(--duration-normal) var(--ease-standard);
+	}
+
+	.shade-reset .fill,
+	.shade-reset .over-fill,
+	.full-h-reset .fill,
+	.full-h-reset .over-fill {
+		transition: none;
+	}
+
+	.shade-reset .over-fill,
+	.full-h-reset .over-fill {
+		animation: rollover-overlay var(--duration-normal) var(--ease-standard) both;
+	}
+
+	.full-h-reset .fill {
+		animation: rollover-background var(--duration-normal) var(--ease-standard) both;
+	}
+
+	@keyframes rollover-overlay {
+		from {
+			width: 0;
+		}
+		to {
+			width: var(--over-progress-width);
+		}
+	}
+
+	@keyframes rollover-background {
+		from {
+			background-color: var(--progress-heavy);
+		}
+		to {
+			background-color: var(--progress-color);
+		}
 	}
 
 	.title,
@@ -203,5 +310,18 @@
 
 	.row-actions :global(button:nth-child(3) svg) {
 		color: var(--color-danger);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.fill,
+		.over-fill {
+			transition: none;
+		}
+
+		.shade-reset .over-fill,
+		.full-h-reset .fill,
+		.full-h-reset .over-fill {
+			animation: none;
+		}
 	}
 </style>

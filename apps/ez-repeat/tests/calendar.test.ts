@@ -121,6 +121,11 @@ test('full weekly completion shades the entire period uniformly', () => {
 	for (const date of ['2026-05-10', '2026-05-12', '2026-05-16']) {
 		assert.equal(getCalendarDayScore([weeklyHabit], completions, date), 1);
 	}
+
+	const overCompletion = [{ ...completions[0]!, count: 9 }];
+	for (const date of ['2026-05-10', '2026-05-12', '2026-05-16']) {
+		assert.equal(getCalendarDayScore([weeklyHabit], overCompletion, date), 1);
+	}
 });
 
 test('calendar scores respect archive date visibility', () => {
