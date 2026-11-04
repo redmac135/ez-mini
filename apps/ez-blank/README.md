@@ -2,6 +2,8 @@
 
 SvelteKit app for a minimal local-first writing surface with sync through `@ez/apps-api`.
 
+Open page search with the magnifying-glass button in the Pages drawer or with Ctrl+K / Cmd+K. Search matches page titles and content, with title matches first and more recently updated pages first within each group.
+
 ## Development
 
 From the repo root:

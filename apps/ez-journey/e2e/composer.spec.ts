@@ -80,6 +80,54 @@ async function expectNoPageOverflow(page: import('playwright/test').Page) {
 		.toBeLessThanOrEqual(1);
 }
 
+async function addAnonymousEntry(
+	page: import('playwright/test').Page,
+	entry: { id: string; text: string; createdAt: string }
+) {
+	await page.evaluate(async (entry) => {
+		const db = await new Promise<IDBDatabase>((resolve, reject) => {
+			const request = indexedDB.open('journey', 3);
+			request.onupgradeneeded = () => {
+				const database = request.result;
+				const store = database.objectStoreNames.contains('entries')
+					? request.transaction!.objectStore('entries')
+					: database.createObjectStore('entries', { keyPath: 'id' });
+				if (!store.indexNames.contains('userId')) store.createIndex('userId', 'userId');
+				if (!store.indexNames.contains('userCreatedAtId')) {
+					store.createIndex('userCreatedAtId', ['userId', 'createdAt', 'id']);
+				}
+				if (!database.objectStoreNames.contains('settings')) {
+					database.createObjectStore('settings', { keyPath: ['userId', 'key'] });
+				}
+			};
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => reject(request.error);
+		});
+		const tx = db.transaction('entries', 'readwrite');
+		tx.objectStore('entries').put({
+			...entry,
+			userId: 'anonymous',
+			updatedAt: entry.createdAt,
+			deletedAt: null,
+			lastSyncedAt: null,
+			lastRemoteChangeAt: null
+		});
+		await new Promise<void>((resolve, reject) => {
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error);
+		});
+		db.close();
+	}, entry);
+}
+
+async function localDateAtOffset(page: import('playwright/test').Page, offset: number) {
+	return page.evaluate((offset) => {
+		const date = new Date();
+		date.setDate(date.getDate() + offset);
+		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+	}, offset);
+}
+
 test('expands only when the cursor reaches a fourth visual line', async ({ page }) => {
 	await page.setViewportSize({ width: 520, height: 900 });
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
@@ -259,6 +307,113 @@ test('saved entries appear in the timeline and open as editable full-screen entr
 	await page.getByRole('button', { name: 'Save journal entry' }).click();
 	await expect(page.locator('.entry-editor')).toHaveCount(0);
 	await expect(entryCard).toContainText('A moment worth keeping and more');
+});
+
+test('calendar selection opens the saved entry for that day and clears the previous draft', async ({
+	page
+}) => {
+	const today = await localDateAtOffset(page, 0);
+	const createdAt = await page.evaluate((date) => {
+		const [year, month, day] = date.split('-').map(Number);
+		return new Date(year, month - 1, day, 12).toISOString();
+	}, today);
+	await addAnonymousEntry(page, {
+		id: 'calendar-selected-entry',
+		text: 'Saved for the selected day',
+		createdAt
+	});
+	await page.reload();
+	const composerEditor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await expect(composerEditor).toBeVisible();
+	await composerEditor.pressSequentially('Draft from another day');
+	await page.getByRole('button', { name: 'Open calendar' }).click();
+	await page.getByRole('button', { name: today, exact: true }).click();
+
+	const selectedEntryEditor = page.locator('.entry-editor').getByRole('textbox', {
+		name: 'Markdown editor'
+	});
+	await expect(selectedEntryEditor).toContainText('Saved for the selected day');
+	await expect(selectedEntryEditor).not.toContainText('Draft from another day');
+	await page.getByRole('button', { name: 'Close journal entry' }).click();
+	await expect(page.locator('.entry-editor')).toHaveCount(0);
+	await expect(composerEditor).toHaveText('');
+});
+
+test('Journey search finds an entry and opens it in the journal editor', async ({ page }) => {
+	await page.goto('/?demo=journey');
+	await expect(page.getByRole('button', { name: /open journal entry/i })).toHaveCount(30);
+	await page.getByRole('button', { name: 'Search Journey entries' }).click();
+	const search = page.getByRole('textbox', { name: 'Search Journey entries' });
+	await search.fill('longer route home');
+	const result = page.locator('.search-result').filter({ hasText: 'longer route home' }).first();
+	await expect(result).toBeVisible();
+	await result.click();
+	await expect(page.locator('.entry-editor')).toBeVisible();
+	await expect(page.locator('.entry-editor')).toContainText('longer route home');
+});
+
+test('calendar selection clears a previous draft for an empty day', async ({ page }) => {
+	const tomorrow = await localDateAtOffset(page, 1);
+	const composerEditor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await composerEditor.pressSequentially('Draft from today');
+	await page.getByRole('button', { name: 'Open calendar' }).click();
+	await page.getByRole('button', { name: tomorrow, exact: true }).click();
+
+	await expect(composerEditor).toHaveText('');
+	await expect(page.locator('.entry-editor')).toHaveCount(0);
+});
+
+test('calendar arrows keep month view open and move through consecutive year ranges', async ({
+	page
+}) => {
+	await page.getByRole('button', { name: 'Open calendar' }).click();
+	const headerButtons = page.locator('.picker header .labels button');
+	const yearLabel = headerButtons.nth(1);
+	const year = Number(await yearLabel.textContent());
+	await headerButtons.nth(0).click();
+	await page.getByRole('button', { name: 'Next' }).click();
+	await expect(yearLabel).toHaveText(String(year + 1));
+	const monthGrid = page.locator('.picker .grid.months');
+	await expect(monthGrid.getByRole('button', { name: 'Jan', exact: true })).toBeVisible();
+
+	await yearLabel.click();
+	const rangeStart = Math.floor((year + 1) / 12) * 12;
+	await page.getByRole('button', { name: 'Previous' }).click();
+	await expect(yearLabel).toHaveText(String(rangeStart - 12));
+	await expect(
+		monthGrid.getByRole('button', { name: String(rangeStart - 12), exact: true })
+	).toBeVisible();
+	await expect(
+		monthGrid.getByRole('button', { name: String(rangeStart - 1), exact: true })
+	).toBeVisible();
+});
+
+test('distant calendar jumps can load continuously toward newer entries', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await page.goto('/?demo=journey');
+	const entryCards = page.getByRole('button', { name: /open journal entry/i });
+	await expect(entryCards).toHaveCount(30);
+	const selectedDate = await localDateAtOffset(page, -60);
+	await page.getByRole('button', { name: 'Open calendar' }).click();
+	const targetMonth = new Date(`${selectedDate}T12:00:00`);
+	const monthLabels = page.locator('.picker header .labels button');
+	while (
+		(await monthLabels.nth(0).textContent()) !==
+			new Intl.DateTimeFormat('en', { month: 'short' }).format(targetMonth) ||
+		Number(await monthLabels.nth(1).textContent()) !== targetMonth.getFullYear()
+	) {
+		await page.getByRole('button', { name: 'Previous' }).click();
+	}
+	await page.getByRole('button', { name: selectedDate, exact: true }).click();
+	await expect(page.locator('.entry-editor')).toBeVisible();
+	await page.getByRole('button', { name: 'Close journal entry' }).click();
+	await expect(page.locator('.entry-editor')).toHaveCount(0);
+	await expect(entryCards).toHaveCount(60);
+
+	await page.locator('.timeline-scroll').evaluate((element) => {
+		element.scrollTop = 0;
+	});
+	await expect(entryCards).toHaveCount(90);
 });
 
 test('the app keeps page margins inside the viewport in every editor state', async ({ page }) => {

@@ -20,11 +20,14 @@
 	};
 	const progress = { habit, count: 1, target: 2, ratio: 0.5, complete: false };
 	const complete = { ...progress, count: 2, ratio: 1, complete: true };
+	const overComplete = { ...complete, count: 3 };
+	const repeatedOverComplete = { ...complete, count: 5 };
 </script>
 
 <Story name="Progress states">
 	{#snippet template()}<div class="rows">
-			<HabitRow {progress} /><HabitRow progress={complete} /><HabitRow {progress} editMode />
+			<HabitRow {progress} /><HabitRow progress={complete} /><HabitRow progress={overComplete} />
+			<HabitRow progress={repeatedOverComplete} /><HabitRow {progress} editMode />
 		</div>{/snippet}
 </Story>
 

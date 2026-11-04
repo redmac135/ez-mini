@@ -21,8 +21,8 @@ test('memory storage persists session mutations', async () => {
 		replacesHabitId: null,
 		lastSyncedAt: null
 	});
-	await RepeatStorage.incrementCompletion(
-		{
+	for (let count = 0; count < 5; count += 1) {
+		await RepeatStorage.incrementCompletion({
 			userId: 'anonymous',
 			habitId: 'habit-test',
 			completedOn: '2026-05-12',
@@ -30,9 +30,8 @@ test('memory storage persists session mutations', async () => {
 			createdAt: '2026-05-12T00:00:00.000',
 			updatedAt: '2026-05-12T00:00:00.000',
 			lastSyncedAt: null
-		},
-		1
-	);
+		});
+	}
 
 	const updated = await RepeatStorage.loadSnapshot('anonymous');
 	assert.equal(
@@ -40,11 +39,15 @@ test('memory storage persists session mutations', async () => {
 		true
 	);
 	assert.equal(
-		updated.completions.some(
+		updated.completions.find(
 			(completion) => completion.habitId === 'habit-test' && completion.completedOn === '2026-05-12'
-		),
-		true
+		)?.count,
+		5
 	);
+
+	await RepeatStorage.decrementCompletion('habit-test', '2026-05-12', '2026-05-13T00:00:00.000');
+	const undone = await RepeatStorage.loadSnapshot('anonymous');
+	assert.equal(undone.completions[0]?.count, 4);
 
 	await RepeatStorage.deleteHabit('habit-test', '2026-05-13T00:00:00.000');
 	const deleted = await RepeatStorage.loadSnapshot('anonymous');

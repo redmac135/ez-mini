@@ -28,6 +28,13 @@ export default defineConfig({
 			timeout: 120_000
 		},
 		{
+			command: '../../node_modules/.bin/vite dev --host 127.0.0.1 --port 1352 --strictPort',
+			cwd: 'apps/ez-repeat',
+			url: 'http://127.0.0.1:1352',
+			reuseExistingServer: !process.env.CI,
+			timeout: 120_000
+		},
+		{
 			command: '../../node_modules/.bin/vite dev --host 127.0.0.1 --port 1353 --strictPort',
 			cwd: 'apps/ez-journey',
 			url: 'http://127.0.0.1:1353',

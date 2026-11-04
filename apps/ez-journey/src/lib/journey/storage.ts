@@ -13,6 +13,7 @@ export type EntryPage = { entries: StoredJourneyEntry[]; nextCursor: EntryCursor
 type StorageBackend = {
 	loadEntries(userId: string): Promise<StoredJourneyEntry[]>;
 	loadPage(userId: string, before: EntryCursor | null, limit: number): Promise<EntryPage>;
+	loadPageAfter(userId: string, after: EntryCursor, limit: number): Promise<EntryPage>;
 	saveEntries(entries: StoredJourneyEntry[]): Promise<void>;
 	saveSyncResults(
 		userId: string,
@@ -34,6 +35,10 @@ export class JourneyStorage {
 
 	static async loadPage(userId: string | null, before: EntryCursor | null, limit = 30) {
 		return (await this.backend()).loadPage(userId ?? ANONYMOUS_USER_ID, before, limit);
+	}
+
+	static async loadPageAfter(userId: string | null, after: EntryCursor, limit = 30) {
+		return (await this.backend()).loadPageAfter(userId ?? ANONYMOUS_USER_ID, after, limit);
 	}
 
 	static async saveEntries(entries: StoredJourneyEntry[]) {
@@ -89,6 +94,13 @@ function createMemoryBackend(): StorageBackend {
 				.sort(compareNewestFirst)
 				.slice(0, limit + 1);
 			return pageFromEntries(candidates, limit);
+		},
+		async loadPageAfter(userId, after, limit) {
+			const candidates = [...entries.values()]
+				.filter((entry) => entry.userId === userId && compareCursor(entry, after) > 0)
+				.sort((a, b) => compareCursor(a, b))
+				.slice(0, limit + 1);
+			return pageAfterFromEntries(candidates, limit);
 		},
 		async saveEntries(nextEntries) {
 			for (const entry of nextEntries) entries.set(entry.id, entry);
@@ -158,6 +170,9 @@ function openIndexedDb(): Promise<StorageBackend> {
 				},
 				loadPage(userId, before, limit) {
 					return loadIndexedDbPage(db, userId, before, limit);
+				},
+				loadPageAfter(userId, after, limit) {
+					return loadIndexedDbPageAfter(db, userId, after, limit);
 				},
 				saveEntries(entries) {
 					return runTransaction(db, 'readwrite', (store) => {
@@ -284,12 +299,50 @@ function loadIndexedDbPage(
 	});
 }
 
+function loadIndexedDbPageAfter(
+	db: IDBDatabase,
+	userId: string,
+	after: EntryCursor,
+	limit: number
+) {
+	return new Promise<EntryPage>((resolve, reject) => {
+		const tx = db.transaction(STORE_NAME, 'readonly');
+		const index = tx.objectStore(STORE_NAME).index(USER_CREATED_INDEX);
+		const lower: IDBValidKey = [userId, after.createdAt, after.id];
+		const upper: IDBValidKey = [userId, '\uffff', '\uffff'];
+		const request = index.openCursor(IDBKeyRange.bound(lower, upper, true), 'next');
+		const entries: StoredJourneyEntry[] = [];
+		let page: EntryPage = { entries: [], nextCursor: null };
+		request.onsuccess = () => {
+			const cursor = request.result;
+			if (cursor) {
+				entries.push(cursor.value as StoredJourneyEntry);
+				if (entries.length <= limit) cursor.continue();
+			}
+			if (!cursor || entries.length > limit) page = pageAfterFromEntries(entries, limit);
+		};
+		tx.oncomplete = () => resolve(page);
+		tx.onerror = () => reject(tx.error ?? new Error('Journey page query failed.'));
+		tx.onabort = () => reject(tx.error ?? new Error('Journey page query was aborted.'));
+	});
+}
+
 function pageFromEntries(entries: StoredJourneyEntry[], limit: number): EntryPage {
 	const hasMore = entries.length > limit;
 	const page = entries.slice(0, limit);
 	const last = page.at(-1);
 	return {
 		entries: page,
+		nextCursor: hasMore && last ? { createdAt: last.createdAt, id: last.id } : null
+	};
+}
+
+function pageAfterFromEntries(entries: StoredJourneyEntry[], limit: number): EntryPage {
+	const hasMore = entries.length > limit;
+	const page = entries.slice(0, limit);
+	const last = page.at(-1);
+	return {
+		entries: page.reverse(),
 		nextCursor: hasMore && last ? { createdAt: last.createdAt, id: last.id } : null
 	};
 }

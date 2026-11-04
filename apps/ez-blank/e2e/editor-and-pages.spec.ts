@@ -73,3 +73,32 @@ test('new pages become active, and deleting the active page selects a remaining 
 	await expect(editor.locator('.line')).toHaveText('First page');
 	await expect(page.locator('.page-title')).toHaveText(['First page']);
 });
+
+test('Ctrl+K search cancels a title draft and navigates to the selected page', async ({ page }) => {
+	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await editor.pressSequentially('Source page');
+
+	await openPages(page);
+	await page.getByRole('button', { name: 'New page' }).click();
+	await openPages(page);
+	await page.getByRole('button', { name: 'Page menu for Untitled' }).click();
+	await page.getByRole('button', { name: 'Edit title' }).click();
+	const titleInput = page.getByRole('textbox', { name: 'Edit page title' });
+	await titleInput.fill('Destination page');
+	await titleInput.press('Enter');
+
+	await page.getByRole('button', { name: 'Page menu for Source page' }).click();
+	await page.getByRole('button', { name: 'Edit title' }).click();
+	await page.getByRole('textbox', { name: 'Edit page title' }).fill('Unsaved draft');
+	await page.keyboard.press('Control+k');
+
+	const dialog = page.getByRole('dialog', { name: 'Search pages' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('textbox', { name: 'Search your pages' }).fill('Destination');
+	await dialog.getByRole('button', { name: /Destination page/ }).click();
+
+	await expect(dialog).not.toBeVisible();
+	await expect(page.locator('.page-row.active .page-title')).toHaveText('Destination page');
+	await openPages(page);
+	await expect(page.getByRole('button', { name: 'Source page', exact: true })).toBeVisible();
+});
