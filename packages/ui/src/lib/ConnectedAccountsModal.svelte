@@ -43,9 +43,6 @@
 </script>
 
 <Modal title="Profile" {onClose}>
-	{#if loading}
-		<p class="status" role="status">Loading login methods…</p>
-	{/if}
 	{#if loadError}
 		<div class="load-error" role="alert">
 			<p>{loadError}</p>
@@ -68,49 +65,53 @@
 	</section>
 	<section class="methods-section" aria-labelledby="login-methods-heading">
 		<h3 id="login-methods-heading">Login methods</h3>
+		{#if loading}
+			<p class="status" role="status">loading</p>
+		{/if}
 		{#if identities.length > 0}
 			<ul class="identity-list">
 				{#each identities as identity (identity.id)}
 					<li>
 						<div class="identity-copy">
 							<strong>{getProviderName(identity.provider)}</strong>
-							<span>{identity.displayName ?? identity.email ?? 'Connected'}</span>
 						</div>
 						<Button
 							size="sm"
-							variant={identities.length < 2 ? 'ghost' : 'danger'}
+							variant="ghost"
 							disabled={identities.length < 2 || busyIdentityId !== null || busyProvider !== null}
 							onclick={() => (pendingUnlink = identity)}
 						>
-							{busyIdentityId === identity.id ? 'Disconnecting…' : 'Disconnect'}
+							{busyIdentityId === identity.id ? 'Disconnecting…' : 'Connect'}
 						</Button>
 					</li>
 				{/each}
 			</ul>
 		{/if}
 	</section>
-	<div class="connect-actions">
-		{#if !hasGithub}
-			<button
-				type="button"
-				class="connect-link"
-				disabled={loading || busyProvider !== null || busyIdentityId !== null}
-				onclick={() => onConnect('github')}
-			>
-				{busyProvider === 'github' ? 'Connecting…' : '+ GitHub'}
-			</button>
-		{/if}
-		{#if !hasMicrosoft}
-			<button
-				type="button"
-				class="connect-link"
-				disabled={loading || busyProvider !== null || busyIdentityId !== null}
-				onclick={() => onConnect('azure')}
-			>
-				{busyProvider === 'azure' ? 'Connecting…' : '+ Microsoft'}
-			</button>
-		{/if}
-	</div>
+	{#if !loading}
+		<div class="connect-actions">
+			{#if !hasGithub}
+				<button
+					type="button"
+					class="connect-link"
+					disabled={loading || busyProvider !== null || busyIdentityId !== null}
+					onclick={() => onConnect('github')}
+				>
+					{busyProvider === 'github' ? 'Connecting…' : '+ GitHub'}
+				</button>
+			{/if}
+			{#if !hasMicrosoft}
+				<button
+					type="button"
+					class="connect-link"
+					disabled={loading || busyProvider !== null || busyIdentityId !== null}
+					onclick={() => onConnect('azure')}
+				>
+					{busyProvider === 'azure' ? 'Connecting…' : '+ Microsoft'}
+				</button>
+			{/if}
+		</div>
+	{/if}
 	<svelte:fragment slot="actions">
 		<Button
 			disabled={displayNameSaving || busyIdentityId !== null || busyProvider !== null}
@@ -149,7 +150,7 @@
 
 <style>
 	.status {
-		margin: 0 0 var(--space-2);
+		margin: 0;
 		font-size: var(--font-size-xs);
 		color: var(--color-muted);
 	}
@@ -222,14 +223,10 @@
 		flex-direction: column;
 		gap: var(--space-1);
 	}
-	.identity-copy strong,
-	.identity-copy span {
+	.identity-copy strong {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.identity-copy span {
-		font-size: var(--font-size-xs);
 	}
 	.connect-actions {
 		display: flex;
