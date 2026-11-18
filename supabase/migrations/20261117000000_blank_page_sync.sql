@@ -11,7 +11,7 @@ create table if not exists blank.page_change_clock (
 revoke all on blank.page_change_clock from public, anon, authenticated;
 -- Legacy clients can also lose a draft during a timestamp-based pull. Disable
 -- direct reads as well as writes while the old API and new migration overlap.
-revoke select, insert, update, delete on blank.pages from public, anon, authenticated;
+revoke all privileges on table blank.pages from public, anon, authenticated;
 -- Table-level REVOKE does not remove separately granted column privileges.
 do $$
 declare columns_sql text;
@@ -19,7 +19,7 @@ begin
   select string_agg(format('%I', a.attname), ', ' order by a.attnum) into columns_sql
     from pg_catalog.pg_attribute a
     where a.attrelid = 'blank.pages'::regclass and a.attnum > 0 and not a.attisdropped;
-  execute format('revoke select (%s), insert (%s), update (%s) on blank.pages from public, anon, authenticated', columns_sql, columns_sql, columns_sql);
+  execute format('revoke select (%s), insert (%s), update (%s), references (%s) on blank.pages from public, anon, authenticated', columns_sql, columns_sql, columns_sql, columns_sql);
 end;
 $$;
 
