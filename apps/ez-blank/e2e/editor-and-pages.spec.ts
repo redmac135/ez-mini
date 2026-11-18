@@ -22,38 +22,62 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
 });
 
-test('PDF export previews formatted and literal source modes and prints offline', async ({
-	page,
-	context
-}) => {
+test('Export PDF downloads a formatted PDF directly while offline', async ({ page, context }) => {
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
 	await editor.pressSequentially('# Draft\n\n**bold** and *italic*');
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
-	await page.getByRole('button', { name: 'Export PDF' }).click();
-	const dialog = page.getByRole('dialog', { name: 'Export PDF' });
-	await expect(dialog.getByText('bold', { exact: true })).toBeVisible();
-	await expect(dialog.locator('strong')).toHaveText('bold');
-	await expect(dialog.getByLabel('Formatted')).toBeFocused();
+	const menu = page.getByRole('menu', { name: 'Editor settings' });
+	const countPosition = await menu
+		.locator('[aria-label^="Cycle word count visibility"]')
+		.evaluate((element) =>
+			Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
+				element as HTMLButtonElement
+			)
+		);
+	const exportButton = menu.getByRole('button', { name: 'Export PDF', exact: true });
+	const exportPosition = await exportButton.evaluate((element) =>
+		Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
+			element as HTMLButtonElement
+		)
+	);
+	const loginPosition = await menu
+		.getByRole('button', { name: 'Login' })
+		.evaluate((element) =>
+			Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
+				element as HTMLButtonElement
+			)
+		);
+	expect(countPosition).toBeLessThan(exportPosition);
+	expect(exportPosition).toBeLessThan(loginPosition);
+	await page.evaluate(() => {
+		const original = CanvasRenderingContext2D.prototype.fillText;
+		const rendered: string[] = [];
+		Object.assign(window, { __pdfRenderedText: rendered });
+		CanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
+			rendered.push(String(text));
+			return original.call(this, text, ...args);
+		};
+	});
 	await context.setOffline(true);
-	const formattedPopup = page.waitForEvent('popup');
-	await page.getByRole('button', { name: 'Print / Save as PDF' }).click();
-	const formattedPrint = await formattedPopup;
-	await expect(formattedPrint.locator('strong')).toHaveText('bold');
-	await formattedPrint.close();
-
-	await dialog.getByLabel('Formatted').focus();
-	await page.keyboard.press('ArrowRight');
-	await expect(dialog.getByLabel('Source text')).toBeChecked();
-	await expect(dialog.locator('.export-preview')).toContainText('**bold**');
-	const sourcePopup = page.waitForEvent('popup');
-	await page.getByRole('button', { name: 'Print / Save as PDF' }).click();
-	const sourcePrint = await sourcePopup;
-	await expect(sourcePrint.locator('pre.source')).toContainText('**bold**');
-	await expect(sourcePrint.locator('strong')).toHaveCount(0);
-	await sourcePrint.close();
-	await page.keyboard.press('Escape');
-	await expect(dialog).not.toBeVisible();
-	await expect(page.getByRole('button', { name: 'Open editor settings' })).toBeFocused();
+	const pagesBeforeDownload = context.pages().length;
+	const downloadPromise = page.waitForEvent('download');
+	await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
+	const download = await downloadPromise;
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+	await expect(page.getByRole('menu')).toHaveCount(0);
+	await expect(page).toHaveURL(/\/$/);
+	await expect.poll(() => context.pages().length).toBe(pagesBeforeDownload);
+	const { readFile } = await import('node:fs/promises');
+	const pdf = await readFile((await download.path())!);
+	expect(download.suggestedFilename()).toBe('# Draft.pdf');
+	expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
+	expect(pdf.length).toBeGreaterThan(1000);
+	const renderedText = await page.evaluate(() =>
+		(window as Window & { __pdfRenderedText: string[] }).__pdfRenderedText.join('')
+	);
+	expect(renderedText).toContain('Draft');
+	expect(renderedText).toContain('bold');
+	expect(renderedText).not.toContain('**');
 	await context.setOffline(false);
 });
 
