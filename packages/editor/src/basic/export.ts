@@ -5,7 +5,9 @@ export type ExportMode = 'formatted' | 'source';
 
 export function renderExportContent(document: EditorDocument, mode: ExportMode): string {
 	if (mode === 'source') {
-		return `<pre class="source">${escapeHtml(document.text)}</pre>`;
+		const escapedText = escapeHtml(document.text);
+		const sourceText = escapedText.startsWith('\n') ? `&#10;${escapedText.slice(1)}` : escapedText;
+		return `<pre class="source">${sourceText}</pre>`;
 	}
 	return document.blocks.map(renderBlock).join('');
 }

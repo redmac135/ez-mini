@@ -21,3 +21,8 @@ test('source export preserves literal Markdown markers as escaped monospaced tex
 	const html = renderExportContent(buildDocument(source), 'source');
 	assert.equal(html, '<pre class="source"># **bold**\n&lt;script&gt;alert(1)&lt;/script&gt;</pre>');
 });
+
+test('source export preserves an initial newline through HTML parsing', () => {
+	const html = renderExportContent(buildDocument('\n# title'), 'source');
+	assert.equal(html, '<pre class="source">&#10;# title</pre>');
+});
