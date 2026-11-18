@@ -5,10 +5,9 @@ alter table blank.pages add column if not exists revision bigint not null defaul
 alter table blank.pages add column if not exists change_seq bigint not null default 0;
 
 create table if not exists blank.page_change_clock (
-  singleton boolean primary key default true check (singleton),
+  user_id uuid primary key,
   value bigint not null default 0
 );
-insert into blank.page_change_clock (singleton) values (true) on conflict do nothing;
 revoke all on blank.page_change_clock from public, anon, authenticated;
 -- Legacy clients can also lose a draft during a timestamp-based pull. Disable
 -- direct reads as well as writes while the old API and new migration overlap.
@@ -39,7 +38,8 @@ begin
   if p_since is not null and p_since !~ '^[0-9]+$' then
     raise exception 'invalid cursor' using errcode = '22023';
   end if;
-  select value into v_cursor from blank.page_change_clock where singleton;
+  select coalesce((select value from blank.page_change_clock where user_id = v_user), 0)
+    into v_cursor;
   select coalesce(jsonb_agg(to_jsonb(p) order by p.change_seq, p.id), '[]'::jsonb)
     into v_pages from blank.pages p
     where p.user_id = v_user and (p_since is null or p.change_seq > p_since::bigint)
@@ -59,23 +59,32 @@ declare
   v_seq bigint;
 begin
   if v_user is null then raise exception 'authentication required' using errcode = '42501'; end if;
-  -- Hold this lock until commit. Sequence assignment and visibility have the same
-  -- order, avoiding gaps caused by transactions committing out of sequence.
-  update blank.page_change_clock set value = value + 1 where singleton returning value into v_seq;
-  select * into v_current from blank.pages where id = v_id and user_id = v_user for update;
+  insert into blank.page_change_clock (user_id, value) values (v_user, 0)
+    on conflict (user_id) do nothing;
+  select value into v_seq from blank.page_change_clock where user_id = v_user for update;
+  select * into v_current from blank.pages where id = v_id for update;
   if found then
+    if v_current.user_id <> v_user then
+      return jsonb_build_object('conflict', true, 'page', null);
+    end if;
     if p_expected_revision is null or v_current.revision <> p_expected_revision then
       return jsonb_build_object('conflict', true, 'page', to_jsonb(v_current));
     end if;
+  else
+    if p_expected_revision is not null then
+      return jsonb_build_object('conflict', true, 'page', null);
+    end if;
+  end if;
+  -- Serialize accepted writes per account so sequence assignment follows commit order.
+  update blank.page_change_clock set value = value + 1
+    where user_id = v_user returning value into v_seq;
+  if v_current.id is not null then
     update blank.pages set title = p_page->>'title', content = p_page->>'content',
       updated_at = (p_page->>'updated_at')::timestamptz,
       deleted_at = (p_page->>'deleted_at')::timestamptz,
       revision = revision + 1, change_seq = v_seq
       where id = v_id and user_id = v_user returning * into v_current;
   else
-    if p_expected_revision is not null then
-      return jsonb_build_object('conflict', true, 'page', null);
-    end if;
     insert into blank.pages (id, user_id, title, content, created_at, updated_at, deleted_at, revision, change_seq)
       values (v_id, v_user, p_page->>'title', p_page->>'content',
         (p_page->>'created_at')::timestamptz, (p_page->>'updated_at')::timestamptz,
