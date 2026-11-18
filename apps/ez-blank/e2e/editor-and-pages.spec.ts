@@ -22,6 +22,41 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
 });
 
+test('PDF export previews formatted and literal source modes and prints offline', async ({
+	page,
+	context
+}) => {
+	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
+	await editor.pressSequentially('# Draft\n\n**bold** and *italic*');
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Export PDF' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Export PDF' });
+	await expect(dialog.getByText('bold', { exact: true })).toBeVisible();
+	await expect(dialog.locator('strong')).toHaveText('bold');
+	await expect(dialog.getByLabel('Formatted')).toBeFocused();
+	await context.setOffline(true);
+	const formattedPopup = page.waitForEvent('popup');
+	await page.getByRole('button', { name: 'Print / Save as PDF' }).click();
+	const formattedPrint = await formattedPopup;
+	await expect(formattedPrint.locator('strong')).toHaveText('bold');
+	await formattedPrint.close();
+
+	await dialog.getByLabel('Formatted').focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(dialog.getByLabel('Source text')).toBeChecked();
+	await expect(dialog.locator('.export-preview')).toContainText('**bold**');
+	const sourcePopup = page.waitForEvent('popup');
+	await page.getByRole('button', { name: 'Print / Save as PDF' }).click();
+	const sourcePrint = await sourcePopup;
+	await expect(sourcePrint.locator('pre.source')).toContainText('**bold**');
+	await expect(sourcePrint.locator('strong')).toHaveCount(0);
+	await sourcePrint.close();
+	await page.keyboard.press('Escape');
+	await expect(dialog).not.toBeVisible();
+	await expect(page.getByRole('button', { name: 'Open editor settings' })).toBeFocused();
+	await context.setOffline(false);
+});
+
 test('typing, ordered list numbering, and list indentation work in the editor', async ({
 	page
 }) => {
