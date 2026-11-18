@@ -4,6 +4,8 @@ SvelteKit app for a minimal local-first writing surface with sync through `@ez/a
 
 Open page search with the magnifying-glass button in the Pages drawer or with Ctrl+K / Cmd+K. Search matches page titles and content, with title matches first and more recently updated pages first within each group.
 
+Export the current page to PDF from the top-right editor settings menu. The preview dialog offers formatted Markdown or literal source text, then opens the browser print dialog where you can save as PDF.
+
 ## Development
 
 From the repo root:
