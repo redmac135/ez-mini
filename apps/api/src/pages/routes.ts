@@ -1,11 +1,8 @@
 import { ApiError } from '../http/errors.ts';
-import { firstRow, readJson } from '../http/json.ts';
+import { readJson } from '../http/json.ts';
 import { requireActiveSession } from '../auth/session-store.ts';
 import { supabaseRest } from '../supabase/client.ts';
 import type { Env, RemotePageRow, RequestContext } from '../types.ts';
-
-const SINCE_BUFFER_MS = 5000;
-const PAGE_COLUMNS = 'id,user_id,title,content,created_at,updated_at,deleted_at';
 
 export async function handlePages(
 	request: Request,
@@ -16,41 +13,42 @@ export async function handlePages(
 	const active = await requireActiveSession(env, context);
 	const url = new URL(request.url);
 
-	if (request.method === 'GET' && path === '/pages') {
-		const params = new URLSearchParams();
-		params.set('select', PAGE_COLUMNS);
-		params.append('order', 'created_at.asc');
-		params.append('order', 'id.asc');
+	if (request.method === 'GET' && path === '/pages/sync') {
 		const since = url.searchParams.get('since');
-		if (since) {
-			const sinceDate = new Date(since);
-			if (Number.isNaN(sinceDate.getTime())) {
-				throw new ApiError(400, 'Invalid since timestamp.');
-			}
-			params.set(
-				'updated_at',
-				`gte.${new Date(sinceDate.getTime() - SINCE_BUFFER_MS).toISOString()}`
-			);
+		if (since !== null && !/^\d+$/.test(since)) {
+			throw new ApiError(400, 'Invalid sync cursor.');
 		}
-
-		return supabaseRest<RemotePageRow[]>(env, active, `/pages?${params}`, { schema: 'blank' });
+		return supabaseRest(env, active, '/rpc/sync_pages', {
+			method: 'POST',
+			schema: 'blank',
+			body: { p_since: since }
+		});
 	}
 
-	if (request.method === 'POST' && path === '/pages') {
-		const body = await readJson<Partial<RemotePageRow>>(request);
+	if (request.method === 'POST' && path === '/pages/sync') {
+		const body = await readJson<Partial<RemotePageRow> & { expected_revision?: number | null }>(
+			request
+		);
+		if (
+			body.expected_revision !== null &&
+			(!Number.isSafeInteger(body.expected_revision) || body.expected_revision! < 1)
+		) {
+			throw new ApiError(400, 'Expected revision is required. Refresh the app and try again.');
+		}
 		const payload = normalizePagePayload(body, active.userId);
-		return firstRow(
-			await supabaseRest<RemotePageRow[]>(
-				env,
-				active,
-				`/pages?select=${PAGE_COLUMNS}&on_conflict=id`,
-				{
-					method: 'POST',
-					schema: 'blank',
-					prefer: 'resolution=merge-duplicates,return=representation',
-					body: payload
-				}
-			)
+		return supabaseRest(env, active, '/rpc/write_page', {
+			method: 'POST',
+			schema: 'blank',
+			body: { p_page: payload, p_expected_revision: body.expected_revision }
+		});
+	}
+
+	// Old clients can discard dirty drafts on a read, before attempting a write.
+	// Reject both sides of the legacy protocol rather than allowing an unsafe pull.
+	if ((request.method === 'GET' || request.method === 'POST') && path === '/pages') {
+		throw new ApiError(
+			426,
+			'Please refresh the app before syncing your pages. Your edits remain saved locally.'
 		);
 	}
 

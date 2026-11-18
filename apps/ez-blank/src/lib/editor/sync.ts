@@ -1,4 +1,3 @@
-import { createSyncEngine } from '@ez/sync';
 import {
 	createPage,
 	ensureValidActivePage,
@@ -15,6 +14,7 @@ interface RemotePageRow {
 	created_at: string;
 	updated_at: string;
 	deleted_at: string | null;
+	revision: number;
 }
 
 interface RemoteUserSettingsRow {
@@ -25,8 +25,14 @@ interface RemoteUserSettingsRow {
 }
 
 export interface PagesApi {
-	listPages(options?: { since?: string | null; signal?: AbortSignal }): Promise<RemotePageRow[]>;
-	upsertPage(page: RemotePageRow, options?: { signal?: AbortSignal }): Promise<RemotePageRow>;
+	listPages(options?: {
+		since?: string | null;
+		signal?: AbortSignal;
+	}): Promise<{ pages: RemotePageRow[]; cursor: string }>;
+	upsertPage(
+		page: Omit<RemotePageRow, 'revision'> & { expected_revision: number | null },
+		options?: { signal?: AbortSignal }
+	): Promise<{ page: RemotePageRow | null; conflict: boolean }>;
 	getSettings(options?: { signal?: AbortSignal }): Promise<RemoteUserSettingsRow | null>;
 	updateSettings(
 		settings: { active_page_id: string | null },
@@ -65,7 +71,12 @@ export function reconcileSyncResult(
 		const syncedPage = syncedById.get(currentPage.id) ?? null;
 
 		if (!sourcePage || !syncedPage) {
-			mergedPages.push(currentPage);
+			// A page removed by the sync stays removed unless it was edited while
+			// the request was in flight. In that case its old revision ensures the
+			// next CAS preserves the new edit as a conflict.
+			if (!sourcePage || hasPageChangedSinceSource(currentPage, sourcePage)) {
+				mergedPages.push(currentPage);
+			}
 			seenPageIds.add(currentPage.id);
 			continue;
 		}
@@ -96,6 +107,7 @@ export function reconcileSyncResult(
 
 	return ensureValidActivePage({
 		pages: sortPagesByRecency(mergedPages),
+		syncCursor: syncedSession.syncCursor,
 		activePageId: currentSession.activePageId
 	});
 }
@@ -118,59 +130,109 @@ export async function syncUserPages(
 
 	try {
 		let nextActivePageId = localSession.activePageId;
-		let savedPages: EditorPage[] = [];
-		const engine = createSyncEngine<EditorPage, RemotePageRow>({
-			pull: (since) => api.listPages({ since, signal }),
-			push: (page) => api.upsertPage(page, { signal }),
-			getLocal: async () =>
-				sortPagesByRecency(localSession.pages.filter((page) => page.userId === userId)),
-			saveLocal: async (pages) => {
-				savedPages = sortPagesByRecency(pages);
-			},
-			toRemote: (page) => toRemoteShape({ ...page, userId }),
-			toLocal: (remote, existing) => toSyncedLocalPage(remote, existing ?? null),
-			getId: (page) => page.id,
-			getSince: (pages) => getSafeIncrementalSince(pages, userId),
-			getLocalUpdatedAt: (page) => page.updatedAt,
-			getRemoteUpdatedAt: (page) => page.updated_at,
-			getLocalDeletedAt: (page) => page.deletedAt,
-			getRemoteDeletedAt: (page) => page.deleted_at,
-			getLastSyncedAt: (page) => page.lastSyncedAt,
-			setLastSyncedAt: (page, value) => ({ ...page, lastSyncedAt: value }),
-			shouldSync: (page) => !page.isEphemeral,
-			shouldKeepRemote: shouldKeepRemotePageLocally,
-			areStatesEqual: pageStatesMatch,
-			onConflict: async (localPage, remote, helpers) => {
-				const nextPages: EditorPage[] = [];
-				const remotePage = toSyncedLocalPage(remote, localPage);
-				if (shouldKeepRemotePageLocally(remote)) {
-					nextPages.push(remotePage);
-				}
+		const snapshot = await api.listPages({ since: localSession.syncCursor ?? null, signal });
+		if (
+			!snapshot ||
+			!Array.isArray(snapshot.pages) ||
+			typeof snapshot.cursor !== 'string' ||
+			!/^\d+$/.test(snapshot.cursor)
+		) {
+			throw new Error('The server does not support safe page sync. Please update and retry.');
+		}
+		if (localSession.syncCursor && BigInt(snapshot.cursor) < BigInt(localSession.syncCursor))
+			throw new Error('The server sync cursor moved backwards. Your local drafts were preserved.');
+		const remoteById = new Map(
+			snapshot.pages.map((page) => {
+				validateRemotePage(page, userId);
+				return [page.id, page] as const;
+			})
+		);
+		const pages: EditorPage[] = [];
+		const pushedIds: string[] = [];
+		const pulledIds: string[] = [];
+		const conflictIds: string[] = [];
 
-				const syncedFork = await helpers.push(forkConflictPage(localPage, now));
-				nextPages.push(syncedFork);
-
-				if (localSession.activePageId === localPage.id && remotePage.deletedAt !== null) {
-					nextActivePageId = syncedFork.id;
-				}
-
-				return nextPages;
+		async function write(local: EditorPage) {
+			const response = await api.upsertPage(
+				{ ...toRemoteShape(local), expected_revision: local.serverRevision ?? null },
+				{ signal }
+			);
+			if (!response || typeof response.conflict !== 'boolean')
+				throw new Error('Invalid page sync response.');
+			if (response.page) {
+				validateRemotePage(response.page, userId);
+				if (response.page.id !== local.id) throw new Error('Invalid page sync response.');
 			}
-		});
-		const result = await engine.sync();
+			if (!response.conflict && !response.page) throw new Error('Missing page sync response.');
+			if (!response.conflict) pushedIds.push(local.id);
+			return response;
+		}
 
-		const nextSession = ensureValidActivePage({
-			pages: savedPages,
-			activePageId: nextActivePageId
-		});
+		async function conflict(local: EditorPage, remote: RemotePageRow) {
+			conflictIds.push(local.id);
+			if (remote.deleted_at === null) pages.push(toSyncedLocalPage(remote, local));
+			const fork = forkConflictPage(local, now);
+			const written = await write(fork);
+			if (written.conflict || !written.page)
+				throw new Error('Could not save the conflict copy. Please retry.');
+			pages.push(toSyncedLocalPage(written.page, fork));
+			if (localSession.activePageId === local.id && remote.deleted_at !== null)
+				nextActivePageId = fork.id;
+		}
+
+		for (const local of localSession.pages.filter((page) => page.userId === userId)) {
+			if (local.isEphemeral) {
+				pages.push(local);
+				continue;
+			}
+			const remote = remoteById.get(local.id);
+			remoteById.delete(local.id);
+			if (remote && pageStatesMatch(local, remote)) {
+				if (remote.deleted_at === null) pages.push(toSyncedLocalPage(remote, local));
+				continue;
+			}
+			const dirty = local.syncStatus !== 'synced';
+			if (remote && (local.serverRevision == null || remote.revision !== local.serverRevision)) {
+				if (dirty || local.serverRevision == null) await conflict(local, remote);
+				else {
+					if (remote.deleted_at === null) pages.push(toSyncedLocalPage(remote, local));
+					pulledIds.push(local.id);
+				}
+				continue;
+			}
+			if (!dirty && local.serverRevision != null) {
+				pages.push(local);
+				continue;
+			}
+			const written = await write(local);
+			if (written.conflict) {
+				if (!written.page)
+					throw new Error('The page changed or is unavailable. Your local draft was preserved.');
+				if (pageStatesMatch(local, written.page)) {
+					if (written.page.deleted_at === null) pages.push(toSyncedLocalPage(written.page, local));
+				} else await conflict(local, written.page);
+			} else if (written.page!.deleted_at === null)
+				pages.push(toSyncedLocalPage(written.page!, local));
+		}
+		for (const remote of remoteById.values()) {
+			if (remote.deleted_at === null) {
+				pages.push(toSyncedLocalPage(remote, null));
+				pulledIds.push(remote.id);
+			}
+		}
+		if (pages.length === 0) pages.push(createPage('', { userId, isEphemeral: true }));
 		return {
-			session: nextSession,
-			pushedCount: result.pushed,
-			pulledCount: result.pulled,
-			conflictCount: result.conflicts,
-			pushedIds: result.pushedIds,
-			pulledIds: result.pulledIds,
-			conflictIds: result.conflictIds
+			session: ensureValidActivePage({
+				pages: sortPagesByRecency(pages),
+				activePageId: nextActivePageId,
+				syncCursor: snapshot.cursor
+			}),
+			pushedCount: pushedIds.length,
+			pulledCount: pulledIds.length,
+			conflictCount: conflictIds.length,
+			pushedIds,
+			pulledIds,
+			conflictIds
 		};
 	} finally {
 		syncInProgress = false;
@@ -229,6 +291,7 @@ function toSyncedLocalPage(remote: RemotePageRow, localPage: EditorPage | null):
 		updatedAt: remote.updated_at,
 		deletedAt: remote.deleted_at,
 		lastSyncedAt: remote.updated_at,
+		serverRevision: remote.revision,
 		lastKnownRemoteUpdatedAt: remote.updated_at,
 		lastKnownRemoteDeletedAt: remote.deleted_at,
 		syncStatus: 'synced',
@@ -244,7 +307,7 @@ function preserveLocalSelection(page: EditorPage, selectionSource: EditorPage): 
 	};
 }
 
-function toRemoteShape(page: EditorPage): RemotePageRow {
+function toRemoteShape(page: EditorPage): Omit<RemotePageRow, 'revision'> {
 	return {
 		id: page.id,
 		user_id: page.userId,
@@ -258,6 +321,7 @@ function toRemoteShape(page: EditorPage): RemotePageRow {
 
 function hasPageChangedSinceSource(currentPage: EditorPage, sourcePage: EditorPage) {
 	return (
+		currentPage.editGeneration !== sourcePage.editGeneration ||
 		currentPage.title !== sourcePage.title ||
 		currentPage.content !== sourcePage.content ||
 		currentPage.deletedAt !== sourcePage.deletedAt ||
@@ -275,26 +339,15 @@ function mergeSyncedBaselineIntoCurrentPage(
 		userId: syncedPage.userId,
 		createdAt: syncedPage.createdAt,
 		lastSyncedAt: syncedPage.lastSyncedAt,
+		serverRevision: syncedPage.serverRevision,
 		lastKnownRemoteUpdatedAt: syncedPage.lastKnownRemoteUpdatedAt,
 		lastKnownRemoteDeletedAt: syncedPage.lastKnownRemoteDeletedAt
 	};
 
-	return {
-		...nextPage,
-		syncStatus:
-			syncedPage.lastSyncedAt !== null && latestLocalMutationAt(nextPage) > syncedPage.lastSyncedAt
-				? 'dirty'
-				: 'synced'
-	};
+	return { ...nextPage, syncStatus: 'dirty' };
 }
 
-function latestLocalMutationAt(localPage: EditorPage) {
-	return localPage.deletedAt && localPage.deletedAt > localPage.updatedAt
-		? localPage.deletedAt
-		: localPage.updatedAt;
-}
-
-function pageStatesMatch(localPage: EditorPage, remote: RemotePageRow) {
+function pageStatesMatch(localPage: EditorPage, remote: Omit<RemotePageRow, 'revision'>) {
 	return (
 		localPage.title === remote.title &&
 		localPage.content === remote.content &&
@@ -302,26 +355,21 @@ function pageStatesMatch(localPage: EditorPage, remote: RemotePageRow) {
 	);
 }
 
-function shouldKeepRemotePageLocally(remote: RemotePageRow) {
-	return remote.deleted_at === null;
-}
-
-function getSafeIncrementalSince(pages: EditorPage[], userId: string) {
-	const syncedPages = pages.filter(
-		(page) => page.userId === userId && !page.isEphemeral && page.lastSyncedAt !== null
-	);
-	const unsyncedPage = pages.some(
-		(page) => page.userId === userId && !page.isEphemeral && page.lastSyncedAt === null
-	);
-
-	if (syncedPages.length === 0 || unsyncedPage) {
-		return null;
+function validateRemotePage(page: RemotePageRow, userId: string) {
+	if (
+		!page ||
+		page.user_id !== userId ||
+		typeof page.id !== 'string' ||
+		!Number.isSafeInteger(page.revision) ||
+		page.revision < 1 ||
+		typeof page.content !== 'string' ||
+		typeof page.title !== 'string' ||
+		typeof page.created_at !== 'string' ||
+		typeof page.updated_at !== 'string' ||
+		(page.deleted_at !== null && typeof page.deleted_at !== 'string')
+	) {
+		throw new Error('Invalid page sync response. Your local drafts were preserved.');
 	}
-
-	return syncedPages
-		.map((page) => page.lastSyncedAt)
-		.filter((value): value is string => value !== null)
-		.sort()[0]!;
 }
 
 function buildConflictSuffix(now: Date) {

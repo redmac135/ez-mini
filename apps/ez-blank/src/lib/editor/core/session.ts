@@ -6,6 +6,7 @@ export interface EditorPage extends EditorState, PageRecord {}
 export interface EditorSession {
 	pages: EditorPage[];
 	activePageId: string;
+	syncCursor?: string | null;
 }
 
 export const UNTITLED_PAGE = 'Untitled';
@@ -45,6 +46,8 @@ export function createPage(
 		updatedAt: timestamp,
 		deletedAt: null,
 		lastSyncedAt: null,
+		serverRevision: null,
+		editGeneration: 0,
 		lastKnownRemoteUpdatedAt: null,
 		lastKnownRemoteDeletedAt: null,
 		syncStatus: 'dirty',
@@ -155,6 +158,7 @@ export function updatePageState(page: EditorPage, state: EditorState): EditorPag
 	return {
 		...nextPage,
 		title: shouldAutoDeriveTitle ? nextDerivedTitle : page.title,
+		editGeneration: (page.editGeneration ?? 0) + 1,
 		updatedAt: new Date().toISOString(),
 		syncStatus: nextDirtyStatus(page.syncStatus),
 		isEphemeral: false
@@ -166,6 +170,7 @@ export function updatePageTitle(page: EditorPage, title: string): EditorPage {
 	return {
 		...page,
 		title: trimmed.length > 0 ? trimmed.slice(0, 48) : UNTITLED_PAGE,
+		editGeneration: (page.editGeneration ?? 0) + 1,
 		updatedAt: new Date().toISOString(),
 		syncStatus: nextDirtyStatus(page.syncStatus),
 		isEphemeral: false
@@ -179,6 +184,7 @@ export function markPageDeleted(
 	return {
 		...page,
 		deletedAt,
+		editGeneration: (page.editGeneration ?? 0) + 1,
 		updatedAt: deletedAt,
 		syncStatus: nextDirtyStatus(page.syncStatus),
 		isEphemeral: false
@@ -214,6 +220,8 @@ export function markPageDirty(page: EditorPage, userId = page.userId): EditorPag
 	return {
 		...page,
 		userId,
+		serverRevision: null,
+		editGeneration: (page.editGeneration ?? 0) + 1,
 		updatedAt: new Date().toISOString(),
 		lastSyncedAt: null,
 		lastKnownRemoteUpdatedAt: null,
@@ -248,7 +256,14 @@ export function normalizeSession(value: unknown, userId = ANONYMOUS_USERID): Edi
 			? value.activePageId
 			: (pages.find((page) => page.deletedAt === null)?.id ?? pages[0].id);
 
-	return ensureValidActivePage({ pages, activePageId });
+	return ensureValidActivePage({
+		pages,
+		activePageId,
+		syncCursor:
+			typeof value.syncCursor === 'string' && /^\d+$/.test(value.syncCursor)
+				? value.syncCursor
+				: null
+	});
 }
 
 export function migrateLegacyState(state: EditorState, userId = ANONYMOUS_USERID): EditorSession {
@@ -297,6 +312,18 @@ function normalizePage(value: unknown, index: number, userId: string): EditorPag
 		updatedAt,
 		deletedAt,
 		lastSyncedAt: readNullableTimestamp(value.lastSyncedAt),
+		serverRevision:
+			typeof value.serverRevision === 'number' &&
+			Number.isSafeInteger(value.serverRevision) &&
+			value.serverRevision > 0
+				? value.serverRevision
+				: null,
+		editGeneration:
+			typeof value.editGeneration === 'number' &&
+			Number.isSafeInteger(value.editGeneration) &&
+			value.editGeneration >= 0
+				? value.editGeneration
+				: 0,
 		lastKnownRemoteUpdatedAt: readNullableTimestamp(value.lastKnownRemoteUpdatedAt),
 		lastKnownRemoteDeletedAt: readNullableTimestamp(value.lastKnownRemoteDeletedAt),
 		syncStatus: normalizeSyncStatus(value.syncStatus),
