@@ -108,4 +108,7 @@ test('skewed edits and edits made during a sync remain visible and reach the ser
 	releaseFirstWrite();
 	await expect.poll(() => remote.content, { timeout: 12000 }).toBe('later edit');
 	await expect(editor).toContainText('later edit');
+	if (process.env.EVIDENCE_SCREENSHOT) {
+		await page.screenshot({ path: process.env.EVIDENCE_SCREENSHOT, fullPage: true });
+	}
 });
