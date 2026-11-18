@@ -1014,6 +1014,7 @@
 		const targetUserId = getScopedUserId();
 		const sessionSnapshot: EditorSession = {
 			activePageId: nextSession.activePageId,
+			syncCursor: nextSession.syncCursor,
 			pages: nextSession.pages.map((page) => ({ ...page, userId: targetUserId }))
 		};
 		const changedEvents = getChangedPageEvents(previousSession, sessionSnapshot);
