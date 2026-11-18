@@ -677,9 +677,9 @@
 			return;
 		}
 		const title = activePage.title.replace(
-			/[&<>\"']/g,
+			/[&<>"']/g,
 			(character) =>
-				({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' })[character] ??
+				({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ??
 				character
 		);
 		printWindow.document.open();
@@ -1512,6 +1512,7 @@
 				</fieldset>
 				<div class="export-preview-label">Preview: {activePage.title}</div>
 				<div class:source-preview={exportMode === 'source'} class="export-preview">
+					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 					{@html exportPreview || '<p></p>'}
 				</div>
 				{#if exportError}<p class="export-error" role="alert">{exportError}</p>{/if}
