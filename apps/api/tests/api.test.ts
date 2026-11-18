@@ -822,7 +822,7 @@ test('logout can delete an inactive session without clearing the active cookie',
 	assert.equal(await env.SESSIONS.get(sessionKey(deviceId, 'session-b')), null);
 });
 
-test('pages list validates since before calling Supabase REST', async () => {
+test('legacy page pulls fail closed before contacting Supabase', async () => {
 	const deviceId = 'device-a';
 	await putStoredSession({ deviceId, sessionId: 'session-a' });
 	mockFetch(async () => {
@@ -836,36 +836,23 @@ test('pages list validates since before calling Supabase REST', async () => {
 		env
 	);
 
-	assert.equal(response.status, 400);
-	assert.deepEqual(await response.json(), { error: 'Invalid since timestamp.' });
+	assert.equal(response.status, 426);
+	assert.deepEqual(await response.json(), {
+		error: 'Please refresh the app before syncing your pages. Your edits remain saved locally.'
+	});
 });
 
-test('pages upsert scopes payloads to the active user', async () => {
+test('revisioned page writes scope payloads and carry the expected revision', async () => {
 	const deviceId = 'device-a';
 	await putStoredSession({ deviceId, sessionId: 'session-a', userId: 'user-a' });
 	mockFetch(async (request) => {
-		assert.equal(
-			request.url,
-			'https://supabase.example.test/rest/v1/pages?select=id,user_id,title,content,created_at,updated_at,deleted_at&on_conflict=id'
-		);
+		assert.equal(request.url, 'https://supabase.example.test/rest/v1/rpc/write_page');
 		assert.equal(request.method, 'POST');
 		assert.equal(request.headers.get('accept-profile'), 'blank');
 		assert.equal(request.headers.get('content-profile'), 'blank');
-		assert.equal(
-			request.headers.get('prefer'),
-			'resolution=merge-duplicates,return=representation'
-		);
 		assert.deepEqual(await request.json(), {
-			id: 'page-a',
-			user_id: 'user-a',
-			title: 'Title',
-			content: 'Body',
-			created_at: '2026-01-01T00:00:00.000Z',
-			updated_at: '2026-01-02T00:00:00.000Z',
-			deleted_at: null
-		});
-		return Response.json([
-			{
+			p_expected_revision: 4,
+			p_page: {
 				id: 'page-a',
 				user_id: 'user-a',
 				title: 'Title',
@@ -874,17 +861,19 @@ test('pages upsert scopes payloads to the active user', async () => {
 				updated_at: '2026-01-02T00:00:00.000Z',
 				deleted_at: null
 			}
-		]);
+		});
+		return Response.json({ conflict: false, page: { user_id: 'user-a' } });
 	});
 
 	const response = await handleRequest(
-		new Request('https://mini.api.ethanzhao.ca/v1/pages', {
+		new Request('https://mini.api.ethanzhao.ca/v1/pages/sync', {
 			method: 'POST',
 			headers: {
 				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a`,
 				'content-type': 'application/json'
 			},
 			body: JSON.stringify({
+				expected_revision: 4,
 				id: 'page-a',
 				user_id: 'malicious-user',
 				title: 'Title',
@@ -895,10 +884,27 @@ test('pages upsert scopes payloads to the active user', async () => {
 		}),
 		env
 	);
-	const body = (await response.json()) as { user_id: string };
+	const body = (await response.json()) as { page: { user_id: string } };
 
 	assert.equal(response.status, 200);
-	assert.equal(body.user_id, 'user-a');
+	assert.equal(body.page.user_id, 'user-a');
+});
+
+test('revisionless legacy writes fail without touching the database', async () => {
+	const deviceId = 'device-a';
+	await putStoredSession({ deviceId, sessionId: 'session-a' });
+	mockFetch(async () => {
+		throw new Error('Must not write');
+	});
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/pages', {
+			method: 'POST',
+			headers: { cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=session-a` },
+			body: '{}'
+		}),
+		env
+	);
+	assert.equal(response.status, 426);
 });
 
 test('page item routes are not part of the public API surface', async () => {

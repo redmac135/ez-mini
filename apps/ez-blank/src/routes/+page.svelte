@@ -410,6 +410,7 @@
 		const currentActivePageId = session.activePageId;
 		const page = createPage('', { userId: getScopedUserId(), isEphemeral: true });
 		persistSession({
+			...session,
 			pages: [
 				...session.pages.map((existingPage) =>
 					existingPage.id === currentActivePageId ? materializePage(existingPage) : existingPage
@@ -439,6 +440,7 @@
 			const replacementPage = createPage('', { userId: getScopedUserId(), isEphemeral: true });
 			nextPages.push(replacementPage);
 			persistSession({
+				...session,
 				pages: nextPages,
 				activePageId: replacementPage.id
 			});
@@ -449,6 +451,7 @@
 					: session.activePageId;
 
 			persistSession({
+				...session,
 				pages: nextPages,
 				activePageId: nextActivePageId
 			});
@@ -540,6 +543,7 @@
 		if (addAnonymousToAccount && pendingAnonymousImportSession) {
 			const targetUserId = getScopedUserId(authUser?.userId);
 			const nextSession: EditorSession = {
+				...session,
 				pages: [
 					...session.pages,
 					...pendingAnonymousImportSession.pages.map((page) => clonePageForUser(page, targetUserId))

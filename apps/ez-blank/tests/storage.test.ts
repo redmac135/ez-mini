@@ -76,6 +76,20 @@ test('EditorStorage persists anonymous edits separately from signed-in accounts'
 	);
 });
 
+test('EditorStorage persists revision, edit generation and account-scoped feed cursor', async () => {
+	const session = createSession('user-a');
+	session.syncCursor = '9007199254740993';
+	session.pages[0]!.serverRevision = 7;
+	session.pages[0]!.editGeneration = 11;
+	await EditorStorage.saveUserState('user-a', session);
+	await EditorStorage.saveUserState('user-b', createSession('user-b'));
+	const loaded = await EditorStorage.loadUserState('user-a');
+	assert.equal(loaded?.syncCursor, '9007199254740993');
+	assert.equal(loaded?.pages.find((p) => p.id === 'page-a')?.serverRevision, 7);
+	assert.equal(loaded?.pages.find((p) => p.id === 'page-a')?.editGeneration, 11);
+	assert.equal((await EditorStorage.loadUserState('user-b'))?.syncCursor, null);
+});
+
 test('EditorStorage saves and loads user-scoped state separately per account', async () => {
 	await EditorStorage.saveUserState('user-a', createSession('user-a', 'page-a'));
 	await EditorStorage.saveUserState('user-b', createSession('user-b', 'page-b'));

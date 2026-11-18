@@ -18,14 +18,14 @@ export const pagesApi: PagesApi = {
 			params.set('since', options.since);
 		}
 		return readJson(
-			await auth.authFetch(`/pages${params.size > 0 ? `?${params}` : ''}`, {
+			await auth.authFetch(`/pages/sync${params.size > 0 ? `?${params}` : ''}`, {
 				signal: options.signal
 			})
 		);
 	},
 	async upsertPage(page, options = {}) {
 		return readJson(
-			await auth.authFetch('/pages', {
+			await auth.authFetch('/pages/sync', {
 				method: 'POST',
 				body: JSON.stringify(page),
 				signal: options.signal

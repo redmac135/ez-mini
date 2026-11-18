@@ -8,7 +8,7 @@ export interface ChangedPageEvent {
 }
 
 export function areEditorSessionsEquivalent(a: EditorSession, b: EditorSession): boolean {
-	if (a.activePageId !== b.activePageId) {
+	if (a.activePageId !== b.activePageId || (a.syncCursor ?? null) !== (b.syncCursor ?? null)) {
 		return false;
 	}
 
@@ -26,6 +26,9 @@ export function areEditorSessionsEquivalent(a: EditorSession, b: EditorSession):
 
 		if (
 			left.id !== right.id ||
+			(left.editGeneration ?? 0) !== (right.editGeneration ?? 0) ||
+			(left.serverRevision ?? null) !== (right.serverRevision ?? null) ||
+			left.syncStatus !== right.syncStatus ||
 			left.title !== right.title ||
 			left.content !== right.content ||
 			left.deletedAt !== right.deletedAt

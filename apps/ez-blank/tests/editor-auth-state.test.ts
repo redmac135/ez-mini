@@ -5,7 +5,7 @@ import { DEFAULT_PREFERENCES } from '../src/lib/editor/core/preferences.ts';
 import { createPage, createSession, type EditorSession } from '../src/lib/editor/core/session.ts';
 import type { PagesApi } from '../src/lib/editor/sync.ts';
 
-type RemotePageRow = Awaited<ReturnType<PagesApi['listPages']>>[number];
+type RemotePageRow = Awaited<ReturnType<PagesApi['listPages']>>['pages'][number];
 
 const user = {
 	sessionId: 'session-a',
@@ -20,10 +20,10 @@ const user = {
 function buildPagesApi(remotePages: RemotePageRow[], activePageId: string | null): PagesApi {
 	return {
 		async listPages() {
-			return remotePages;
+			return { pages: remotePages, cursor: '0' };
 		},
 		async upsertPage(page) {
-			return page;
+			return { page: { ...page, revision: 1 }, conflict: false };
 		},
 		async getSettings() {
 			return {
@@ -69,11 +69,11 @@ test('editor auth state loads anonymous state without touching remote pages', as
 	const pagesApi: PagesApi = {
 		async listPages() {
 			remoteCalls.push('listPages');
-			return [];
+			return { pages: [], cursor: '0' };
 		},
 		async upsertPage(page) {
 			remoteCalls.push('upsertPage');
-			return page;
+			return { page: { ...page, revision: 1 }, conflict: false };
 		},
 		async getSettings() {
 			remoteCalls.push('getSettings');
@@ -112,7 +112,7 @@ test('startup auth state publishes local data and leaves remote sync for the bac
 			...buildPagesApi([], null),
 			async listPages() {
 				remoteCalls += 1;
-				return [];
+				return { pages: [], cursor: '0' };
 			}
 		},
 		isOnline: true,
@@ -135,7 +135,8 @@ test('editor auth state loads initial remote context when no local account state
 		content: 'Remote body',
 		created_at: '2026-01-01T00:00:00.000Z',
 		updated_at: '2026-01-02T00:00:00.000Z',
-		deleted_at: null
+		deleted_at: null,
+		revision: 1
 	};
 	const anonymousPage = createPage('Anonymous body');
 	const anonymousSession = {

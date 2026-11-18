@@ -18,6 +18,7 @@ type RemotePageRow = {
 	created_at: string;
 	updated_at: string;
 	deleted_at: string | null;
+	revision?: number;
 };
 
 type UserSettingsRow = {
@@ -33,7 +34,7 @@ class FakeSupabase {
 
 	constructor(rows: RemotePageRow[] = [], settings: UserSettingsRow[] = []) {
 		for (const row of rows) {
-			this.pages.set(row.id, { ...row });
+			this.pages.set(row.id, { ...row, revision: row.revision ?? 1 });
 		}
 		for (const setting of settings) {
 			this.userSettings.set(setting.user_id, { ...setting });
@@ -41,12 +42,20 @@ class FakeSupabase {
 	}
 
 	async listPages() {
-		return [...this.pages.values()];
+		return {
+			pages: [...this.pages.values()].map((page) => ({ ...page, revision: page.revision! })),
+			cursor: '0'
+		};
 	}
 
-	async upsertPage(payload: RemotePageRow) {
-		this.pages.set(payload.id, { ...payload });
-		return this.pages.get(payload.id)!;
+	async upsertPage(payload: RemotePageRow & { expected_revision: number | null }) {
+		const current = this.pages.get(payload.id);
+		if ((current?.revision ?? null) !== payload.expected_revision) {
+			return { conflict: true, page: current ? { ...current, revision: current.revision! } : null };
+		}
+		const row = { ...payload, revision: (current?.revision ?? 0) + 1 };
+		this.pages.set(payload.id, row);
+		return { conflict: false, page: row };
 	}
 
 	async getSettings() {
@@ -140,6 +149,122 @@ function buildSession(page: ReturnType<typeof createPage>, activePageId = page.i
 	};
 }
 
+test('sync preserves a dirty edit when the local clock is behind the baseline', async () => {
+	const baseline = '2026-04-17T18:00:01.000Z';
+	const page = createPage('new paragraph', {
+		id: 'page-skew',
+		userId: 'user-a',
+		now: '2026-04-17T18:00:00.500Z',
+		isEphemeral: false
+	});
+	page.title = 'Page';
+	page.lastSyncedAt = baseline;
+	page.serverRevision = 1;
+	page.syncStatus = 'dirty';
+	const api = new FakeSupabase([
+		{
+			id: page.id,
+			user_id: page.userId,
+			title: 'Page',
+			content: 'old paragraph',
+			created_at: page.createdAt,
+			updated_at: baseline,
+			deleted_at: null
+		}
+	]);
+	const result = await syncUserPages(api, 'user-a', buildSession(page));
+	assert.equal(result.session.pages[0]?.content, 'new paragraph');
+});
+
+test('delta omission preserves a clean page without uploading it', async () => {
+	const page = createPage('local', { id: 'delta', userId: 'user-a', isEphemeral: false });
+	page.serverRevision = 3;
+	page.syncStatus = 'synced';
+	const api = new FakeSupabase();
+	const result = await syncUserPages(
+		{
+			listPages: async () => ({ pages: [], cursor: '11' }),
+			upsertPage: api.upsertPage.bind(api),
+			getSettings: api.getSettings.bind(api),
+			updateSettings: api.updateSettings.bind(api)
+		},
+		'user-a',
+		{ ...buildSession(page), syncCursor: '10' }
+	);
+	assert.equal(result.pushedCount, 0);
+	assert.equal(result.session.pages[0]?.content, 'local');
+});
+
+test('stale write after the pull preserves both drafts in a conflict fork', async () => {
+	const page = createPage('local edit', { id: 'race', userId: 'user-a', isEphemeral: false });
+	page.serverRevision = 1;
+	page.syncStatus = 'dirty';
+	const base = {
+		id: page.id,
+		user_id: page.userId,
+		title: page.title,
+		content: 'base',
+		created_at: page.createdAt,
+		updated_at: page.updatedAt,
+		deleted_at: null,
+		revision: 1
+	};
+	const remote = { ...base, content: 'concurrent edit', revision: 2 };
+	const api = new FakeSupabase([remote]);
+	const result = await syncUserPages(
+		{
+			...api,
+			listPages: async () => ({ pages: [base], cursor: '1' }),
+			upsertPage: api.upsertPage.bind(api),
+			getSettings: api.getSettings.bind(api),
+			updateSettings: api.updateSettings.bind(api)
+		},
+		'user-a',
+		buildSession(page)
+	);
+	assert.equal(result.conflictCount, 1);
+	assert.ok(result.session.pages.some((p) => p.content === 'local edit'));
+	assert.ok(result.session.pages.some((p) => p.content === 'concurrent edit'));
+	assert.equal(api.getRows('user-a').find((p) => p.id === page.id)?.content, 'concurrent edit');
+});
+
+test('reconciliation keeps an in-flight generation dirty even with an older clock', () => {
+	const source = createPage('sent', { id: 'flight', userId: 'user-a', isEphemeral: false });
+	source.editGeneration = 1;
+	const current = {
+		...source,
+		content: 'later',
+		text: 'later',
+		editGeneration: 2,
+		updatedAt: '2000-01-01T00:00:00.000Z'
+	};
+	const synced = { ...source, serverRevision: 2, syncStatus: 'synced' as const };
+	const result = reconcileSyncResult(buildSession(current), buildSession(source), {
+		...buildSession(synced),
+		syncCursor: '5'
+	});
+	assert.equal(result.pages[0]?.content, 'later');
+	assert.equal(result.pages[0]?.serverRevision, 2);
+	assert.equal(result.pages[0]?.syncStatus, 'dirty');
+	assert.equal(result.syncCursor, '5');
+});
+
+test('reconciliation does not resurrect an unchanged page deleted remotely during another edit', () => {
+	const removed = createPage('removed', { id: 'removed', userId: 'user-a', isEphemeral: false });
+	const sourceEdit = createPage('before', { id: 'edited', userId: 'user-a', isEphemeral: false });
+	const currentEdit = { ...sourceEdit, content: 'after', text: 'after', editGeneration: 1 };
+	const result = reconcileSyncResult(
+		{ pages: [removed, currentEdit], activePageId: currentEdit.id },
+		{ pages: [removed, sourceEdit], activePageId: sourceEdit.id },
+		{ pages: [sourceEdit], activePageId: sourceEdit.id, syncCursor: '4' }
+	);
+	assert.equal(
+		result.pages.some((p) => p.id === 'removed'),
+		false
+	);
+	assert.equal(result.pages.find((p) => p.id === 'edited')?.content, 'after');
+});
+
 test('forkConflictPage creates a visible local fork with a new id and suffix', () => {
 	const source = createPage('body', {
 		id: 'page-1',
@@ -207,7 +332,7 @@ test('syncUserPages pushes local-only real pages and trusts the write response',
 	assert.equal(supabase.getRows('user-a')[0]?.id, 'local-1');
 });
 
-test('syncUserPages removes locally deleted pages when the remote row is already gone', async () => {
+test('syncUserPages writes a tombstone for a local delete without a known revision', async () => {
 	const local = createPage('local body', {
 		id: 'local-1',
 		userId: 'user-a',
@@ -230,13 +355,13 @@ test('syncUserPages removes locally deleted pages when the remote row is already
 		new Date('2026-04-17T18:03:00.000Z')
 	);
 
-	assert.equal(result.pushedCount, 0);
+	assert.equal(result.pushedCount, 1);
 	assert.equal(result.pulledCount, 0);
 	assert.equal(result.conflictCount, 0);
 	assert.equal(result.session.pages.length, 1);
 	assert.equal(result.session.pages[0]?.isEphemeral, true);
 	assert.notEqual(result.session.pages[0]?.id, 'local-1');
-	assert.equal(supabase.getRows('user-a').length, 0);
+	assert.notEqual(supabase.getRows('user-a')[0]?.deleted_at, null);
 });
 
 test('syncUserPages pulls remote-only pages into the local session', async () => {
@@ -509,11 +634,13 @@ test('syncUserPages removes local pages when the remote version is deleted witho
 	local.lastKnownRemoteUpdatedAt = '2026-04-17T18:01:00.000Z';
 	local.lastKnownRemoteDeletedAt = null;
 	local.syncStatus = 'synced' as PageSyncStatus;
+	local.serverRevision = 1;
 
 	const supabase = new FakeSupabase([
 		{
 			id: 'page-1',
 			user_id: 'user-a',
+			revision: 2,
 			title: 'Conflict',
 			content: 'server body',
 			created_at: '2026-04-17T18:00:00.000Z',
@@ -544,10 +671,10 @@ test('syncUserPages rejects concurrent sync passes with the global guard', async
 	const supabase = {
 		async listPages() {
 			await snapshotBlocked;
-			return [];
+			return { pages: [], cursor: '0' };
 		},
 		async upsertPage(payload: RemotePageRow) {
-			return payload;
+			return { page: { ...payload, revision: 1 }, conflict: false };
 		},
 		async getSettings() {
 			return null;
