@@ -19,8 +19,9 @@ function renderPages(html: string) {
 	const root = document.createElement('div');
 	// HTML comes only from the Markdown renderer, which escapes all editor text.
 	root.innerHTML = html;
-	const pages: string[][] = [[]];
-	let commands = pages[0];
+	const pages: PdfPage[] = [{ commands: [], images: [] }];
+	let page = pages[0];
+	let commands = page.commands;
 	const measureCanvas = document.createElement('canvas');
 	const context = measureCanvas.getContext('2d');
 	if (!context) throw new Error('PDF rendering is not supported in this browser.');
@@ -29,8 +30,9 @@ function renderPages(html: string) {
 	const right = PAGE_WIDTH - 72;
 	const bottom = PAGE_HEIGHT - 76;
 	const newPage = () => {
-		commands = [];
-		pages.push(commands);
+		page = { commands: [], images: [] };
+		commands = page.commands;
+		pages.push(page);
 		y = 76;
 	};
 	const blocks = Array.from(root.children);
@@ -69,7 +71,7 @@ function renderPages(html: string) {
 			if (y + lineHeight > bottom) newPage();
 			for (const segment of lineSegments) {
 				context.font = fontFor(segment.style);
-				commands.push(textCommand(segment.text, x, y, segment.style));
+				commands.push(drawSegment(segment.text, x, y, segment.style, context, page));
 				x += segment.width;
 			}
 			y += lineHeight;
@@ -193,6 +195,44 @@ function splitToken(
 	return chunks;
 }
 
+type PdfPage = { commands: string[]; images: Array<{ bytes: Uint8Array; x: number; y: number; width: number; height: number }> };
+
+function drawSegment(
+	text: string,
+	x: number,
+	y: number,
+	style: { bold: boolean; italic: boolean; code: boolean; size: number },
+	context: CanvasRenderingContext2D,
+	page: PdfPage
+) {
+	if (!Array.from(text).some((character) => !isWinAnsi(character.codePointAt(0) ?? 63))) {
+		return textCommand(text, x, y, style);
+	}
+	const width = Math.max(1, Math.ceil(context.measureText(text).width));
+	const height = Math.ceil(style.size * 1.7);
+	const canvas = document.createElement('canvas');
+	canvas.width = width * 3;
+	canvas.height = height * 3;
+	const imageContext = canvas.getContext('2d');
+	if (!imageContext) throw new Error('PDF rendering is not supported in this browser.');
+	imageContext.scale(3, 3);
+	imageContext.font = fontFor(style);
+	imageContext.textBaseline = 'alphabetic';
+	imageContext.fillStyle = '#171717';
+	imageContext.fillText(text, 0, style.size * 1.35);
+	const base64 = canvas.toDataURL('image/jpeg', 0.96).split(',')[1];
+	const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+	const imageIndex = page.images.length;
+	page.images.push({ bytes, x, y: y - style.size * 1.25, width, height });
+	const pdfY = PAGE_HEIGHT - y + style.size * 1.25 - height;
+	const hiddenCount = Array.from(text).length;
+	const encodedText = unicodeHex(text);
+	const hiddenGlyphs = '3f'.repeat(hiddenCount);
+	const hiddenWidth = Math.max(1, context.measureText('?'.repeat(hiddenCount)).width);
+	const horizontalScale = ((width / hiddenWidth) * 100).toFixed(2);
+	return `/Span << /ActualText <${encodedText}> >> BDC BT /F1 ${style.size} Tf 3 Tr ${horizontalScale} Tz 1 0 0 1 ${x.toFixed(2)} ${(PAGE_HEIGHT - y).toFixed(2)} Tm <${hiddenGlyphs}> Tj ET EMC\nq ${width} 0 0 ${height} ${x.toFixed(2)} ${pdfY.toFixed(2)} cm /Im${imageIndex} Do Q`;
+}
+
 function textCommand(
 	text: string,
 	x: number,
@@ -210,13 +250,28 @@ function textCommand(
 	};
 	const encoded = Array.from(text, (character) => {
 		const code = character.codePointAt(0) ?? 63;
-		const byte = code >= 32 && code <= 255 ? code : winAnsiExtras[code] ?? 63;
-		return byte.toString(16).padStart(2, '0');
+		return (code >= 32 && code <= 255 ? code : winAnsiExtras[code] ?? 63)
+			.toString(16)
+			.padStart(2, '0');
 	}).join('');
 	return `BT /${font} ${style.size} Tf 0.09 0.09 0.09 rg 1 0 0 1 ${x.toFixed(2)} ${(PAGE_HEIGHT - y).toFixed(2)} Tm <${encoded}> Tj ET`;
 }
 
-function buildPdf(pages: string[][]) {
+function isWinAnsi(code: number) {
+	return (code >= 32 && code <= 255) || [0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178].includes(code);
+}
+
+function unicodeHex(text: string) {
+	return `feff${Array.from(text, (character) => {
+		const value = character.codePointAt(0) ?? 0xfffd;
+		const units = value > 0xffff
+			? [0xd800 + ((value - 0x10000) >> 10), 0xdc00 + ((value - 0x10000) & 0x3ff)]
+			: [value];
+		return units.map((unit) => unit.toString(16).padStart(4, '0')).join('');
+	}).join('')}`;
+}
+
+function buildPdf(pages: PdfPage[]) {
 	const objects: Uint8Array[] = [];
 	const add = (value: string | Uint8Array) => {
 		objects.push(typeof value === 'string' ? new TextEncoder().encode(value) : value);
@@ -230,8 +285,15 @@ function buildPdf(pages: string[][]) {
 		add(`<< /Type /Font /Subtype /Type1 /BaseFont /${face} /Encoding /WinAnsiEncoding >>`)
 	);
 	const pageRefs: number[] = [];
-	pages.forEach((commands) => {
-		const content = new TextEncoder().encode(commands.join('\n'));
+	pages.forEach((page) => {
+		const imageRefs = page.images.map((image, index) => {
+			const header = new TextEncoder().encode(
+				`<< /Type /XObject /Subtype /Image /Width ${image.width * 3} /Height ${image.height * 3} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.bytes.length} >>\nstream\n`
+			);
+			const imageId = add(concat(header, image.bytes, new TextEncoder().encode('\nendstream')));
+			return [`Im${index}`, imageId] as const;
+		});
+		const content = new TextEncoder().encode(page.commands.join('\n'));
 		const contentId = add(
 			concat(
 				new TextEncoder().encode(`<< /Length ${content.length} >>\nstream\n`),
@@ -240,7 +302,8 @@ function buildPdf(pages: string[][]) {
 			)
 		);
 		const fonts = fontNames.map((name, index) => `/${name} ${fontIds[index]} 0 R`).join(' ');
-		const pageId = add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << ${fonts} >> >> /Contents ${contentId} 0 R >>`);
+		const xobjects = imageRefs.map(([name, id]) => `/${name} ${id} 0 R`).join(' ');
+		const pageId = add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << ${fonts} >> /XObject << ${xobjects} >> >> /Contents ${contentId} 0 R >>`);
 		pageRefs.push(pageId);
 	});
 	objects[catalogId - 1] = new TextEncoder().encode(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);

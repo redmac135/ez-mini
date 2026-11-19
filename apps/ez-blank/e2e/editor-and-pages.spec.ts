@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
 test('Export PDF downloads a formatted PDF directly while offline', async ({ page, context }) => {
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
 	const longToken = 'unbroken-token-'.repeat(14);
-	await editor.pressSequentially(`# Draft\n\n**bold** and *italic*\n\n${longToken}`);
+	await editor.pressSequentially(`# Draft\n\n**bold** and *italic*\n\n${longToken}\n\n你好世界 😀`);
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
 	const menu = page.getByRole('menu', { name: 'Editor settings' });
 	const countPosition = await menu
@@ -69,6 +69,8 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 		Buffer.from(hex, 'hex').toString('latin1')
 	).join('');
 	expect(pdfContent).toContain('/F2 32 Tf');
+	expect(pdfContent).toContain('/ActualText <feff4f60597d4e16754c0020d83dde00>');
+	expect(pdfContent).toContain('/Subtype /Image');
 	expect(exportedText).toContain('Draft');
 	expect(exportedText).toContain('bold');
 	expect(exportedText).toContain(longToken);
