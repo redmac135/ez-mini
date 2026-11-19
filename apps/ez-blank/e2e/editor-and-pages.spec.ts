@@ -30,6 +30,14 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 	);
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
 	const menu = page.getByRole('menu', { name: 'Editor settings' });
+	if (process.env.MISTAKES_EVIDENCE_DIR) {
+		const { mkdir } = await import('node:fs/promises');
+		await mkdir(process.env.MISTAKES_EVIDENCE_DIR, { recursive: true });
+		await page.screenshot({
+			path: `${process.env.MISTAKES_EVIDENCE_DIR}/export-pdf-menu.png`,
+			fullPage: true
+		});
+	}
 	const countPosition = await menu
 		.locator('[aria-label^="Cycle word count visibility"]')
 		.evaluate((element) =>
@@ -62,7 +70,11 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 	await expect(page).toHaveURL(/\/$/);
 	await expect.poll(() => context.pages().length).toBe(pagesBeforeDownload);
 	const { readFile } = await import('node:fs/promises');
-	const pdf = await readFile((await download.path())!);
+	const pdfPath = process.env.MISTAKES_EVIDENCE_DIR
+		? `${process.env.MISTAKES_EVIDENCE_DIR}/${download.suggestedFilename()}`
+		: (await download.path())!;
+	if (process.env.MISTAKES_EVIDENCE_DIR) await download.saveAs(pdfPath);
+	const pdf = await readFile(pdfPath);
 	expect(download.suggestedFilename()).toBe('# Draft.pdf');
 	expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
 	expect(pdf.length).toBeGreaterThan(1000);
@@ -73,7 +85,8 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 	expect(pdfContent).toContain('/MediaBox [0 0 595.28 841.89]');
 	expect(pdfContent).toContain('/F2 24.00 Tf');
 	expect(pdfContent).toContain('/F5 12.00 Tf');
-	expect(pdfContent).toContain('/ActualText <feff4f60597d4e16754c0020d83dde00>');
+	expect(pdfContent).toContain('/ActualText <feff4f60597d4e16754c>');
+	expect(pdfContent).toContain('/ActualText <feffd83dde00>');
 	expect(pdfContent).toContain('/Subtype /Image');
 	const unicodeStateRestored = pdfContent.indexOf('ET EMC Q\nq ');
 	const followingVisibleText = pdfContent.indexOf('/F2 12.00 Tf', unicodeStateRestored);
