@@ -68,9 +68,27 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 	const exportedText = Array.from(pdfContent.matchAll(/<([0-9a-f]+)> Tj/g), ([, hex]) =>
 		Buffer.from(hex, 'hex').toString('latin1')
 	).join('');
-	expect(pdfContent).toContain('/F2 32 Tf');
+	expect(pdfContent).toContain('/MediaBox [0 0 595.28 841.89]');
+	expect(pdfContent).toContain('/F2 24.00 Tf');
 	expect(pdfContent).toContain('/ActualText <feff4f60597d4e16754c0020d83dde00>');
 	expect(pdfContent).toContain('/Subtype /Image');
+	const imageStart = pdf.indexOf(Buffer.from('/Subtype /Image'));
+	const imageHeaderEnd = pdf.indexOf(Buffer.from('>>\nstream\n'), imageStart) + '>>\nstream\n'.length;
+	const imageLength = Number(
+		pdf.subarray(imageStart, imageHeaderEnd).toString('latin1').match(/\/Length (\d+)/)?.[1]
+	);
+	const imageBase64 = pdf.subarray(imageHeaderEnd, imageHeaderEnd + imageLength).toString('base64');
+	const cornerPixel = await page.evaluate(async (base64) => {
+		const image = new Image();
+		image.src = `data:image/jpeg;base64,${base64}`;
+		await image.decode();
+		const canvas = document.createElement('canvas');
+		canvas.width = canvas.height = 1;
+		const context = canvas.getContext('2d')!;
+		context.drawImage(image, 0, 0);
+		return Array.from(context.getImageData(0, 0, 1, 1).data);
+	}, imageBase64);
+	expect(cornerPixel.slice(0, 3)).toEqual([255, 255, 255]);
 	expect(exportedText).toContain('Draft');
 	expect(exportedText).toContain('bold');
 	expect(exportedText).toContain(longToken);

@@ -1,5 +1,8 @@
-const PAGE_WIDTH = 794;
-const PAGE_HEIGHT = 1123;
+const LAYOUT_WIDTH = 794;
+const LAYOUT_HEIGHT = 1123;
+const PDF_SCALE = 0.75;
+const PAGE_WIDTH = 595.28;
+const PAGE_HEIGHT = 841.89;
 export async function downloadPdf(html: string, title: string) {
 	const pages = renderPages(html);
 	if (pages.length > 100) throw new Error('This page is too long to export as a PDF.');
@@ -27,8 +30,8 @@ function renderPages(html: string) {
 	if (!context) throw new Error('PDF rendering is not supported in this browser.');
 	let y = 76;
 	const left = 72;
-	const right = PAGE_WIDTH - 72;
-	const bottom = PAGE_HEIGHT - 76;
+	const right = LAYOUT_WIDTH - 72;
+	const bottom = LAYOUT_HEIGHT - 76;
 	const newPage = () => {
 		page = { commands: [], images: [] };
 		commands = page.commands;
@@ -151,7 +154,9 @@ function renderPages(html: string) {
 			const lineHeight = 21;
 			for (const line of lines) {
 				if (y + lineHeight + padding > bottom) newPage();
-				commands.push(`0.957 0.957 0.957 rg ${left} ${PAGE_HEIGHT - y - 6} ${right - left} ${lineHeight} re f`);
+				commands.push(
+					`0.957 0.957 0.957 rg ${left * PDF_SCALE} ${(LAYOUT_HEIGHT - y - 6) * PDF_SCALE} ${(right - left) * PDF_SCALE} ${lineHeight * PDF_SCALE} re f`
+				);
 				drawText(
 					[{ text: line, style: { bold: false, italic: false, code: true, size: 13 } }],
 					right - left - padding * 2,
@@ -216,6 +221,8 @@ function drawSegment(
 	const imageContext = canvas.getContext('2d');
 	if (!imageContext) throw new Error('PDF rendering is not supported in this browser.');
 	imageContext.scale(3, 3);
+	imageContext.fillStyle = '#fff';
+	imageContext.fillRect(0, 0, width, height);
 	imageContext.font = fontFor(style);
 	imageContext.textBaseline = 'alphabetic';
 	imageContext.fillStyle = '#171717';
@@ -224,13 +231,14 @@ function drawSegment(
 	const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
 	const imageIndex = page.images.length;
 	page.images.push({ bytes, x, y: y - style.size * 1.25, width, height });
-	const pdfY = PAGE_HEIGHT - y + style.size * 1.25 - height;
+	const imageTop = y - style.size * 1.25;
+	const pdfY = PAGE_HEIGHT - (imageTop + height) * PDF_SCALE;
 	const hiddenCount = Array.from(text).length;
 	const encodedText = unicodeHex(text);
 	const hiddenGlyphs = '3f'.repeat(hiddenCount);
 	const hiddenWidth = Math.max(1, context.measureText('?'.repeat(hiddenCount)).width);
 	const horizontalScale = ((width / hiddenWidth) * 100).toFixed(2);
-	return `/Span << /ActualText <${encodedText}> >> BDC BT /F1 ${style.size} Tf 3 Tr ${horizontalScale} Tz 1 0 0 1 ${x.toFixed(2)} ${(PAGE_HEIGHT - y).toFixed(2)} Tm <${hiddenGlyphs}> Tj ET EMC\nq ${width} 0 0 ${height} ${x.toFixed(2)} ${pdfY.toFixed(2)} cm /Im${imageIndex} Do Q`;
+	return `/Span << /ActualText <${encodedText}> >> BDC BT /F1 ${(style.size * PDF_SCALE).toFixed(2)} Tf 3 Tr ${horizontalScale} Tz 1 0 0 1 ${(x * PDF_SCALE).toFixed(2)} ${((LAYOUT_HEIGHT - y) * PDF_SCALE).toFixed(2)} Tm <${hiddenGlyphs}> Tj ET EMC\nq ${(width * PDF_SCALE).toFixed(2)} 0 0 ${(height * PDF_SCALE).toFixed(2)} ${(x * PDF_SCALE).toFixed(2)} ${pdfY.toFixed(2)} cm /Im${imageIndex} Do Q`;
 }
 
 function textCommand(
@@ -254,7 +262,7 @@ function textCommand(
 			.toString(16)
 			.padStart(2, '0');
 	}).join('');
-	return `BT /${font} ${style.size} Tf 0.09 0.09 0.09 rg 1 0 0 1 ${x.toFixed(2)} ${(PAGE_HEIGHT - y).toFixed(2)} Tm <${encoded}> Tj ET`;
+	return `BT /${font} ${(style.size * PDF_SCALE).toFixed(2)} Tf 0.09 0.09 0.09 rg 1 0 0 1 ${(x * PDF_SCALE).toFixed(2)} ${((LAYOUT_HEIGHT - y) * PDF_SCALE).toFixed(2)} Tm <${encoded}> Tj ET`;
 }
 
 function isWinAnsi(code: number) {
