@@ -93,9 +93,13 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 	expect(unicodeStateRestored).toBeGreaterThan(-1);
 	expect(followingVisibleText).toBeGreaterThan(unicodeStateRestored);
 	const imageStart = pdf.indexOf(Buffer.from('/Subtype /Image'));
-	const imageHeaderEnd = pdf.indexOf(Buffer.from('>>\nstream\n'), imageStart) + '>>\nstream\n'.length;
+	const imageHeaderEnd =
+		pdf.indexOf(Buffer.from('>>\nstream\n'), imageStart) + '>>\nstream\n'.length;
 	const imageLength = Number(
-		pdf.subarray(imageStart, imageHeaderEnd).toString('latin1').match(/\/Length (\d+)/)?.[1]
+		pdf
+			.subarray(imageStart, imageHeaderEnd)
+			.toString('latin1')
+			.match(/\/Length (\d+)/)?.[1]
 	);
 	const imageBase64 = pdf.subarray(imageHeaderEnd, imageHeaderEnd + imageLength).toString('base64');
 	const cornerPixel = await page.evaluate(async (base64) => {
