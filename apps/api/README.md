@@ -51,14 +51,16 @@ OAuth sign-in and identity management use the same API-owned device and active-s
 - `DELETE /v1/auth/identities/:identityId`
 - `GET /v1/auth/profile`
 - `PUT /v1/auth/profile`
-- `GET /v1/pages`
-- `POST /v1/pages`
+- `GET /v1/pages/sync`
+- `POST /v1/pages/sync`
 - `GET /v1/journey/entries`
 - `POST /v1/journey/entries`
 - `GET /v1/settings`
 - `PATCH /v1/settings`
 
-The pages API only exposes collection list/upsert routes because `ez-blank` is the sole client and already represents deletes as soft-deleted upserted page rows.
+Blank page sync uses a server-owned change cursor and per-page revision. `GET /v1/pages/sync?since=<cursor>` returns `{ pages, cursor }`; omit `since` for the initial snapshot. The cursor is an opaque decimal string, independent of client edit times. `POST /v1/pages/sync` takes the page fields and `expected_revision` (null for a new page) and returns `{ conflict, page }`. A conflict returns the current page when available; the client keeps a separate local conflict copy. Deletes use the same compare-and-swap protocol and remain as server tombstones. Legacy `/v1/pages` reads and writes return an upgrade-required error because even a legacy pull can discard a local draft.
+
+For rollout, first verify the externally managed `blank.pages` schema, grants, triggers and existing data assumptions in a safe staging environment. Apply `supabase/migrations/20261117000000_blank_page_sync.sql` before deploying the API and app. The migration revokes direct table and column privileges from `PUBLIC`, `anon` and `authenticated`, so an old API cannot use the unsafe protocol during deployment; old clients cannot sync until refreshed. The revision-aware client also fails closed against an older API. Do not restore direct table grants or the legacy API while clients use the new protocol. Test `supabase/tests/blank_page_sync.sql` only on a disposable database; the [migration rehearsal](../../supabase/tests/README.md) describes the production-style fixture. The SQL migration assumes the existing blank table already exists; this repository does not define its production schema.
 
 Journey stores entries in the `journey.entries` table. Apply `supabase/migrations/20261014000000_journey_entries.sql` to the Supabase project, then add `journey` to the project's **Exposed schemas** setting (alongside `blank` and `repeat`) so PostgREST can serve the Worker requests. The table is protected by row level security and each request is scoped to the authenticated user's ID.
 

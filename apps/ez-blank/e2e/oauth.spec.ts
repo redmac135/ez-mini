@@ -120,7 +120,7 @@ test('OAuth sign-in covers the anonymous context while the first account context
 	});
 	await page.route('http://localhost:1350/v1/pages**', async (route) => {
 		await new Promise((resolve) => setTimeout(resolve, 2500));
-		await route.fulfill({ json: [] });
+		await route.fulfill({ json: { pages: [], cursor: '0' } });
 	});
 
 	await page.goto('/?oauth=success&oauth_reason=sign-in');
@@ -191,7 +191,7 @@ test('OAuth sign-in switches to cached local account data without waiting for sy
 	await page.route('http://localhost:1350/v1/pages**', async (route) => {
 		syncStarted = true;
 		await new Promise((resolve) => setTimeout(resolve, 2500));
-		await route.fulfill({ json: [] });
+		await route.fulfill({ json: { pages: [], cursor: '0' } });
 	});
 
 	await page.goto('/?oauth=success&oauth_reason=sign-in');
@@ -225,7 +225,7 @@ test('canceling a slow OAuth context load returns to anonymous content', async (
 	});
 	await page.route('http://localhost:1350/v1/pages**', async (route) => {
 		await new Promise((resolve) => setTimeout(resolve, 2500));
-		await route.fulfill({ json: [] }).catch(() => undefined);
+		await route.fulfill({ json: { pages: [], cursor: '0' } }).catch(() => undefined);
 	});
 
 	await page.goto('/');
@@ -450,7 +450,9 @@ test('profile can add and remove login methods', async ({ page }) => {
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
 	await page.getByRole('button', { name: 'Profile' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Profile' });
-	await expect(dialog.getByText('taylor-dev')).toBeVisible();
+	const loginMethods = dialog.getByRole('region', { name: 'Login methods' });
+	await expect(loginMethods.getByText('GitHub')).toBeVisible();
+	await expect(loginMethods.getByText('taylor-dev')).not.toBeVisible();
 
 	await dialog.getByRole('button', { name: '+ Microsoft' }).click();
 	await expect(page).toHaveURL(/mock-oauth\?provider=azure/);
@@ -464,13 +466,13 @@ test('profile can add and remove login methods', async ({ page }) => {
 	await reconnectDialog
 		.locator('li')
 		.filter({ hasText: 'GitHub' })
-		.getByRole('button', { name: 'Disconnect' })
+		.getByRole('button', { name: 'Connect' })
 		.click();
 	await page
 		.getByRole('dialog', { name: 'Disconnect GitHub?' })
 		.getByRole('button', { name: 'Disconnect' })
 		.click();
-	await expect(reconnectDialog.getByRole('button', { name: 'Disconnect' })).toBeDisabled();
+	await expect(reconnectDialog.getByRole('button', { name: 'Connect' })).toBeDisabled();
 	await expect(page.getByText('Login method removed')).toBeVisible();
 });
 

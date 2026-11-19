@@ -7,13 +7,14 @@
 	import { createAccountDataController } from '@ez/account';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { Editor, type EditorState } from '@ez/editor';
+	import { buildDocument, Editor, renderExportContent, type EditorState } from '@ez/editor';
 	import {
 		APP_UPDATED_NOTICE,
 		APP_UPDATED_NOTICE_EVENT,
 		consumeQueuedAppUpdatedNotice
 	} from '$lib/pwa-update-notice';
 	import { loadEditorAuthState, type LoadedEditorAuthState } from '$lib/auth/editor-auth-state';
+	import { downloadPdf } from '$lib/editor/pdf-download';
 	import {
 		clearCachedAuthSessionForUser as clearCachedAuthSessionForUserInStorage,
 		readCachedAuthSession as readCachedAuthSessionFromStorage,
@@ -410,6 +411,7 @@
 		const currentActivePageId = session.activePageId;
 		const page = createPage('', { userId: getScopedUserId(), isEphemeral: true });
 		persistSession({
+			...session,
 			pages: [
 				...session.pages.map((existingPage) =>
 					existingPage.id === currentActivePageId ? materializePage(existingPage) : existingPage
@@ -439,6 +441,7 @@
 			const replacementPage = createPage('', { userId: getScopedUserId(), isEphemeral: true });
 			nextPages.push(replacementPage);
 			persistSession({
+				...session,
 				pages: nextPages,
 				activePageId: replacementPage.id
 			});
@@ -449,6 +452,7 @@
 					: session.activePageId;
 
 			persistSession({
+				...session,
 				pages: nextPages,
 				activePageId: nextActivePageId
 			});
@@ -540,6 +544,7 @@
 		if (addAnonymousToAccount && pendingAnonymousImportSession) {
 			const targetUserId = getScopedUserId(authUser?.userId);
 			const nextSession: EditorSession = {
+				...session,
 				pages: [
 					...session.pages,
 					...pendingAnonymousImportSession.pages.map((page) => clonePageForUser(page, targetUserId))
@@ -614,6 +619,19 @@
 			countVisibility: nextMode === 'hidden' ? 'hidden' : 'auto'
 		});
 		countMenuOpen = false;
+	}
+
+	async function saveExportPdf() {
+		settingsMenuOpen = false;
+		countMenuOpen = false;
+		try {
+			const content = renderExportContent(buildDocument(activeText), 'formatted');
+			await downloadPdf(content || '<p></p>', activePage.title);
+		} catch (error) {
+			showStatusNotice(
+				error instanceof Error ? error.message : 'Could not create the PDF. Please try again.'
+			);
+		}
 	}
 
 	function toggleSettingsMenu() {
@@ -1010,6 +1028,7 @@
 		const targetUserId = getScopedUserId();
 		const sessionSnapshot: EditorSession = {
 			activePageId: nextSession.activePageId,
+			syncCursor: nextSession.syncCursor,
 			pages: nextSession.pages.map((page) => ({ ...page, userId: targetUserId }))
 		};
 		const changedEvents = getChangedPageEvents(previousSession, sessionSnapshot);
@@ -1355,6 +1374,7 @@
 									: 'Count shown'
 								: getCountVisibilityLabel(preferences.countVisibility)}
 						</button>
+						<button type="button" on:click={saveExportPdf}>Export PDF</button>
 						{#if authUser}
 							<button
 								type="button"

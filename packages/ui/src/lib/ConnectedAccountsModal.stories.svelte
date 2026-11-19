@@ -34,6 +34,14 @@
 <Story
 	name="Email and GitHub connected"
 	args={{ identities, displayName: 'taylor-dev', displayNameDraft: 'taylor-dev' }}
+	play={async ({ canvas }) => {
+		await expect(canvas.getByText('Email')).toBeVisible();
+		await expect(canvas.getByText('GitHub')).toBeVisible();
+		await expect(canvas.queryByText('Taylor')).not.toBeInTheDocument();
+		await expect(canvas.queryByText('taylor-dev')).not.toBeInTheDocument();
+		await expect(canvas.getAllByRole('button', { name: 'Connect' })).toHaveLength(2);
+		await expect(canvas.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
+	}}
 >
 	{#snippet template(args)}
 		<ConnectedAccountsModal {...args} onClose={() => {}} />
@@ -84,13 +92,37 @@
 	{/snippet}
 </Story>
 
-<Story name="Disconnect confirmation" args={{ identities }}>
+<Story
+	name="Disconnect confirmation"
+	args={{ identities }}
+	play={async ({ canvas, userEvent }) => {
+		await userEvent.click(canvas.getAllByRole('button', { name: 'Connect' })[0]);
+		await expect(canvas.getByRole('dialog', { name: 'Disconnect Email?' })).toBeVisible();
+		await userEvent.click(canvas.getByRole('button', { name: 'Disconnect' }));
+		await expect(canvas.getByText('Unlinked identity-email')).toBeVisible();
+	}}
+>
 	{#snippet template(args)}
-		<ConnectedAccountsModal {...args} onClose={() => {}} />
+		<ConnectedAccountsModal
+			{...args}
+			onClose={() => {}}
+			onUnlink={(identityId) => (actionMessage = `Unlinked ${identityId}`)}
+		/>
+		<p aria-live="polite">{actionMessage}</p>
 	{/snippet}
 </Story>
 
-<Story name="Loading identities" args={{ identities: [], loading: true }}>
+<Story
+	name="Loading identities"
+	args={{ identities: [], loading: true }}
+	play={async ({ canvas }) => {
+		await expect(canvas.getByRole('heading', { name: 'Login methods' })).toBeVisible();
+		await expect(canvas.getByRole('status')).toBeVisible();
+		await expect(canvas.queryByText('Loading login methods…')).not.toBeInTheDocument();
+		await expect(canvas.queryByRole('button', { name: '+ GitHub' })).not.toBeInTheDocument();
+		await expect(canvas.queryByRole('button', { name: '+ Microsoft' })).not.toBeInTheDocument();
+	}}
+>
 	{#snippet template(args)}<ConnectedAccountsModal {...args} onClose={() => {}} />{/snippet}
 </Story>
 
@@ -98,7 +130,7 @@
 	name="Only login method"
 	args={{ identities: [identities[0]] }}
 	play={async ({ canvas }) => {
-		await expect(canvas.getByRole('button', { name: 'Disconnect' })).toBeDisabled();
+		await expect(canvas.getByRole('button', { name: 'Connect' })).toBeDisabled();
 		const github = canvas.getByRole('button', { name: '+ GitHub' });
 		const microsoft = canvas.getByRole('button', { name: '+ Microsoft' });
 		await expect(github).toBeVisible();

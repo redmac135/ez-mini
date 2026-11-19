@@ -99,7 +99,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 				headers: responseHeaders
 			});
 		}
-		if (path === '/pages') {
+		if (path === '/pages' || path === '/pages/sync') {
 			return json(await handlePages(request, env, context, path), { headers: responseHeaders });
 		}
 		if (path === '/settings') {

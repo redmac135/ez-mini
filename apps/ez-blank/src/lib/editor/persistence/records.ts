@@ -20,6 +20,8 @@ export interface PageRecord {
 	updatedAt: string;
 	deletedAt: string | null;
 	lastSyncedAt: string | null;
+	serverRevision?: number | null;
+	editGeneration?: number;
 	lastKnownRemoteUpdatedAt: string | null;
 	lastKnownRemoteDeletedAt: string | null;
 	syncStatus: PageSyncStatus;

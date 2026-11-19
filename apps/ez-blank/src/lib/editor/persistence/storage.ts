@@ -142,6 +142,8 @@ export class EditorStorage {
 	}
 }
 
+const SETTING_SYNC_CURSOR = 'syncCursor';
+
 interface StorageBackend {
 	saveSession(userId: string, session: EditorSession): Promise<void>;
 	loadSession(userId: string): Promise<EditorSession | null>;
@@ -172,6 +174,10 @@ function createMemoryBackend(): StorageBackend {
 				buildCompositeKey(userId, SETTING_ACTIVE_PAGE_ID),
 				createSettingRecord(userId, SETTING_ACTIVE_PAGE_ID, session.activePageId)
 			);
+			settings.set(
+				buildCompositeKey(userId, SETTING_SYNC_CURSOR),
+				createSettingRecord(userId, SETTING_SYNC_CURSOR, session.syncCursor ?? null)
+			);
 		},
 		async loadSession(userId: string) {
 			const userPages = sortPagesByRecency(
@@ -188,6 +194,7 @@ function createMemoryBackend(): StorageBackend {
 			return normalizeSession(
 				{
 					pages: userPages,
+					syncCursor: settings.get(buildCompositeKey(userId, SETTING_SYNC_CURSOR))?.value,
 					activePageId: typeof activePageId === 'string' ? activePageId : userPages[0].id
 				},
 				userId
@@ -243,6 +250,9 @@ async function createIndexedDbBackend(): Promise<StorageBackend> {
 			}
 
 			settingsStore.put(createSettingRecord(userId, SETTING_ACTIVE_PAGE_ID, session.activePageId));
+			settingsStore.put(
+				createSettingRecord(userId, SETTING_SYNC_CURSOR, session.syncCursor ?? null)
+			);
 			await transactionToPromise(tx);
 		},
 		async loadSession(userId: string) {
@@ -251,10 +261,13 @@ async function createIndexedDbBackend(): Promise<StorageBackend> {
 			const settingsStore = tx.objectStore(SETTINGS_STORE_NAME);
 			const updatedAtIndex = pagesStore.index(UPDATED_AT_INDEX);
 
-			const [pages, activePageSetting] = await Promise.all([
+			const [pages, activePageSetting, cursorSetting] = await Promise.all([
 				readPagesByUpdatedAtDesc(updatedAtIndex, userId),
 				requestToPromise<SettingRecord | undefined>(
 					settingsStore.get([userId, SETTING_ACTIVE_PAGE_ID])
+				),
+				requestToPromise<SettingRecord | undefined>(
+					settingsStore.get([userId, SETTING_SYNC_CURSOR])
 				)
 			]);
 			await transactionToPromise(tx);
@@ -266,6 +279,7 @@ async function createIndexedDbBackend(): Promise<StorageBackend> {
 			return normalizeSession(
 				{
 					pages: pages.map((page) => toEditorPage(page)),
+					syncCursor: cursorSetting?.value,
 					activePageId:
 						typeof activePageSetting?.value === 'string' ? activePageSetting.value : pages[0]!.id
 				},
@@ -349,6 +363,8 @@ function toPageRecord(page: EditorPage, userId: string): PageRecord {
 	return {
 		id: page.id,
 		userId,
+		serverRevision: page.serverRevision ?? null,
+		editGeneration: page.editGeneration ?? 0,
 		title: page.title,
 		content: page.content,
 		selectionStart: page.selectionStart,
@@ -374,6 +390,8 @@ function toEditorPage(page: PageRecord): EditorPage {
 
 	return {
 		...nextPage,
+		serverRevision: page.serverRevision ?? null,
+		editGeneration: page.editGeneration ?? 0,
 		title: page.title,
 		content: page.content,
 		text: page.content,
