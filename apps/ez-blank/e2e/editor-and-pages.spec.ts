@@ -24,7 +24,8 @@ test.beforeEach(async ({ page }) => {
 
 test('Export PDF downloads a formatted PDF directly while offline', async ({ page, context }) => {
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
-	await editor.pressSequentially('# Draft\n\n**bold** and *italic*');
+	const longToken = 'unbroken-token-'.repeat(14);
+	await editor.pressSequentially(`# Draft\n\n**bold** and *italic*\n\n${longToken}`);
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
 	const menu = page.getByRole('menu', { name: 'Editor settings' });
 	const countPosition = await menu
@@ -49,15 +50,6 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 		);
 	expect(countPosition).toBeLessThan(exportPosition);
 	expect(exportPosition).toBeLessThan(loginPosition);
-	await page.evaluate(() => {
-		const original = CanvasRenderingContext2D.prototype.fillText;
-		const rendered: string[] = [];
-		Object.assign(window, { __pdfRenderedText: rendered });
-		CanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
-			rendered.push(String(text));
-			return original.call(this, text, ...args);
-		};
-	});
 	await context.setOffline(true);
 	const pagesBeforeDownload = context.pages().length;
 	const downloadPromise = page.waitForEvent('download');
@@ -72,12 +64,15 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 	expect(download.suggestedFilename()).toBe('# Draft.pdf');
 	expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
 	expect(pdf.length).toBeGreaterThan(1000);
-	const renderedText = await page.evaluate(() =>
-		(window as Window & { __pdfRenderedText: string[] }).__pdfRenderedText.join('')
-	);
-	expect(renderedText).toContain('Draft');
-	expect(renderedText).toContain('bold');
-	expect(renderedText).not.toContain('**');
+	const pdfContent = pdf.toString('latin1');
+	const exportedText = Array.from(pdfContent.matchAll(/<([0-9a-f]+)> Tj/g), ([, hex]) =>
+		Buffer.from(hex, 'hex').toString('latin1')
+	).join('');
+	expect(pdfContent).toContain('/F2 32 Tf');
+	expect(exportedText).toContain('Draft');
+	expect(exportedText).toContain('bold');
+	expect(exportedText).toContain(longToken);
+	expect(exportedText).not.toContain('**');
 	await context.setOffline(false);
 });
 
