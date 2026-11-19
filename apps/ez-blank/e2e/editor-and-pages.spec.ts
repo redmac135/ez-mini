@@ -22,38 +22,101 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
 });
 
-test('PDF export previews formatted and literal source modes and prints offline', async ({
-	page,
-	context
-}) => {
+test('Export PDF downloads a formatted PDF directly while offline', async ({ page, context }) => {
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
-	await editor.pressSequentially('# Draft\n\n**bold** and *italic*');
+	const longToken = 'unbroken-token-'.repeat(14);
+	await editor.pressSequentially(
+		`# Draft\n\n**bold** and *italic* and ***bold italic***\n\n${longToken}\n\n你好世界 😀 **after unicode**`
+	);
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
-	await page.getByRole('button', { name: 'Export PDF' }).click();
-	const dialog = page.getByRole('dialog', { name: 'Export PDF' });
-	await expect(dialog.getByText('bold', { exact: true })).toBeVisible();
-	await expect(dialog.locator('strong')).toHaveText('bold');
-	await expect(dialog.getByLabel('Formatted')).toBeFocused();
+	const menu = page.getByRole('menu', { name: 'Editor settings' });
+	if (process.env.MISTAKES_EVIDENCE_DIR) {
+		const { mkdir } = await import('node:fs/promises');
+		await mkdir(process.env.MISTAKES_EVIDENCE_DIR, { recursive: true });
+		await page.screenshot({
+			path: `${process.env.MISTAKES_EVIDENCE_DIR}/export-pdf-menu.png`,
+			fullPage: true
+		});
+	}
+	const countPosition = await menu
+		.locator('[aria-label^="Cycle word count visibility"]')
+		.evaluate((element) =>
+			Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
+				element as HTMLButtonElement
+			)
+		);
+	const exportButton = menu.getByRole('button', { name: 'Export PDF', exact: true });
+	const exportPosition = await exportButton.evaluate((element) =>
+		Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
+			element as HTMLButtonElement
+		)
+	);
+	const loginPosition = await menu
+		.getByRole('button', { name: 'Login' })
+		.evaluate((element) =>
+			Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
+				element as HTMLButtonElement
+			)
+		);
+	expect(countPosition).toBeLessThan(exportPosition);
+	expect(exportPosition).toBeLessThan(loginPosition);
 	await context.setOffline(true);
-	const formattedPopup = page.waitForEvent('popup');
-	await page.getByRole('button', { name: 'Print / Save as PDF' }).click();
-	const formattedPrint = await formattedPopup;
-	await expect(formattedPrint.locator('strong')).toHaveText('bold');
-	await formattedPrint.close();
-
-	await dialog.getByLabel('Formatted').focus();
-	await page.keyboard.press('ArrowRight');
-	await expect(dialog.getByLabel('Source text')).toBeChecked();
-	await expect(dialog.locator('.export-preview')).toContainText('**bold**');
-	const sourcePopup = page.waitForEvent('popup');
-	await page.getByRole('button', { name: 'Print / Save as PDF' }).click();
-	const sourcePrint = await sourcePopup;
-	await expect(sourcePrint.locator('pre.source')).toContainText('**bold**');
-	await expect(sourcePrint.locator('strong')).toHaveCount(0);
-	await sourcePrint.close();
-	await page.keyboard.press('Escape');
-	await expect(dialog).not.toBeVisible();
-	await expect(page.getByRole('button', { name: 'Open editor settings' })).toBeFocused();
+	const pagesBeforeDownload = context.pages().length;
+	const downloadPromise = page.waitForEvent('download');
+	await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
+	const download = await downloadPromise;
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+	await expect(page.getByRole('menu')).toHaveCount(0);
+	await expect(page).toHaveURL(/\/$/);
+	await expect.poll(() => context.pages().length).toBe(pagesBeforeDownload);
+	const { readFile } = await import('node:fs/promises');
+	const pdfPath = process.env.MISTAKES_EVIDENCE_DIR
+		? `${process.env.MISTAKES_EVIDENCE_DIR}/${download.suggestedFilename()}`
+		: (await download.path())!;
+	if (process.env.MISTAKES_EVIDENCE_DIR) await download.saveAs(pdfPath);
+	const pdf = await readFile(pdfPath);
+	expect(download.suggestedFilename()).toBe('# Draft.pdf');
+	expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
+	expect(pdf.length).toBeGreaterThan(1000);
+	const pdfContent = pdf.toString('latin1');
+	const exportedText = Array.from(pdfContent.matchAll(/<([0-9a-f]+)> Tj/g), ([, hex]) =>
+		Buffer.from(hex, 'hex').toString('latin1')
+	).join('');
+	expect(pdfContent).toContain('/MediaBox [0 0 595.28 841.89]');
+	expect(pdfContent).toContain('/F2 24.00 Tf');
+	expect(pdfContent).toContain('/F5 12.00 Tf');
+	expect(pdfContent).toContain('/ActualText <feff4f60597d4e16754c>');
+	expect(pdfContent).toContain('/ActualText <feffd83dde00>');
+	expect(pdfContent).toContain('/Subtype /Image');
+	const unicodeStateRestored = pdfContent.indexOf('ET EMC Q\nq ');
+	const followingVisibleText = pdfContent.indexOf('/F2 12.00 Tf', unicodeStateRestored);
+	expect(unicodeStateRestored).toBeGreaterThan(-1);
+	expect(followingVisibleText).toBeGreaterThan(unicodeStateRestored);
+	const imageStart = pdf.indexOf(Buffer.from('/Subtype /Image'));
+	const imageHeaderEnd =
+		pdf.indexOf(Buffer.from('>>\nstream\n'), imageStart) + '>>\nstream\n'.length;
+	const imageLength = Number(
+		pdf
+			.subarray(imageStart, imageHeaderEnd)
+			.toString('latin1')
+			.match(/\/Length (\d+)/)?.[1]
+	);
+	const imageBase64 = pdf.subarray(imageHeaderEnd, imageHeaderEnd + imageLength).toString('base64');
+	const cornerPixel = await page.evaluate(async (base64) => {
+		const image = new Image();
+		image.src = `data:image/jpeg;base64,${base64}`;
+		await image.decode();
+		const canvas = document.createElement('canvas');
+		canvas.width = canvas.height = 1;
+		const context = canvas.getContext('2d')!;
+		context.drawImage(image, 0, 0);
+		return Array.from(context.getImageData(0, 0, 1, 1).data);
+	}, imageBase64);
+	expect(cornerPixel.slice(0, 3)).toEqual([255, 255, 255]);
+	expect(exportedText).toContain('Draft');
+	expect(exportedText).toContain('bold');
+	expect(exportedText).toContain(longToken);
+	expect(exportedText).not.toContain('**');
 	await context.setOffline(false);
 });
 

@@ -7,19 +7,14 @@
 	import { createAccountDataController } from '@ez/account';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import {
-		buildDocument,
-		Editor,
-		renderExportContent,
-		type EditorState,
-		type ExportMode
-	} from '@ez/editor';
+	import { buildDocument, Editor, renderExportContent, type EditorState } from '@ez/editor';
 	import {
 		APP_UPDATED_NOTICE,
 		APP_UPDATED_NOTICE_EVENT,
 		consumeQueuedAppUpdatedNotice
 	} from '$lib/pwa-update-notice';
 	import { loadEditorAuthState, type LoadedEditorAuthState } from '$lib/auth/editor-auth-state';
+	import { downloadPdf } from '$lib/editor/pdf-download';
 	import {
 		clearCachedAuthSessionForUser as clearCachedAuthSessionForUserInStorage,
 		readCachedAuthSession as readCachedAuthSessionFromStorage,
@@ -120,10 +115,6 @@
 	let titleInput: HTMLInputElement | null = null;
 	let countButton: HTMLButtonElement | null = null;
 	let settingsButton: HTMLButtonElement | null = null;
-	let exportDialog: HTMLDivElement | null = null;
-	let exportDialogOpen = false;
-	let exportMode: ExportMode = 'formatted';
-	let exportError = '';
 	let drawerToggleButton: HTMLButtonElement | null = null;
 	let workspaceSection: HTMLElement | null = null;
 
@@ -214,8 +205,6 @@
 	$: activePage = getActivePage(session);
 	$: visiblePages = session.pages.filter((page) => page.deletedAt === null);
 	$: activeText = activePage.content;
-	$: exportDocument = buildDocument(activeText);
-	$: exportPreview = renderExportContent(exportDocument, exportMode);
 	$: hasDocumentContent = activeText.length > 0;
 	$: countOptions = buildCountOptions(activeText);
 	$: mobileCountVisibility = (
@@ -632,63 +621,17 @@
 		countMenuOpen = false;
 	}
 
-	function openExportDialog() {
-		exportDialogOpen = true;
+	async function saveExportPdf() {
 		settingsMenuOpen = false;
 		countMenuOpen = false;
-		exportMode = 'formatted';
-		exportError = '';
-		void tick().then(() =>
-			exportDialog?.querySelector<HTMLInputElement>('input[name="export-mode"]')?.focus()
-		);
-	}
-
-	function closeExportDialog() {
-		exportDialogOpen = false;
-		settingsButton?.focus();
-	}
-
-	function handleExportDialogKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			closeExportDialog();
-			return;
+		try {
+			const content = renderExportContent(buildDocument(activeText), 'formatted');
+			await downloadPdf(content || '<p></p>', activePage.title);
+		} catch (error) {
+			showStatusNotice(
+				error instanceof Error ? error.message : 'Could not create the PDF. Please try again.'
+			);
 		}
-		if (event.key !== 'Tab' || !exportDialog) return;
-		const controls = Array.from(exportDialog.querySelectorAll<HTMLElement>('button, input')).filter(
-			(el) => !el.hasAttribute('disabled')
-		);
-		const first = controls[0];
-		const last = controls[controls.length - 1];
-		if (event.shiftKey && document.activeElement === first) {
-			event.preventDefault();
-			last?.focus();
-		} else if (!event.shiftKey && document.activeElement === last) {
-			event.preventDefault();
-			first?.focus();
-		}
-	}
-
-	function printExport() {
-		const printWindow = window.open('', '_blank');
-		if (!printWindow) {
-			exportError =
-				'Your browser blocked the print window. Allow pop-ups for this site and try again.';
-			return;
-		}
-		const title = activePage.title.replace(
-			/[&<>"']/g,
-			(character) =>
-				({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ??
-				character
-		);
-		printWindow.document.open();
-		printWindow.document.write(
-			`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>@page{margin:20mm}body{font:12pt/1.55 system-ui,sans-serif;color:#171717;max-width:180mm;margin:0 auto}h1,h2,h3,h4,h5,h6{line-height:1.2;margin:1.4em 0 .5em}p,ul,ol,pre{margin:.7em 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f4f4;padding:.8em;border-radius:4px;font:10pt/1.5 ui-monospace,monospace}pre.source{background:none;padding:0}code{font:inherit;font-family:ui-monospace,monospace}li{margin:.2em 0}li>ul,li>ol{margin:.25em 0}@media print{body{max-width:none}}</style></head><body>${renderExportContent(buildDocument(activeText), exportMode)}</body></html>`
-		);
-		printWindow.document.close();
-		printWindow.focus();
-		printWindow.print();
 	}
 
 	function toggleSettingsMenu() {
@@ -1414,7 +1357,6 @@
 				</button>
 				{#if settingsMenuOpen}
 					<FloatingMenu label="Editor settings" verticalOffset="var(--space-2)">
-						<button type="button" on:click={openExportDialog}>Export PDF</button>
 						<button type="button" on:click={toggleThemeMode}>
 							{preferences.themeMode === 'dark' ? 'Light mode' : 'Dark mode'}
 						</button>
@@ -1432,6 +1374,7 @@
 									: 'Count shown'
 								: getCountVisibilityLabel(preferences.countVisibility)}
 						</button>
+						<button type="button" on:click={saveExportPdf}>Export PDF</button>
 						{#if authUser}
 							<button
 								type="button"
@@ -1467,62 +1410,6 @@
 			</div>
 		</Navbar>
 	</div>
-
-	{#if exportDialogOpen}
-		<div
-			class="export-scrim"
-			role="presentation"
-			on:click={(event) => event.target === event.currentTarget && closeExportDialog()}
-		>
-			<div
-				class="export-dialog"
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="export-title"
-				bind:this={exportDialog}
-				tabindex="-1"
-				on:keydown={handleExportDialogKeydown}
-			>
-				<h2 id="export-title">Export PDF</h2>
-				<p class="export-intro">
-					Preview your current page, then choose Print / Save as PDF in your browser.
-				</p>
-				<fieldset>
-					<legend>Format</legend>
-					<label
-						><input
-							type="radio"
-							name="export-mode"
-							value="formatted"
-							checked={exportMode === 'formatted'}
-							on:change={() => (exportMode = 'formatted')}
-						/> Formatted</label
-					>
-					<p>Markdown rendered with headings, lists, code, bold and italics.</p>
-					<label
-						><input
-							type="radio"
-							name="export-mode"
-							value="source"
-							checked={exportMode === 'source'}
-							on:change={() => (exportMode = 'source')}
-						/> Source text</label
-					>
-					<p>Literal Markdown source, including formatting markers.</p>
-				</fieldset>
-				<div class="export-preview-label">Preview: {activePage.title}</div>
-				<div class:source-preview={exportMode === 'source'} class="export-preview">
-					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-					{@html exportPreview || '<p></p>'}
-				</div>
-				{#if exportError}<p class="export-error" role="alert">{exportError}</p>{/if}
-				<div class="export-actions">
-					<Button onclick={closeExportDialog}>Cancel</Button>
-					<Button variant="primary" onclick={printExport}>Print / Save as PDF</Button>
-				</div>
-			</div>
-		</div>
-	{/if}
 
 	{#if drawerOpen}
 		<button
@@ -2087,98 +1974,5 @@
 
 	.workspace {
 		min-height: 100vh;
-	}
-
-	.export-scrim {
-		position: fixed;
-		inset: 0;
-		z-index: 1100;
-		display: grid;
-		place-items: center;
-		padding: var(--space-4);
-		background: var(--color-scrim);
-	}
-
-	.export-dialog {
-		width: min(42rem, 100%);
-		max-height: min(90vh, 54rem);
-		overflow: auto;
-		padding: var(--space-5);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-2);
-		background: var(--color-panel);
-		color: var(--color-fg);
-		box-shadow: 0 18px 50px var(--color-shadow);
-	}
-
-	.export-dialog h2 {
-		margin: 0;
-		font-size: var(--font-size-xl);
-	}
-	.export-intro,
-	.export-dialog fieldset p {
-		color: var(--color-muted);
-		font-size: var(--font-size-sm);
-	}
-	.export-dialog fieldset {
-		margin: var(--space-4) 0;
-		padding: var(--space-3);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-1);
-	}
-	.export-dialog legend {
-		padding: 0 var(--space-1);
-	}
-	.export-dialog label {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-weight: 600;
-	}
-	.export-dialog fieldset p {
-		margin: var(--space-1) 0 var(--space-3) 1.6rem;
-	}
-	.export-preview-label {
-		margin-bottom: var(--space-2);
-		font-size: var(--font-size-sm);
-		font-weight: 600;
-	}
-	.export-preview {
-		max-height: 15rem;
-		overflow: auto;
-		padding: var(--space-4);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-1);
-		background: #fff;
-		color: #171717;
-		font:
-			0.9rem/1.5 system-ui,
-			sans-serif;
-	}
-	.export-preview :global(h1),
-	.export-preview :global(h2),
-	.export-preview :global(h3) {
-		line-height: 1.2;
-	}
-	.export-preview :global(pre) {
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-		font-family: ui-monospace, monospace;
-	}
-	.export-preview.source-preview {
-		font-family: ui-monospace, monospace;
-		white-space: pre-wrap;
-	}
-	.export-preview.source-preview :global(pre) {
-		margin: 0;
-	}
-	.export-error {
-		color: var(--color-danger, #b42318);
-	}
-	.export-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		margin-top: var(--space-4);
 	}
 </style>
