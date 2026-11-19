@@ -25,7 +25,9 @@ test.beforeEach(async ({ page }) => {
 test('Export PDF downloads a formatted PDF directly while offline', async ({ page, context }) => {
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
 	const longToken = 'unbroken-token-'.repeat(14);
-	await editor.pressSequentially(`# Draft\n\n**bold** and *italic*\n\n${longToken}\n\n你好世界 😀`);
+	await editor.pressSequentially(
+		`# Draft\n\n**bold** and *italic* and ***bold italic***\n\n${longToken}\n\n你好世界 😀 **after unicode**`
+	);
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
 	const menu = page.getByRole('menu', { name: 'Editor settings' });
 	const countPosition = await menu
@@ -70,8 +72,13 @@ test('Export PDF downloads a formatted PDF directly while offline', async ({ pag
 	).join('');
 	expect(pdfContent).toContain('/MediaBox [0 0 595.28 841.89]');
 	expect(pdfContent).toContain('/F2 24.00 Tf');
+	expect(pdfContent).toContain('/F5 12.00 Tf');
 	expect(pdfContent).toContain('/ActualText <feff4f60597d4e16754c0020d83dde00>');
 	expect(pdfContent).toContain('/Subtype /Image');
+	const unicodeStateRestored = pdfContent.indexOf('ET EMC Q\nq ');
+	const followingVisibleText = pdfContent.indexOf('/F2 12.00 Tf', unicodeStateRestored);
+	expect(unicodeStateRestored).toBeGreaterThan(-1);
+	expect(followingVisibleText).toBeGreaterThan(unicodeStateRestored);
 	const imageStart = pdf.indexOf(Buffer.from('/Subtype /Image'));
 	const imageHeaderEnd = pdf.indexOf(Buffer.from('>>\nstream\n'), imageStart) + '>>\nstream\n'.length;
 	const imageLength = Number(

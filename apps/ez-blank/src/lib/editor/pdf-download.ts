@@ -238,7 +238,7 @@ function drawSegment(
 	const hiddenGlyphs = '3f'.repeat(hiddenCount);
 	const hiddenWidth = Math.max(1, context.measureText('?'.repeat(hiddenCount)).width);
 	const horizontalScale = ((width / hiddenWidth) * 100).toFixed(2);
-	return `/Span << /ActualText <${encodedText}> >> BDC BT /F1 ${(style.size * PDF_SCALE).toFixed(2)} Tf 3 Tr ${horizontalScale} Tz 1 0 0 1 ${(x * PDF_SCALE).toFixed(2)} ${((LAYOUT_HEIGHT - y) * PDF_SCALE).toFixed(2)} Tm <${hiddenGlyphs}> Tj ET EMC\nq ${(width * PDF_SCALE).toFixed(2)} 0 0 ${(height * PDF_SCALE).toFixed(2)} ${(x * PDF_SCALE).toFixed(2)} ${pdfY.toFixed(2)} cm /Im${imageIndex} Do Q`;
+	return `q /Span << /ActualText <${encodedText}> >> BDC BT /F1 ${(style.size * PDF_SCALE).toFixed(2)} Tf 3 Tr ${horizontalScale} Tz 1 0 0 1 ${(x * PDF_SCALE).toFixed(2)} ${((LAYOUT_HEIGHT - y) * PDF_SCALE).toFixed(2)} Tm <${hiddenGlyphs}> Tj ET EMC Q\nq ${(width * PDF_SCALE).toFixed(2)} 0 0 ${(height * PDF_SCALE).toFixed(2)} ${(x * PDF_SCALE).toFixed(2)} ${pdfY.toFixed(2)} cm /Im${imageIndex} Do Q`;
 }
 
 function textCommand(
@@ -247,7 +247,15 @@ function textCommand(
 	y: number,
 	style: { bold: boolean; italic: boolean; code: boolean; size: number }
 ) {
-	const font = style.code ? 'F4' : style.bold && style.italic ? 'F3' : style.bold ? 'F2' : style.italic ? 'F3' : 'F1';
+	const font = style.code
+		? 'F4'
+		: style.bold && style.italic
+			? 'F5'
+			: style.bold
+				? 'F2'
+				: style.italic
+					? 'F3'
+					: 'F1';
 	const winAnsiExtras: Record<number, number> = {
 		0x20ac: 0x80, 0x201a: 0x82, 0x0192: 0x83, 0x201e: 0x84, 0x2026: 0x85,
 		0x2020: 0x86, 0x2021: 0x87, 0x02c6: 0x88, 0x2030: 0x89, 0x0160: 0x8a,
@@ -287,8 +295,8 @@ function buildPdf(pages: PdfPage[]) {
 	};
 	const catalogId = add('');
 	const pagesId = add('');
-	const fontNames = ['F1', 'F2', 'F3', 'F4'];
-	const fontFaces = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Courier'];
+	const fontNames = ['F1', 'F2', 'F3', 'F4', 'F5'];
+	const fontFaces = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Courier', 'Helvetica-BoldOblique'];
 	const fontIds = fontFaces.map((face) =>
 		add(`<< /Type /Font /Subtype /Type1 /BaseFont /${face} /Encoding /WinAnsiEncoding >>`)
 	);
