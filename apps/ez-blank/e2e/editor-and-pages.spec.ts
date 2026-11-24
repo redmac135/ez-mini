@@ -22,6 +22,51 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
 });
 
+
+for (const width of [375, 1024]) {
+	test(`the page list scrolls independently with many pages at ${width}px`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 600 });
+		for (let i = 0; i < 20; i++) {
+			await openPages(page);
+			await page.getByRole('button', { name: 'New page' }).click();
+		}
+		await openPages(page);
+		const list = page.getByRole('navigation', { name: 'Page tabs' });
+		const dimensions = await list.evaluate((element) => {
+			element.scrollTop = element.scrollHeight;
+			return {
+				height: element.clientHeight,
+				scrollHeight: element.scrollHeight,
+				top: element.scrollTop
+			};
+		});
+		expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.height);
+		expect(dimensions.top).toBeGreaterThan(0);
+		await expect(page.getByRole('heading', { name: 'Pages' })).toBeVisible();
+		await list.getByRole('button', { name: 'Page menu for Untitled' }).last().click();
+		const menu = page.getByRole('menu', { name: 'Page menu for Untitled' });
+		await expect(menu.getByRole('button', { name: 'Delete' })).toBeVisible();
+		const bounds = await menu.evaluate((element) => {
+			const menuRect = element.getBoundingClientRect();
+			const listRect = element.closest('nav')!.getBoundingClientRect();
+			return { bottom: menuRect.bottom, listBottom: listRect.bottom };
+		});
+		expect(bounds.bottom).toBeLessThanOrEqual(bounds.listBottom + 1);
+	});
+}
+
+for (const width of [375, 540]) {
+	test(`count menu displays metrics at ${width}px`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 600 });
+		await page.getByRole('button', { name: /Open count menu/ }).click();
+		const menu = page.getByRole('menu', { name: 'Count display options' });
+		for (const label of ['characters', 'lines', 'paragraphs']) {
+			await expect(menu.getByRole('menuitemradio', { name: new RegExp(label) })).toBeVisible();
+		}
+		await expect(menu.getByRole('menuitemradio', { name: 'Shown' })).toHaveCount(0);
+	});
+}
+
 async function pdfContents(path: string) {
 	const { readFile } = await import('node:fs/promises');
 	const { getDocument, OPS } = await import('pdfjs-dist/legacy/build/pdf.mjs');

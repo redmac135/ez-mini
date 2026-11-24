@@ -304,7 +304,7 @@ export async function unlinkOAuthIdentity(identityId: string, env: Env, context:
 	return listOAuthIdentities(env, context);
 }
 
-function validateReturnTo(value: string | null, env: Env) {
+export function validateReturnTo(value: string | null, env: Env) {
 	if (!value) throw new ApiError(400, 'App return URL is required.');
 	let returnUrl: URL;
 	try {
@@ -370,14 +370,14 @@ function defaultReturnTo(env: Env) {
 	return firstAllowedOrigin ?? 'http://localhost:1351';
 }
 
-function randomBase64Url(length: number) {
+export function randomBase64Url(length: number) {
 	const bytes = crypto.getRandomValues(new Uint8Array(length));
 	let binary = '';
 	for (const byte of bytes) binary += String.fromCharCode(byte);
 	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function createCodeChallenge(verifier: string) {
+export async function createCodeChallenge(verifier: string) {
 	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
 	let binary = '';
 	for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
