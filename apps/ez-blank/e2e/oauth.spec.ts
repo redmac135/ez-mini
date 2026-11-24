@@ -469,6 +469,14 @@ test('profile exports current account pages as JSON', async ({ page }) => {
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
 	await page.getByRole('button', { name: 'Profile' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Profile' });
+	if (process.env.MISTAKES_EVIDENCE_DIR) {
+		const { mkdir } = await import('node:fs/promises');
+		await mkdir(process.env.MISTAKES_EVIDENCE_DIR, { recursive: true });
+		await page.screenshot({
+			path: `${process.env.MISTAKES_EVIDENCE_DIR}/profile-auth-methods-export.png`,
+			fullPage: true
+		});
+	}
 	const downloadPromise = page.waitForEvent('download');
 	await dialog.getByRole('button', { name: 'Export data' }).click();
 	const download = await downloadPromise;
