@@ -18,6 +18,7 @@
 		initialState?: EditorState;
 		placeholder?: string;
 		onChange?: (state: EditorState) => void;
+		onDocumentChange?: (document: EditorDocument) => void;
 		onFocusChange?: (focused: boolean) => void;
 		spellcheckEnabled?: boolean;
 	};
@@ -26,6 +27,7 @@
 		initialState = { text: '', selectionStart: 0, selectionEnd: 0 },
 		placeholder = 'Start typing...',
 		onChange = () => {},
+		onDocumentChange = () => {},
 		onFocusChange = () => {},
 		spellcheckEnabled = true
 	}: Props = $props();
@@ -50,6 +52,7 @@
 
 		text = nextDocument.text;
 		documentModel = nextDocument;
+		onDocumentChange(nextDocument);
 		syncEditorDom(editor, previousDocument, nextDocument);
 
 		const start = Math.max(0, Math.min(nextSelectionStart ?? 0, nextDocument.text.length));
@@ -64,6 +67,7 @@
 			const nextDocument = buildDocument(state.text);
 			text = nextDocument.text;
 			documentModel = nextDocument;
+			onDocumentChange(nextDocument);
 			syncEditorDom(editor, null, nextDocument);
 			restoreTextOffset(editor, documentModel, state.selectionStart, state.selectionEnd);
 			return;

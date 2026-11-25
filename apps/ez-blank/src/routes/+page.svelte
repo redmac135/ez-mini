@@ -7,7 +7,7 @@
 	import { createAccountDataController } from '@ez/account';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { buildDocument, Editor, renderExportContent, type EditorState } from '@ez/editor';
+	import { Editor, type EditorDocument, type EditorState } from '@ez/editor';
 	import {
 		APP_UPDATED_NOTICE,
 		APP_UPDATED_NOTICE_EVENT,
@@ -120,6 +120,14 @@
 
 	let countMenuOpen = false;
 	let settingsMenuOpen = false;
+	let exportOpen = false;
+	let exportFormatted = true;
+	let exportBusy = false;
+	let exportError = '';
+	let exportDialog: HTMLDivElement | null = null;
+	let exportSwitch: HTMLButtonElement | null = null;
+	let editorDocument: EditorDocument | null = null;
+	let editorDocumentPageId = '';
 	let hideChromeTimeout: ReturnType<typeof setTimeout> | null = null;
 	let preferences: EditorPreferences = DEFAULT_PREFERENCES;
 
@@ -621,16 +629,43 @@
 		countMenuOpen = false;
 	}
 
-	async function saveExportPdf() {
+	async function openExport() {
 		settingsMenuOpen = false;
 		countMenuOpen = false;
+		exportFormatted = true;
+		exportError = '';
+		exportOpen = true;
+		revealChrome(true);
+		await tick();
+		exportSwitch?.focus();
+	}
+
+	function closeExport() {
+		if (exportBusy) return;
+		exportOpen = false;
+		settingsButton?.focus();
+		scheduleChromeHide();
+	}
+
+	async function saveExportPdf() {
+		if (
+			!editorDocument ||
+			editorDocumentPageId !== activePage.id ||
+			editorDocument.text !== activeText
+		) {
+			exportError = 'The page is still updating. Please try again.';
+			return;
+		}
+		exportBusy = true;
+		exportError = '';
 		try {
-			const content = renderExportContent(buildDocument(activeText), 'formatted');
-			await downloadPdf(content || '<p></p>', activePage.title);
+			await downloadPdf(editorDocument, activePage.title, exportFormatted);
+			exportBusy = false;
+			closeExport();
 		} catch (error) {
-			showStatusNotice(
-				error instanceof Error ? error.message : 'Could not create the PDF. Please try again.'
-			);
+			exportError =
+				error instanceof Error ? error.message : 'Could not create the PDF. Please try again.';
+			exportBusy = false;
 		}
 	}
 
@@ -765,6 +800,27 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
+		if (exportOpen) {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				closeExport();
+			} else if (event.key === 'Tab' && exportDialog) {
+				const focusable = Array.from(
+					exportDialog.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+				);
+				const current = focusable.indexOf(document.activeElement as HTMLButtonElement);
+				if (
+					focusable.length &&
+					(current === -1 ||
+						(event.shiftKey && current === 0) ||
+						(!event.shiftKey && current === focusable.length - 1))
+				) {
+					event.preventDefault();
+					focusable[event.shiftKey ? focusable.length - 1 : 0].focus();
+				}
+			}
+			return;
+		}
 		if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
 			event.preventDefault();
 			void openSearch();
@@ -1374,7 +1430,7 @@
 									: 'Count shown'
 								: getCountVisibilityLabel(preferences.countVisibility)}
 						</button>
-						<button type="button" on:click={saveExportPdf}>Export PDF</button>
+						<button type="button" on:click={openExport}>Export</button>
 						{#if authUser}
 							<button
 								type="button"
@@ -1421,6 +1477,33 @@
 				menuPageId = null;
 			}}
 		></button>
+	{/if}
+
+	{#if exportOpen}
+		<div bind:this={exportDialog}>
+			<Modal title="Export" onClose={closeExport}>
+				<div class="export-row">
+					<span id="export-formatted-label">Formatted</span>
+					<button
+						bind:this={exportSwitch}
+						type="button"
+						class="export-switch"
+						class:checked={exportFormatted}
+						role="switch"
+						aria-checked={exportFormatted}
+						aria-labelledby="export-formatted-label"
+						disabled={exportBusy}
+						on:click={() => (exportFormatted = !exportFormatted)}><span></span></button
+					>
+				</div>
+				{#if exportError}<p class="export-error" role="alert">{exportError}</p>{/if}
+				<svelte:fragment slot="actions">
+					<Button variant="primary" disabled={exportBusy} onclick={saveExportPdf}
+						>Save as PDF</Button
+					>
+				</svelte:fragment>
+			</Modal>
+		</div>
 	{/if}
 
 	{#if deletePage}
@@ -1557,6 +1640,10 @@
 						spellcheckEnabled={preferences.spellcheckEnabled}
 						onFocusChange={handleEditorFocusChange}
 						onChange={handleEditorChange}
+						onDocumentChange={(document) => {
+							editorDocument = document;
+							editorDocumentPageId = activePage.id;
+						}}
 					/>
 				{/key}
 			{/if}
@@ -1604,6 +1691,52 @@
 </AppShell>
 
 <style>
+	.export-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		color: var(--color-text);
+	}
+	.export-switch {
+		width: 42px;
+		height: 24px;
+		padding: 2px;
+		border: 0;
+		border-radius: 999px;
+		background: #999;
+		cursor: pointer;
+		transition: background-color 180ms ease;
+	}
+	.export-switch.checked {
+		background: #34c759;
+	}
+	.export-switch span {
+		display: block;
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: white;
+		box-shadow: 0 1px 3px #0004;
+		transition: transform 180ms ease;
+	}
+	.export-switch.checked span {
+		transform: translateX(18px);
+	}
+	.export-switch:focus-visible {
+		outline: 2px solid var(--color-text);
+		outline-offset: 3px;
+	}
+	.export-error {
+		color: var(--color-danger, #b00020);
+		margin-top: 0.75rem;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.export-switch,
+		.export-switch span {
+			transition: none;
+		}
+	}
 	.top-chrome {
 		position: fixed;
 		top: 0;
