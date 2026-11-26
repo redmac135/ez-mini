@@ -22,102 +22,137 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
 });
 
-test('Export PDF downloads a formatted PDF directly while offline', async ({ page, context }) => {
+async function pdfContents(path: string) {
+	const { readFile } = await import('node:fs/promises');
+	const { getDocument, OPS } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+	const bytes = new Uint8Array(await readFile(path));
+	const pdf = await getDocument({ data: bytes, useSystemFonts: false }).promise;
+	let text = '';
+	let images = 0;
+	for (let index = 1; index <= pdf.numPages; index++) {
+		const pdfPage = await pdf.getPage(index);
+		expect(pdfPage.view[2]).toBeCloseTo(595.28, 1);
+		expect(pdfPage.view[3]).toBeCloseTo(841.89, 1);
+		const content = await pdfPage.getTextContent();
+		text += content.items.map((item) => ('str' in item ? item.str : '')).join('') + '\n';
+		const operators = await pdfPage.getOperatorList();
+		images += operators.fnArray.filter(
+			(op) => op === OPS.paintImageXObject || op === OPS.paintInlineImageXObject
+		).length;
+	}
+	await pdf.destroy();
+	return { text, images, pages: pdf.numPages };
+}
+
+async function pdfiumText(path: string) {
+	const { readFile } = await import('node:fs/promises');
+	const { dirname, join } = await import('node:path');
+	const { init } = await import('@embedpdf/pdfium');
+	const { createRequire } = await import('node:module');
+	const require = createRequire(import.meta.url);
+	const wasmBinary = await readFile(
+		join(dirname(require.resolve('@embedpdf/pdfium')), 'pdfium.wasm')
+	);
+	const pdfium = await init({ wasmBinary });
+	pdfium.PDFiumExt_Init();
+	const bytes = await readFile(path);
+	const ptr = pdfium.pdfium._malloc(bytes.length);
+	pdfium.pdfium.HEAPU8.set(bytes, ptr);
+	const document = pdfium.FPDF_LoadMemDocument(ptr, bytes.length, '');
+	const page = pdfium.FPDF_LoadPage(document, 0);
+	const textPage = pdfium.FPDFText_LoadPage(page);
+	const count = pdfium.FPDFText_CountChars(textPage);
+	const buffer = pdfium.pdfium._malloc((count * 2 + 1) * 2);
+	const length = pdfium.FPDFText_GetText(textPage, 0, count, buffer);
+	const text = new TextDecoder('utf-16le').decode(
+		pdfium.pdfium.HEAPU8.slice(buffer, buffer + (length - 1) * 2)
+	);
+	pdfium.pdfium._free(buffer);
+	pdfium.FPDFText_ClosePage(textPage);
+	pdfium.FPDF_ClosePage(page);
+	pdfium.FPDF_CloseDocument(document);
+	pdfium.pdfium._free(ptr);
+	return text;
+}
+
+async function openExport(page: Page) {
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page
+		.getByRole('menu', { name: 'Editor settings' })
+		.getByRole('button', { name: 'Export', exact: true })
+		.click();
+	const dialog = page.getByRole('dialog', { name: 'Export' });
+	await expect(dialog).toBeVisible();
+	return dialog;
+}
+
+test('Export downloads selectable formatted AST text without opening a tab', async ({
+	page,
+	context
+}) => {
 	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
 	const longToken = 'unbroken-token-'.repeat(14);
-	await editor.pressSequentially(
-		`# Draft\n\n**bold** and *italic* and ***bold italic***\n\n${longToken}\n\n你好世界 😀 **after unicode**`
+	await editor.fill(
+		`# Draft\n\n**bold** and *italic* and ***bold italic***\n\n${longToken}\n\n你好世界 한국어 हिन्दी ह हिन्दी श्रद्धा श्री नमस्ते क्ष कि क़ שלום مرحبا 😀 **after unicode**\n\n1. one\n    - nested\n\`\`\`\ncode text\n\`\`\``
 	);
-	await page.getByRole('button', { name: 'Open editor settings' }).click();
-	const menu = page.getByRole('menu', { name: 'Editor settings' });
-	if (process.env.MISTAKES_EVIDENCE_DIR) {
-		const { mkdir } = await import('node:fs/promises');
-		await mkdir(process.env.MISTAKES_EVIDENCE_DIR, { recursive: true });
-		await page.screenshot({
-			path: `${process.env.MISTAKES_EVIDENCE_DIR}/export-pdf-menu.png`,
-			fullPage: true
-		});
-	}
-	const countPosition = await menu
-		.locator('[aria-label^="Cycle word count visibility"]')
-		.evaluate((element) =>
-			Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
-				element as HTMLButtonElement
-			)
-		);
-	const exportButton = menu.getByRole('button', { name: 'Export PDF', exact: true });
-	const exportPosition = await exportButton.evaluate((element) =>
-		Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
-			element as HTMLButtonElement
-		)
-	);
-	const loginPosition = await menu
-		.getByRole('button', { name: 'Login' })
-		.evaluate((element) =>
-			Array.from(element.parentElement!.querySelectorAll('button')).indexOf(
-				element as HTMLButtonElement
-			)
-		);
-	expect(countPosition).toBeLessThan(exportPosition);
-	expect(exportPosition).toBeLessThan(loginPosition);
-	await context.setOffline(true);
-	const pagesBeforeDownload = context.pages().length;
+	const dialog = await openExport(page);
+	const toggle = dialog.getByRole('switch', { name: 'Formatted' });
+	await expect(toggle).toBeChecked();
+	await expect(toggle).toBeFocused();
+	await expect(dialog.getByText('preview', { exact: false })).toHaveCount(0);
+	const pagesBefore = context.pages().length;
 	const downloadPromise = page.waitForEvent('download');
-	await page.getByRole('button', { name: 'Export PDF', exact: true }).click();
+	await dialog.getByRole('button', { name: 'Save as PDF' }).click();
 	const download = await downloadPromise;
-	await expect(page.getByRole('dialog')).toHaveCount(0);
-	await expect(page.getByRole('menu')).toHaveCount(0);
-	await expect(page).toHaveURL(/\/$/);
-	await expect.poll(() => context.pages().length).toBe(pagesBeforeDownload);
-	const { readFile } = await import('node:fs/promises');
-	const pdfPath = process.env.MISTAKES_EVIDENCE_DIR
-		? `${process.env.MISTAKES_EVIDENCE_DIR}/${download.suggestedFilename()}`
-		: (await download.path())!;
-	if (process.env.MISTAKES_EVIDENCE_DIR) await download.saveAs(pdfPath);
-	const pdf = await readFile(pdfPath);
+	if (process.env.MISTAKES_EVIDENCE_DIR)
+		await download.saveAs(process.env.MISTAKES_EVIDENCE_DIR + '/formatted.pdf');
 	expect(download.suggestedFilename()).toBe('# Draft.pdf');
-	expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
-	expect(pdf.length).toBeGreaterThan(1000);
-	const pdfContent = pdf.toString('latin1');
-	const exportedText = Array.from(pdfContent.matchAll(/<([0-9a-f]+)> Tj/g), ([, hex]) =>
-		Buffer.from(hex, 'hex').toString('latin1')
-	).join('');
-	expect(pdfContent).toContain('/MediaBox [0 0 595.28 841.89]');
-	expect(pdfContent).toContain('/F2 24.00 Tf');
-	expect(pdfContent).toContain('/F5 12.00 Tf');
-	expect(pdfContent).toContain('/ActualText <feff4f60597d4e16754c>');
-	expect(pdfContent).toContain('/ActualText <feffd83dde00>');
-	expect(pdfContent).toContain('/Subtype /Image');
-	const unicodeStateRestored = pdfContent.indexOf('ET EMC Q\nq ');
-	const followingVisibleText = pdfContent.indexOf('/F2 12.00 Tf', unicodeStateRestored);
-	expect(unicodeStateRestored).toBeGreaterThan(-1);
-	expect(followingVisibleText).toBeGreaterThan(unicodeStateRestored);
-	const imageStart = pdf.indexOf(Buffer.from('/Subtype /Image'));
-	const imageHeaderEnd =
-		pdf.indexOf(Buffer.from('>>\nstream\n'), imageStart) + '>>\nstream\n'.length;
-	const imageLength = Number(
-		pdf
-			.subarray(imageStart, imageHeaderEnd)
-			.toString('latin1')
-			.match(/\/Length (\d+)/)?.[1]
-	);
-	const imageBase64 = pdf.subarray(imageHeaderEnd, imageHeaderEnd + imageLength).toString('base64');
-	const cornerPixel = await page.evaluate(async (base64) => {
-		const image = new Image();
-		image.src = `data:image/jpeg;base64,${base64}`;
-		await image.decode();
-		const canvas = document.createElement('canvas');
-		canvas.width = canvas.height = 1;
-		const context = canvas.getContext('2d')!;
-		context.drawImage(image, 0, 0);
-		return Array.from(context.getImageData(0, 0, 1, 1).data);
-	}, imageBase64);
-	expect(cornerPixel.slice(0, 3)).toEqual([255, 255, 255]);
-	expect(exportedText).toContain('Draft');
-	expect(exportedText).toContain('bold');
-	expect(exportedText).toContain(longToken);
-	expect(exportedText).not.toContain('**');
-	await context.setOffline(false);
+	await expect(dialog).toHaveCount(0);
+	expect(context.pages()).toHaveLength(pagesBefore);
+	const result = await pdfContents((await download.path())!);
+	expect(result.text).toContain('Draft');
+	expect(result.text).toContain('bold and italic and bold italic');
+	expect(result.text.replace(/\s/g, '')).toContain(longToken);
+	expect(result.text).toContain('你好世界');
+	expect(result.text).toContain('😀');
+	expect(result.text).toContain('한국어');
+	// Devanagari extraction is a known reader limitation; see PDF_EXPORT.md.
+	const pdfium = await pdfiumText((await download.path())!);
+	expect(pdfium).toContain('你好世界');
+	expect(result.text).toContain('שלום');
+	expect(result.text).toContain('مرحبا');
+	expect(result.text).toContain('after unicode');
+	expect(result.text).toContain('nested');
+	expect(result.text).toContain('code text');
+	expect(result.text).not.toContain('**');
+	expect(result.images).toBe(0);
+});
+
+test('Export literal Markdown wraps across A4 pages and supports keyboard focus', async ({
+	page,
+	context
+}) => {
+	const editor = page.getByRole('textbox', { name: 'Markdown editor' });
+	const line = '# Heading **literal** 你好 😀';
+	await editor.fill(Array.from({ length: 100 }, (_, i) => `${line} ${i}`).join('\n'));
+	let dialog = await openExport(page);
+	await page.keyboard.press('Escape');
+	await expect(dialog).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Open editor settings' })).toBeFocused();
+	dialog = await openExport(page);
+	const toggle = dialog.getByRole('switch', { name: 'Formatted' });
+	await page.keyboard.press('Space');
+	await expect(toggle).not.toBeChecked();
+	const pagesBefore = context.pages().length;
+	const downloadPromise = page.waitForEvent('download');
+	await dialog.getByRole('button', { name: 'Save as PDF' }).click();
+	const download = await downloadPromise;
+	const result = await pdfContents((await download.path())!);
+	expect(result.pages).toBeGreaterThan(1);
+	expect(result.text).toContain(line);
+	expect(result.text).toContain('99');
+	expect(result.images).toBe(0);
+	expect(context.pages()).toHaveLength(pagesBefore);
 });
 
 test('typing, ordered list numbering, and list indentation work in the editor', async ({

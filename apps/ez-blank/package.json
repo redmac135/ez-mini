@@ -19,7 +19,8 @@
 		"@ez/design": "workspace:*",
 		"@ez/editor": "workspace:*",
 		"@ez/sync": "workspace:*",
-		"@ez/ui": "workspace:*"
+		"@ez/ui": "workspace:*",
+		"pdfmake": "0.3.14"
 	},
 	"devDependencies": {
 		"wrangler": "catalog:"

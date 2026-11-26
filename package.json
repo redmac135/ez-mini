@@ -27,6 +27,7 @@
 		}
 	},
 	"devDependencies": {
+		"@embedpdf/pdfium": "2.15.1",
 		"@eslint/compat": "catalog:",
 		"@eslint/js": "catalog:",
 		"@storybook/addon-svelte-csf": "catalog:",
@@ -42,6 +43,7 @@
 		"eslint-config-prettier": "catalog:",
 		"eslint-plugin-svelte": "catalog:",
 		"globals": "catalog:",
+		"pdfjs-dist": "5.4.624",
 		"playwright": "catalog:",
 		"prettier": "catalog:",
 		"prettier-plugin-svelte": "catalog:",
