@@ -61,6 +61,7 @@
 		closeConnectedAccounts(): void;
 		openConnectedAccounts(): Promise<void>;
 		connectOAuthProvider(provider: OAuthProvider): void;
+		changeEmail?(email: string): Promise<void>;
 		unlinkOAuthIdentity(identityId: string): Promise<void>;
 		saveDisplayName(): Promise<void>;
 		setDisplayNameDraft(value: string): void;
@@ -73,11 +74,15 @@
 	let {
 		controller,
 		syncBusy = false,
-		onLogoutAccount
+		onLogoutAccount,
+		onExportData,
+		exportDataDisabled = false
 	}: {
 		controller: AccountDialogController;
 		syncBusy?: boolean;
 		onLogoutAccount?: (sessionId: string, userId: string) => void;
+		onExportData?: () => void;
+		exportDataDisabled?: boolean;
 	} = $props();
 
 	let state = $state<AccountDialogState | null>(null);
@@ -164,6 +169,9 @@
 {#if state?.connectedAccountsOpen}
 	<ConnectedAccountsModal
 		identities={state.identities}
+		primaryEmail={state.sessions.find((session) => session.active)?.email ?? null}
+		{onExportData}
+		{exportDataDisabled}
 		loading={state.identitiesLoading}
 		loadError={state.connectedAccountsError}
 		busyProvider={state.oauthBusyProvider}
@@ -174,6 +182,7 @@
 		onClose={controller.closeConnectedAccounts}
 		onRetry={() => void controller.openConnectedAccounts()}
 		onConnect={controller.connectOAuthProvider}
+		onChangeEmail={controller.changeEmail}
 		onUnlink={(identityId) => void controller.unlinkOAuthIdentity(identityId)}
 		onDisplayNameInput={controller.setDisplayNameDraft}
 		onSaveDisplayName={controller.saveDisplayName}

@@ -41,6 +41,19 @@ test('login dialog starts a provider sign-in redirect', async ({ page }) => {
 	await expect(page).toHaveURL(/mock-oauth\?provider=github/);
 });
 
+test('new users can start email, GitHub, or Microsoft sign-in', async ({ page }) => {
+	await mockApi(page);
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Login' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Login' });
+	await expect(dialog.getByLabel('Email')).toBeVisible();
+	await expect(dialog.getByRole('button', { name: 'GitHub' })).toBeVisible();
+	await dialog.getByRole('button', { name: 'Microsoft' }).click();
+	await expect(page).toHaveURL(/mock-oauth\?provider=azure/);
+});
+
 test('cold offline startup renders the editor and login stays local until reconnect', async ({
 	page
 }) => {
@@ -310,7 +323,9 @@ test('cancelled OAuth linking keeps profile open and shows a retryable toast', a
 		Number(getComputedStyle(element).zIndex)
 	);
 	expect(toastZIndex).toBeGreaterThan(profileZIndex);
-	await expect(profile.getByRole('button', { name: '+ Microsoft' })).toBeVisible();
+	await expect(
+		profile.locator('li').filter({ hasText: 'Microsoft' }).getByRole('button', { name: 'Connect' })
+	).toBeVisible();
 	await expect(page.getByRole('dialog', { name: 'Login' })).toHaveCount(0);
 });
 
@@ -415,6 +430,187 @@ test('adding an existing account confirms it, and adding another account keeps b
 	await expect(accounts.getByText('b@example.com')).toBeVisible();
 });
 
+test('profile exports current account pages as JSON', async ({ page }) => {
+	await mockApi(
+		page,
+		async (route) => {
+			const pathname = new URL(route.request().url()).pathname;
+			if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts')) {
+				await route.fulfill({ json: { activeSession, sessions: [activeSession] } });
+			} else if (pathname.endsWith('/auth/identities')) {
+				await route.fulfill({ json: { identities } });
+			} else if (pathname.endsWith('/pages/sync')) {
+				await route.fulfill({
+					json: {
+						pages: [
+							{
+								id: 'remote',
+								user_id: 'user-a',
+								title: 'Remote note',
+								content: 'hello',
+								created_at: '2026-01-01',
+								updated_at: '2026-01-01',
+								deleted_at: null,
+								revision: 1,
+								secret: 'do-not-export'
+							}
+						],
+						cursor: '1'
+					}
+				});
+			} else {
+				await route.fulfill({ json: {} });
+			}
+		},
+		true
+	);
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Profile' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Profile' });
+	if (process.env.MISTAKES_EVIDENCE_DIR) {
+		const { mkdir } = await import('node:fs/promises');
+		await mkdir(process.env.MISTAKES_EVIDENCE_DIR, { recursive: true });
+		await page.screenshot({
+			path: `${process.env.MISTAKES_EVIDENCE_DIR}/profile-auth-methods-export.png`,
+			fullPage: true
+		});
+	}
+	const downloadPromise = page.waitForEvent('download');
+	await dialog.getByRole('button', { name: 'Export data' }).click();
+	const download = await downloadPromise;
+	expect(download.suggestedFilename()).toBe('ez-blank-pages.json');
+	const stream = await download.createReadStream();
+	let json = '';
+	for await (const chunk of stream) json += chunk.toString();
+	const data = JSON.parse(json);
+	expect(data.pages).toEqual(
+		expect.arrayContaining([expect.objectContaining({ title: 'Remote note', content: 'hello' })])
+	);
+	expect(json).not.toContain('do-not-export');
+	expect(json).not.toContain('user_id');
+});
+
+for (const width of [375, 1024]) {
+	test(`all authentication methods keep correct actions at ${width}px`, async ({ page }) => {
+		const connected = [
+			...identities,
+			{
+				id: 'microsoft-identity',
+				provider: 'azure',
+				displayName: null,
+				email: 'taylor@example.com',
+				createdAt: null
+			}
+		];
+		await page.setViewportSize({ width, height: 700 });
+		await mockApi(
+			page,
+			async (route) => {
+				const pathname = new URL(route.request().url()).pathname;
+				if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts'))
+					await route.fulfill({ json: { activeSession, sessions: [activeSession] } });
+				else if (pathname.endsWith('/auth/identities'))
+					await route.fulfill({ json: { identities: connected } });
+				else await route.fulfill({ json: {} });
+			},
+			true
+		);
+		await page.goto('/');
+		await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+		await page.getByRole('button', { name: 'Open editor settings' }).click();
+		await page.getByRole('button', { name: 'Profile' }).click();
+		const profile = page.getByRole('dialog', { name: 'Profile' });
+		await expect(
+			profile.locator('li').filter({ hasText: 'Email' }).getByRole('button', { name: 'Change' })
+		).toBeVisible();
+		for (const name of ['GitHub', 'Microsoft'])
+			await expect(
+				profile.locator('li').filter({ hasText: name }).getByRole('button', { name: 'Disconnect' })
+			).toBeVisible();
+	});
+}
+
+test('email change opens immediately, preserves errors and sends confirmation links', async ({
+	page
+}) => {
+	let calls = 0;
+	await mockApi(
+		page,
+		async (route) => {
+			const pathname = new URL(route.request().url()).pathname;
+			if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts'))
+				await route.fulfill({ json: { activeSession, sessions: [activeSession] } });
+			else if (pathname.endsWith('/auth/identities')) await route.fulfill({ json: { identities } });
+			else if (pathname.endsWith('/auth/email/change')) {
+				calls++;
+				if (calls === 1)
+					await route.fulfill({ status: 422, json: { error: 'Email address already in use' } });
+				else await route.fulfill({ json: { sent: true } });
+			} else await route.fulfill({ json: {} });
+		},
+		true
+	);
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Profile' }).click();
+	const profile = page.getByRole('dialog', { name: 'Profile' });
+	await profile
+		.locator('li')
+		.filter({ hasText: 'Email' })
+		.getByRole('button', { name: 'Change' })
+		.click();
+	const modal = page.getByRole('dialog', { name: 'Change email' });
+	await expect(modal).toBeVisible();
+	await modal.getByLabel('Email address').fill('new@example.com');
+	await modal.getByRole('button', { name: 'Send confirmation' }).click();
+	await expect(modal.getByRole('alert')).toHaveText('Email address already in use');
+	await modal.getByRole('button', { name: 'Send confirmation' }).click();
+	await expect(
+		modal.getByText('Confirm the links sent to both your current and new email addresses.')
+	).toBeVisible();
+	await expect(profile).toBeVisible();
+	await expect(page).not.toHaveURL(/auth\/oauth/);
+});
+
+test('email change remains open and explains offline state', async ({ page, context }) => {
+	let changes = 0;
+	await mockApi(
+		page,
+		async (route) => {
+			const pathname = new URL(route.request().url()).pathname;
+			if (pathname.endsWith('/auth/session') || pathname.endsWith('/auth/accounts'))
+				await route.fulfill({ json: { activeSession, sessions: [activeSession] } });
+			else if (pathname.endsWith('/auth/identities')) await route.fulfill({ json: { identities } });
+			else {
+				if (pathname.endsWith('/auth/email/change')) changes++;
+				await route.fulfill({ json: {} });
+			}
+		},
+		true
+	);
+	await page.goto('/');
+	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
+	await page.getByRole('button', { name: 'Open editor settings' }).click();
+	await page.getByRole('button', { name: 'Profile' }).click();
+	await context.setOffline(true);
+	const profile = page.getByRole('dialog', { name: 'Profile' });
+	await profile
+		.locator('li')
+		.filter({ hasText: 'Email' })
+		.getByRole('button', { name: 'Change' })
+		.click();
+	const modal = page.getByRole('dialog', { name: 'Change email' });
+	await modal.getByLabel('Email address').fill('new@example.com');
+	await modal.getByRole('button', { name: 'Send confirmation' }).click();
+	await expect(modal.getByRole('alert')).toContainText("You're offline");
+	await expect(modal).toBeVisible();
+	expect(changes).toBe(0);
+	await context.setOffline(false);
+});
+
 test('profile can add and remove login methods', async ({ page }) => {
 	let currentIdentities = [...identities];
 	await mockApi(
@@ -450,11 +646,15 @@ test('profile can add and remove login methods', async ({ page }) => {
 	await page.getByRole('button', { name: 'Open editor settings' }).click();
 	await page.getByRole('button', { name: 'Profile' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Profile' });
-	const loginMethods = dialog.getByRole('region', { name: 'Login methods' });
+	const loginMethods = dialog.getByRole('region', { name: 'Auth methods' });
 	await expect(loginMethods.getByText('GitHub')).toBeVisible();
 	await expect(loginMethods.getByText('taylor-dev')).not.toBeVisible();
 
-	await dialog.getByRole('button', { name: '+ Microsoft' }).click();
+	await dialog
+		.locator('li')
+		.filter({ hasText: 'Microsoft' })
+		.getByRole('button', { name: 'Connect' })
+		.click();
 	await expect(page).toHaveURL(/mock-oauth\?provider=azure/);
 	await expect(page.getByRole('heading', { name: 'Mock provider authorization' })).toBeVisible();
 
@@ -466,13 +666,18 @@ test('profile can add and remove login methods', async ({ page }) => {
 	await reconnectDialog
 		.locator('li')
 		.filter({ hasText: 'GitHub' })
-		.getByRole('button', { name: 'Connect' })
+		.getByRole('button', { name: 'Disconnect' })
 		.click();
 	await page
 		.getByRole('dialog', { name: 'Disconnect GitHub?' })
 		.getByRole('button', { name: 'Disconnect' })
 		.click();
-	await expect(reconnectDialog.getByRole('button', { name: 'Connect' })).toBeDisabled();
+	await expect(
+		reconnectDialog
+			.locator('li')
+			.filter({ hasText: 'GitHub' })
+			.getByRole('button', { name: 'Connect' })
+	).toBeEnabled();
 	await expect(page.getByText('Login method removed')).toBeVisible();
 });
 
@@ -561,6 +766,8 @@ async function mockApi(
 				pathname.endsWith('/auth/oauth/link') ||
 				pathname.endsWith('/auth/anonymous') ||
 				pathname.endsWith('/auth/profile') ||
+				pathname.endsWith('/auth/email/change') ||
+				pathname.endsWith('/pages/sync') ||
 				pathname.endsWith('/auth/login') ||
 				pathname.endsWith('/auth/verify')
 			) {

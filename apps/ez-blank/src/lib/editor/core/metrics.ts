@@ -1,7 +1,5 @@
 export type CountDisplayMode = 'words' | 'characters' | 'paragraphs' | 'lines';
 
-export type MobileCountVisibilityOption = 'shown' | 'hidden';
-
 export interface CountOption {
 	id: CountDisplayMode;
 	label: string;

@@ -95,10 +95,10 @@ test('profile updates Supabase user metadata and limits display name length', as
 		if (request.method === 'PUT') updateBody = await request.json();
 		else profileReads += 1;
 		return Response.json({
-			user_metadata: { display_name: 'Taylor Zhao' },
-			...(request.method === 'PUT'
-				? { id: 'user-profile', email: 'person@example.com', identities: [] }
-				: {})
+			id: 'user-profile',
+			email: 'person@example.com',
+			identities: [],
+			user_metadata: { display_name: 'Taylor Zhao' }
 		});
 	});
 	const saved = await requestProfile('PUT', { displayName: '  Taylor Zhao  ' });

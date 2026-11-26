@@ -12,6 +12,7 @@ import {
 	unlinkOAuthIdentity
 } from './auth/oauth.ts';
 import { getProfile, updateProfile } from './auth/profile.ts';
+import { beginEmailChange, completeEmailChange } from './auth/email-change.ts';
 import { getCorsHeaders, stripApiPrefix } from './http/cors.ts';
 import { ApiError } from './http/errors.ts';
 import { json } from './http/json.ts';
@@ -54,7 +55,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 			return await startOAuth(request, env, context, responseHeaders, 'link');
 		}
 		if (request.method === 'GET' && path === '/auth/oauth/callback') {
+			if (url.searchParams.has('email_flow'))
+				return await completeEmailChange(request, env, responseHeaders);
 			return await completeOAuth(request, env, context, responseHeaders);
+		}
+		if (request.method === 'POST' && path === '/auth/email/change') {
+			return json(await beginEmailChange(request, env, context), { headers: responseHeaders });
 		}
 
 		if (request.method === 'POST' && path === '/auth/login') {

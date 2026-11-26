@@ -93,6 +93,7 @@ export interface AccountController<TData> {
 	openConnectedAccounts(): Promise<void>;
 	closeConnectedAccounts(): void;
 	connectOAuthProvider(provider: OAuthProvider): void;
+	changeEmail(email: string): Promise<void>;
 	unlinkOAuthIdentity(identityId: string): Promise<void>;
 	saveDisplayName(): Promise<void>;
 	setDisplayNameDraft(value: string): void;
@@ -222,6 +223,7 @@ export function createAccountDataController<TData>(
 	async function initialize(initOptions: { initialUser?: AuthSessionSummary | null } = {}) {
 		openAuthChannel();
 		const oauthResult = consumeOAuthResult();
+		consumeEmailChangeResult();
 		if (initOptions.initialUser !== undefined) {
 			setState({
 				user: initOptions.initialUser,
@@ -525,20 +527,29 @@ export function createAccountDataController<TData>(
 			connectedAccountsError: '',
 			authMessage: ''
 		});
+		const requestedSessionId = state.user.sessionId;
 		try {
-			const [result, profile] = await Promise.all([
+			const [result, profile, accounts] = await Promise.all([
 				options.authClient.getIdentities(),
-				options.authClient.getProfile?.()
+				options.authClient.getProfile?.(),
+				options.authClient.getAccounts().catch(() => null)
 			]);
+			if (state.user?.sessionId !== requestedSessionId) return;
+			const updated =
+				accounts?.activeSession?.sessionId === requestedSessionId ? accounts.activeSession : null;
 			const displayName =
 				profile?.displayName || state.displayName || state.user?.displayName || '';
 			setState({
 				identities: result.identities,
 				identitiesLoading: false,
+				user: updated ?? state.user,
+				sessions: updated && accounts ? accounts.sessions : state.sessions,
 				displayName,
 				displayNameDraft: displayName
 			});
+			if (updated) options.onAuthChanged?.(updated);
 		} catch (error) {
+			if (state.user?.sessionId !== requestedSessionId) return;
 			setState({
 				identitiesLoading: false,
 				connectedAccountsError: getAuthErrorMessage(error, 'Unable to load login methods.'),
@@ -613,6 +624,15 @@ export function createAccountDataController<TData>(
 		);
 	}
 
+	async function changeEmail(email: string) {
+		if (!state.user) throw new Error('Sign in to change your email.');
+		if (!isOnline()) throw new Error(OFFLINE_AUTH_MESSAGE);
+		if (!options.authClient?.beginEmailChange || typeof window === 'undefined') {
+			throw new Error('Email changes are unavailable.');
+		}
+		await options.authClient.beginEmailChange(email, getOAuthReturnUrl());
+	}
+
 	async function unlinkOAuthIdentity(identityId: string) {
 		if (!options.authClient?.unlinkIdentity || state.identityBusyId) return;
 		if (!isOnline()) {
@@ -649,6 +669,23 @@ export function createAccountDataController<TData>(
 		returnUrl.searchParams.delete('oauth_reason');
 		returnUrl.searchParams.delete('oauth_intent');
 		return returnUrl.toString();
+	}
+
+	function consumeEmailChangeResult() {
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		const result = url.searchParams.get('email_change');
+		if (!result) return;
+		url.searchParams.delete('email_change');
+		if (options.replaceOAuthUrl) options.replaceOAuthUrl(url.toString());
+		else window.history.replaceState(window.history.state, '', url.toString());
+		options.onNotice?.(
+			result === 'success'
+				? 'Email changed.'
+				: result === 'pending'
+					? 'Confirmation accepted. Confirm the link sent to the other email address.'
+					: 'Unable to complete email change. Please retry.'
+		);
 	}
 
 	function consumeOAuthResult() {
@@ -1319,6 +1356,7 @@ export function createAccountDataController<TData>(
 		openConnectedAccounts,
 		closeConnectedAccounts,
 		connectOAuthProvider,
+		changeEmail,
 		unlinkOAuthIdentity,
 		saveDisplayName,
 		setDisplayNameDraft,
