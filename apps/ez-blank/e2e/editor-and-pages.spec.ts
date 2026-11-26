@@ -22,7 +22,6 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByRole('textbox', { name: 'Markdown editor' })).toBeVisible();
 });
 
-
 for (const width of [375, 1024]) {
 	test(`the page list scrolls independently with many pages at ${width}px`, async ({ page }) => {
 		await page.setViewportSize({ width, height: 600 });
