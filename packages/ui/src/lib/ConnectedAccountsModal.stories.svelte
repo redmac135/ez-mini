@@ -33,14 +33,21 @@
 
 <Story
 	name="Email and GitHub connected"
-	args={{ identities, displayName: 'taylor-dev', displayNameDraft: 'taylor-dev' }}
+	args={{
+		identities,
+		primaryEmail: 'taylor@example.com',
+		onChangeEmail: async () => {},
+		displayName: 'taylor-dev',
+		displayNameDraft: 'taylor-dev'
+	}}
 	play={async ({ canvas }) => {
 		await expect(canvas.getByText('Email')).toBeVisible();
 		await expect(canvas.getByText('GitHub')).toBeVisible();
 		await expect(canvas.queryByText('Taylor')).not.toBeInTheDocument();
 		await expect(canvas.queryByText('taylor-dev')).not.toBeInTheDocument();
-		await expect(canvas.getAllByRole('button', { name: 'Connect' })).toHaveLength(2);
-		await expect(canvas.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
+		await expect(canvas.getByRole('button', { name: 'Change' })).toBeVisible();
+		await expect(canvas.getByRole('button', { name: 'Connect' })).toBeVisible();
+		await expect(canvas.getByRole('button', { name: 'Disconnect' })).toBeVisible();
 	}}
 >
 	{#snippet template(args)}
@@ -77,7 +84,7 @@
 	name="Add Microsoft login method"
 	args={{ identities }}
 	play={async ({ canvas, userEvent }) => {
-		await userEvent.click(canvas.getByRole('button', { name: '+ Microsoft' }));
+		await userEvent.click(canvas.getAllByRole('button', { name: 'Connect' })[1]);
 		await expect(canvas.getByText('Connecting Microsoft')).toBeVisible();
 	}}
 >
@@ -96,10 +103,11 @@
 	name="Disconnect confirmation"
 	args={{ identities }}
 	play={async ({ canvas, userEvent }) => {
-		await userEvent.click(canvas.getAllByRole('button', { name: 'Connect' })[0]);
-		await expect(canvas.getByRole('dialog', { name: 'Disconnect Email?' })).toBeVisible();
 		await userEvent.click(canvas.getByRole('button', { name: 'Disconnect' }));
-		await expect(canvas.getByText('Unlinked identity-email')).toBeVisible();
+		const confirmation = canvas.getByRole('dialog', { name: 'Disconnect GitHub?' });
+		await expect(confirmation).toBeVisible();
+		await userEvent.click(confirmation.querySelector('button.danger')!);
+		await expect(canvas.getByText('Unlinked identity-github')).toBeVisible();
 	}}
 >
 	{#snippet template(args)}
@@ -116,7 +124,7 @@
 	name="Loading identities"
 	args={{ identities: [], loading: true }}
 	play={async ({ canvas }) => {
-		await expect(canvas.getByRole('heading', { name: 'Login methods' })).toBeVisible();
+		await expect(canvas.getByRole('heading', { name: 'Auth methods' })).toBeVisible();
 		await expect(canvas.getByRole('status')).toBeVisible();
 		await expect(canvas.queryByText('Loading login methods…')).not.toBeInTheDocument();
 		await expect(canvas.queryByRole('button', { name: '+ GitHub' })).not.toBeInTheDocument();
@@ -130,9 +138,8 @@
 	name="Only login method"
 	args={{ identities: [identities[0]] }}
 	play={async ({ canvas }) => {
-		await expect(canvas.getByRole('button', { name: 'Connect' })).toBeDisabled();
-		const github = canvas.getByRole('button', { name: '+ GitHub' });
-		const microsoft = canvas.getByRole('button', { name: '+ Microsoft' });
+		const [email, github, microsoft] = canvas.getAllByRole('button', { name: 'Connect' });
+		await expect(email).toBeDisabled();
 		await expect(github).toBeVisible();
 		await expect(microsoft).toBeVisible();
 		const githubBounds = github.getBoundingClientRect();

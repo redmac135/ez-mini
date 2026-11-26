@@ -62,6 +62,7 @@ export interface AuthClient {
 	getOAuthStartUrl?(provider: OAuthProvider, returnTo: string): string;
 	beginOAuthLink?(provider: OAuthProvider, returnTo: string): Promise<{ authorizationUrl: string }>;
 	getIdentities?(): Promise<{ identities: AuthIdentity[] }>;
+	beginEmailChange?(email: string, returnTo: string): Promise<{ sent: true }>;
 	getProfile?(): Promise<{ displayName: string; customDisplayName: string | null }>;
 	updateProfile?(displayName: string): Promise<{
 		displayName: string;
@@ -168,6 +169,12 @@ export function createAuthClient(options: AuthClientOptions): AuthClient {
 		},
 		getIdentities() {
 			return request('/auth/identities');
+		},
+		beginEmailChange(email, returnTo) {
+			return request('/auth/email/change', {
+				method: 'POST',
+				body: JSON.stringify({ email, returnTo })
+			});
 		},
 		getProfile() {
 			return request('/auth/profile');

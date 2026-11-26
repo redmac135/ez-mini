@@ -59,11 +59,8 @@
 		readPageBroadcastMessage
 	} from '$lib/editor/persistence/page-broadcast';
 	import { mergeEditorSelections } from '$lib/editor/persistence/session-selection';
-	import {
-		buildCountOptions,
-		type CountDisplayMode,
-		type MobileCountVisibilityOption
-	} from '$lib/editor/core/metrics';
+	import { exportPages } from '$lib/editor/core/data-export';
+	import { buildCountOptions, type CountDisplayMode } from '$lib/editor/core/metrics';
 	import {
 		cycleCountVisibility,
 		DEFAULT_PREFERENCES,
@@ -152,10 +149,6 @@
 	const SIDEBAR_SWIPE_EDGE_PX = 28;
 	const SIDEBAR_SWIPE_MIN_X = 72;
 	const SIDEBAR_SWIPE_MAX_Y = 42;
-	const MOBILE_COUNT_OPTIONS = [
-		{ id: 'shown', label: 'Shown' },
-		{ id: 'hidden', label: 'Hidden' }
-	] as const;
 	const EDIT_SYNC_DEBOUNCE_MS = 3000;
 	const ACTIVE_PAGE_PUSH_DEBOUNCE_MS = 300;
 	const syncController = createSyncController({
@@ -215,9 +208,6 @@
 	$: activeText = activePage.content;
 	$: hasDocumentContent = activeText.length > 0;
 	$: countOptions = buildCountOptions(activeText);
-	$: mobileCountVisibility = (
-		preferences.countVisibility === 'hidden' ? 'hidden' : 'shown'
-	) as MobileCountVisibilityOption;
 	$: currentCountLabel =
 		countOptions.find((option) => option.id === countDisplayMode)?.label ?? countOptions[0].label;
 	$: countVisibleInChrome = preferences.countVisibility !== 'hidden';
@@ -471,9 +461,13 @@
 		requestImmediateSync();
 	}
 
-	function toggleMenu(pageId: string) {
+	async function toggleMenu(pageId: string, button: HTMLButtonElement) {
 		if (editingPageId === pageId) return;
 		menuPageId = menuPageId === pageId ? null : pageId;
+		if (menuPageId) {
+			await tick();
+			button.parentElement?.querySelector('[role="menu"]')?.scrollIntoView({ block: 'nearest' });
+		}
 	}
 
 	async function startEditingTitle(pageId: string) {
@@ -621,12 +615,36 @@
 		scheduleChromeHide();
 	}
 
-	function selectMobileCountVisibility(nextMode: MobileCountVisibilityOption) {
-		updatePreferences({
-			...preferences,
-			countVisibility: nextMode === 'hidden' ? 'hidden' : 'auto'
-		});
-		countMenuOpen = false;
+	async function downloadAccountPages() {
+		if (!authUser || !loaded || accountState.contextTransition) return;
+		const accountId = authUser.userId;
+		const activeSessionId = authUser.sessionId;
+		try {
+			const offline = !isBrowserOnline();
+			const remote = offline ? undefined : await pagesApi.listPages({ since: null });
+			if (
+				authUser?.userId !== accountId ||
+				authUser.sessionId !== activeSessionId ||
+				accountState.contextTransition
+			) {
+				showStatusNotice('Account changed. Please retry the export.');
+				return;
+			}
+			if (remote && !Array.isArray(remote.pages)) throw new Error('Invalid page export response.');
+			const data = exportPages(session.pages, accountId, remote?.pages);
+			const url = URL.createObjectURL(
+				new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+			);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = 'ez-blank-pages.json';
+			link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+			if (offline)
+				showStatusNotice('Exported locally available pages. Reconnect to include remote changes.');
+		} catch (error) {
+			showStatusNotice(getErrorMessage(error, 'Unable to export pages. Please retry.'));
+		}
 	}
 
 	async function openExport() {
@@ -1369,29 +1387,16 @@
 					</button>
 					{#if countMenuOpen}
 						<FloatingMenu label="Count display options" verticalOffset="var(--space-2)">
-							{#if isMobileViewport}
-								{#each MOBILE_COUNT_OPTIONS as option (option.id)}
-									<button
-										type="button"
-										role="menuitemradio"
-										aria-checked={option.id === mobileCountVisibility}
-										on:click={() => selectMobileCountVisibility(option.id)}
-									>
-										{option.label}
-									</button>
-								{/each}
-							{:else}
-								{#each countOptions as option (option.id)}
-									<button
-										type="button"
-										role="menuitemradio"
-										aria-checked={option.id === countDisplayMode}
-										on:click={() => selectCountDisplay(option.id)}
-									>
-										{option.label}
-									</button>
-								{/each}
-							{/if}
+							{#each countOptions as option (option.id)}
+								<button
+									type="button"
+									role="menuitemradio"
+									aria-checked={option.id === countDisplayMode}
+									on:click={() => selectCountDisplay(option.id)}
+								>
+									{option.label}
+								</button>
+							{/each}
 						</FloatingMenu>
 					{/if}
 				</div>
@@ -1519,6 +1524,8 @@
 
 	<AccountDialogs
 		controller={account}
+		onExportData={downloadAccountPages}
+		exportDataDisabled={!loaded || !authUser || Boolean(accountState.contextTransition)}
 		{syncBusy}
 		onLogoutAccount={(sessionId, userId) => void logoutAccountSession(sessionId, userId)}
 	/>
@@ -1553,78 +1560,81 @@
 		ariaHidden={!drawerOpen}
 		inert={!drawerOpen}
 	>
-		<div class="drawer-header">
-			<h1>Pages</h1>
-			<div class="drawer-actions">
-				<button
-					type="button"
-					class="add-page"
-					aria-label="Search pages"
-					on:click={() => void openSearch()}><Icon name="magnifying-glass" /></button
-				>
-				<button type="button" class="add-page" aria-label="New page" on:click={addPage}>+</button>
+		<div class="drawer-content">
+			<div class="drawer-header">
+				<h1>Pages</h1>
+				<div class="drawer-actions">
+					<button
+						type="button"
+						class="add-page"
+						aria-label="Search pages"
+						on:click={() => void openSearch()}><Icon name="magnifying-glass" /></button
+					>
+					<button type="button" class="add-page" aria-label="New page" on:click={addPage}>+</button>
+				</div>
 			</div>
-		</div>
 
-		<nav class="page-list" aria-label="Page tabs">
-			{#each visiblePages as page (page.id)}
-				<div class:active={page.id === session.activePageId} class="page-row">
-					{#if editingPageId === page.id}
-						<div class="page-tab page-tab-editing">
-							<input
-								bind:this={titleInput}
-								bind:value={titleDraft}
-								class="title-input"
-								type="text"
-								aria-label="Edit page title"
-								on:blur={cancelTitleEdit}
-								on:keydown={(event) => {
-									if (event.key === 'Enter') {
-										event.preventDefault();
-										confirmTitleEdit();
-									}
-									if (event.key === 'Escape') {
-										event.preventDefault();
-										cancelTitleEdit();
-									}
-								}}
-							/>
+			<nav class="page-list" aria-label="Page tabs">
+				{#each visiblePages as page (page.id)}
+					<div class:active={page.id === session.activePageId} class="page-row">
+						{#if editingPageId === page.id}
+							<div class="page-tab page-tab-editing">
+								<input
+									bind:this={titleInput}
+									bind:value={titleDraft}
+									class="title-input"
+									type="text"
+									aria-label="Edit page title"
+									on:blur={cancelTitleEdit}
+									on:keydown={(event) => {
+										if (event.key === 'Enter') {
+											event.preventDefault();
+											confirmTitleEdit();
+										}
+										if (event.key === 'Escape') {
+											event.preventDefault();
+											cancelTitleEdit();
+										}
+									}}
+								/>
+								<button
+									type="button"
+									class="confirm-title"
+									aria-label="Confirm title"
+									on:mousedown|preventDefault={() => {}}
+									on:click={confirmTitleEdit}
+								>
+									✓
+								</button>
+							</div>
+						{:else}
+							<button type="button" class="page-tab" on:click={() => selectPage(page.id)}>
+								<span class="page-title">{page.title}</span>
+							</button>
+						{/if}
+						<div class="page-actions">
 							<button
 								type="button"
-								class="confirm-title"
-								aria-label="Confirm title"
-								on:mousedown|preventDefault={() => {}}
-								on:click={confirmTitleEdit}
+								class="menu-toggle"
+								aria-label={`Page menu for ${page.title}`}
+								aria-expanded={menuPageId === page.id}
+								on:click={(event) => void toggleMenu(page.id, event.currentTarget)}
 							>
-								✓
+								<Icon name="ellipsis-horizontal" />
 							</button>
+							{#if menuPageId === page.id}
+								<FloatingMenu label={`Page menu for ${page.title}`}>
+									<button type="button" on:click={() => startEditingTitle(page.id)}
+										>Edit title</button
+									>
+									<button type="button" on:click={() => openDeleteModal(page.id)}>Delete</button>
+								</FloatingMenu>
+							{/if}
 						</div>
-					{:else}
-						<button type="button" class="page-tab" on:click={() => selectPage(page.id)}>
-							<span class="page-title">{page.title}</span>
-						</button>
-					{/if}
-					<div class="page-actions">
-						<button
-							type="button"
-							class="menu-toggle"
-							aria-label={`Page menu for ${page.title}`}
-							aria-expanded={menuPageId === page.id}
-							on:click={() => toggleMenu(page.id)}
-						>
-							<Icon name="ellipsis-horizontal" />
-						</button>
-						{#if menuPageId === page.id}
-							<FloatingMenu label={`Page menu for ${page.title}`}>
-								<button type="button" on:click={() => startEditingTitle(page.id)}>Edit title</button
-								>
-								<button type="button" on:click={() => openDeleteModal(page.id)}>Delete</button>
-							</FloatingMenu>
-						{/if}
 					</div>
-				</div>
-			{/each}
-		</nav>
+				{/each}
+			</nav>
+		</div>
 	</Sidebar>
 
 	<section class="workspace" bind:this={workspaceSection} tabindex="-1">
@@ -1937,7 +1947,17 @@
 		justify-content: center;
 	}
 
+	.drawer-content {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		min-height: 0;
+	}
+
 	.page-list {
+		padding-bottom: 6rem;
+		min-height: 0;
+		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);

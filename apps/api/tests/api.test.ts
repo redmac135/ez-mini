@@ -490,7 +490,11 @@ test('session startup uses cached inactive accounts while account listing refres
 			const userId = request.headers.get('authorization')?.includes('rotated-inactive-access')
 				? 'inactive-user'
 				: 'active-user';
-			return Response.json({ user_metadata: { display_name: `Shared ${userId}` } });
+			return Response.json({
+				id: userId,
+				email: 'a@example.com',
+				user_metadata: { display_name: `Shared ${userId}` }
+			});
 		}
 		throw new Error(`Unexpected Supabase request: ${request.url}`);
 	});
