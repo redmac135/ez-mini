@@ -46,6 +46,9 @@
 		left: 50%;
 		z-index: 31;
 		width: min(24rem, calc(100vw - 2rem));
+		max-height: calc(100dvh - 2rem);
+		display: flex;
+		flex-direction: column;
 		padding: var(--space-4);
 		box-sizing: border-box;
 		background-color: var(--color-panel);
@@ -67,6 +70,8 @@
 	}
 
 	.modal-body {
+		min-height: 0;
+		overflow-y: auto;
 		margin-top: var(--space-2);
 		font-size: var(--font-size-md);
 		color: var(--color-muted);

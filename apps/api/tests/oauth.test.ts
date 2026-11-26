@@ -55,6 +55,147 @@ test.beforeEach(() => {
 	env.IDENTITY_UNLINKER = createUnlinkNamespace(env);
 });
 
+test('email change uses dual-confirmation callback and keeps the original account', async () => {
+	const deviceId = 'device-a';
+	const sessionId = 'session-a';
+	const original = {
+		sessionId,
+		deviceId,
+		userId: 'user-a',
+		email: 'old@example.com',
+		username: 'A',
+		displayName: 'A',
+		supabaseAccessToken: 'old-access',
+		supabaseRefreshToken: 'old-refresh',
+		expiresAt: Math.floor(Date.now() / 1000) + 3600,
+		createdAt: 1,
+		lastUsedAt: 2
+	};
+	await env.SESSIONS.put(sessionKey(deviceId, sessionId), JSON.stringify(original));
+	let callback = '';
+	let exchangedUser = 'user-b';
+	mockFetch(async (request) => {
+		const url = new URL(request.url);
+		if (url.pathname.endsWith('/user') && request.method === 'GET')
+			return Response.json({ id: 'user-a', email: 'old@example.com' });
+		if (url.pathname.endsWith('/user') && request.method === 'PUT') {
+			callback = url.searchParams.get('redirect_to') ?? '';
+			const body = (await request.json()) as {
+				email: string;
+				code_challenge: string;
+				code_challenge_method: string;
+			};
+			assert.equal(body.email, 'new@example.com');
+			assert.equal(body.code_challenge_method, 's256');
+			assert.ok(body.code_challenge);
+			return Response.json({ id: 'user-a' });
+		}
+		if (url.pathname.endsWith('/token'))
+			return Response.json({
+				access_token: 'new-access',
+				refresh_token: 'new-refresh',
+				expires_at: 9999999999,
+				user: { id: exchangedUser, email: 'new@example.com' }
+			});
+		throw new Error(`Unexpected request ${request.url}`);
+	});
+	const start = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/email/change', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ email: 'new@example.com', returnTo: 'https://blank.ethanzhao.ca/' })
+		}),
+		env
+	);
+	assert.equal(start.status, 200);
+	const pending = new URL(callback);
+	pending.searchParams.set('message', 'confirmation accepted');
+	const first = await handleRequest(new Request(pending), env);
+	assert.equal(new URL(first.headers.get('location')!).searchParams.get('email_change'), 'pending');
+	const final = new URL(callback);
+	final.searchParams.set('code', 'confirmation-code');
+	const mismatch = await handleRequest(new Request(final), env);
+	assert.equal(
+		new URL(mismatch.headers.get('location')!).searchParams.get('email_change'),
+		'error'
+	);
+	assert.deepEqual(await env.SESSIONS.get(sessionKey(deviceId, sessionId), 'json'), original);
+	exchangedUser = 'user-a';
+	const success = await handleRequest(new Request(final), env);
+	assert.equal(
+		new URL(success.headers.get('location')!).searchParams.get('email_change'),
+		'success'
+	);
+	const saved = (await env.SESSIONS.get(
+		sessionKey(deviceId, sessionId),
+		'json'
+	)) as typeof original;
+	assert.equal(saved.userId, 'user-a');
+	assert.equal(saved.email, 'new@example.com');
+	assert.equal(saved.supabaseRefreshToken, 'new-refresh');
+	assert.doesNotMatch(success.headers.get('set-cookie') ?? '', /active_session/);
+});
+
+test('email change requires an active session', async () => {
+	let upstreamCalled = false;
+	mockFetch(async () => {
+		upstreamCalled = true;
+		return Response.json({});
+	});
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/email/change', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ email: 'new@example.com', returnTo: 'https://blank.ethanzhao.ca/' })
+		}),
+		env
+	);
+	assert.equal(response.status, 401);
+	assert.equal(upstreamCalled, false);
+});
+
+test('email change propagates Supabase collision without changing the active session', async () => {
+	const deviceId = 'device-a';
+	const sessionId = 'session-a';
+	const original = {
+		sessionId,
+		deviceId,
+		userId: 'user-a',
+		email: 'old@example.com',
+		username: 'A',
+		displayName: 'A',
+		supabaseAccessToken: 'old-access',
+		supabaseRefreshToken: 'old-refresh',
+		expiresAt: Math.floor(Date.now() / 1000) + 3600,
+		createdAt: 1,
+		lastUsedAt: 2
+	};
+	await env.SESSIONS.put(sessionKey(deviceId, sessionId), JSON.stringify(original));
+	mockFetch(async (request) =>
+		request.method === 'GET'
+			? Response.json({ id: 'user-a', email: 'old@example.com' })
+			: Response.json({ msg: 'Email address already in use' }, { status: 422 })
+	);
+	const response = await handleRequest(
+		new Request('https://mini.api.ethanzhao.ca/v1/auth/email/change', {
+			method: 'POST',
+			headers: {
+				cookie: `ez_mini_device_id=${deviceId}; ez_mini_active_session_id=${sessionId}`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ email: 'taken@example.com', returnTo: 'https://blank.ethanzhao.ca/' })
+		}),
+		env
+	);
+	assert.equal(response.status, 422);
+	assert.deepEqual(await response.json(), { error: 'Email address already in use' });
+	assert.deepEqual(await env.SESSIONS.get(sessionKey(deviceId, sessionId), 'json'), original);
+	assert.equal((await env.SESSIONS.list({ prefix: 'email-change:' })).keys.length, 0);
+});
+
 test('OAuth rejects return URLs outside the configured app origins', async () => {
 	let providerRequestMade = false;
 	mockFetch(async () => {

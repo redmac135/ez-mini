@@ -64,6 +64,7 @@ export async function refreshStoredSession(
 	);
 	const nextSession = {
 		...session,
+		email: refreshed.user.email ?? null,
 		supabaseAccessToken: refreshed.access_token,
 		supabaseRefreshToken: refreshed.refresh_token,
 		displayName: getPersistedDisplayName(refreshed.user.user_metadata) ?? session.displayName,
@@ -139,14 +140,18 @@ export async function getAccountSessionsResponse(env: Env, context: RequestConte
 
 async function refreshDisplayName(env: Env, session: StoredSession) {
 	const user = await supabaseAuth<{
+		id: string;
+		email?: string | null;
 		user_metadata?: Record<string, unknown>;
 	}>(env, '/user', {
 		method: 'GET',
 		accessToken: session.supabaseAccessToken
 	});
-	const displayName = getPersistedDisplayName(user?.user_metadata) || session.displayName;
-	if (displayName === session.displayName) return session;
-	const updatedSession = { ...session, displayName };
+	if (user.id !== session.userId) throw new ApiError(401, 'Account changed.');
+	const displayName = getPersistedDisplayName(user.user_metadata) || session.displayName;
+	const email = user.email ?? null;
+	if (displayName === session.displayName && email === session.email) return session;
+	const updatedSession = { ...session, displayName, email };
 	await putSession(env, updatedSession);
 	return updatedSession;
 }
